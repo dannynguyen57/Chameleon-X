@@ -1,3 +1,4 @@
+
 import { useState, FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,24 +10,37 @@ import { useNavigate } from "react-router-dom";
 import { Users, UserPlus2, Share2 } from "lucide-react";
 
 export default function LandingPage() {
-  const { createRoom, joinRoom } = useGame();
+  const { createRoom, joinRoom, setPlayerName: setContextPlayerName } = useGame();
   const [playerName, setPlayerName] = useState("");
   const [roomId, setRoomId] = useState("");
   const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
-  const handleCreateRoom = (e: FormEvent) => {
+  const handleCreateRoom = async (e: FormEvent) => {
     e.preventDefault();
     if (!playerName.trim()) {
       setError("Please enter your name");
       return;
     }
     
-    createRoom(playerName);
-    navigate("/room");
+    setIsLoading(true);
+    setError("");
+    
+    try {
+      // Store player name in context
+      setContextPlayerName(playerName);
+      await createRoom(playerName);
+      navigate("/room");
+    } catch (err) {
+      console.error("Error creating room:", err);
+      setError("Failed to create room. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleJoinRoom = (e: FormEvent) => {
+  const handleJoinRoom = async (e: FormEvent) => {
     e.preventDefault();
     if (!playerName.trim()) {
       setError("Please enter your name");
@@ -38,11 +52,23 @@ export default function LandingPage() {
       return;
     }
     
-    const success = joinRoom(roomId.toUpperCase(), playerName);
-    if (success) {
-      navigate("/room");
-    } else {
-      setError("Failed to join room. Please check the room code.");
+    setIsLoading(true);
+    setError("");
+    
+    try {
+      // Store player name in context
+      setContextPlayerName(playerName);
+      const success = await joinRoom(roomId.toUpperCase(), playerName);
+      if (success) {
+        navigate("/room");
+      } else {
+        setError("Failed to join room. Please check the room code.");
+      }
+    } catch (err) {
+      console.error("Error joining room:", err);
+      setError("Failed to join room. Please try again.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -102,8 +128,12 @@ export default function LandingPage() {
                 </CardContent>
 
                 <CardFooter className="flex flex-col gap-4">
-                  <Button type="submit" className="w-full">
-                    Create Room
+                  <Button 
+                    type="submit" 
+                    className="w-full" 
+                    disabled={isLoading}
+                  >
+                    {isLoading ? "Creating Room..." : "Create Room"}
                   </Button>
                   {error && <p className="text-red-500 text-sm">{error}</p>}
                 </CardFooter>
@@ -141,8 +171,12 @@ export default function LandingPage() {
                 </CardContent>
 
                 <CardFooter className="flex flex-col gap-4">
-                  <Button type="submit" className="w-full">
-                    Join Room
+                  <Button 
+                    type="submit" 
+                    className="w-full"
+                    disabled={isLoading}
+                  >
+                    {isLoading ? "Joining Room..." : "Join Room"}
                   </Button>
                   {error && <p className="text-red-500 text-sm">{error}</p>}
                 </CardFooter>

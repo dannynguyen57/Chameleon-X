@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Player, GameRoom, GameState, GameSettings } from '@/lib/types';
@@ -42,7 +41,6 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
   const isPlayerChameleon = !!(room?.chameleonId && playerId === room.chameleonId);
 
-  // Subscribe to real-time updates
   useEffect(() => {
     if (!room) return;
 
@@ -58,7 +56,6 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         },
         async (payload) => {
           if (payload.new) {
-            // Fetch the updated room with its players
             const { data: updatedRoom } = await supabase
               .from('game_rooms')
               .select('*, players(*)')
@@ -66,9 +63,16 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
               .single();
 
             if (updatedRoom) {
+              const mappedPlayers: Player[] = updatedRoom.players.map((player: any) => ({
+                id: player.id,
+                name: player.name,
+                isHost: player.is_host,
+                vote: player.vote
+              }));
+
               setRoom({
                 ...updatedRoom,
-                players: updatedRoom.players || [],
+                players: mappedPlayers,
               });
             }
           }
@@ -81,7 +85,6 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     };
   }, [room?.id]);
 
-  // Timer effect
   useEffect(() => {
     let timerId: number | undefined;
     
@@ -253,7 +256,6 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Check if all players have voted
     const allVoted = room.players.every(p => p.vote);
     if (allVoted) {
       await supabase
@@ -289,7 +291,6 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         });
       }
 
-      // Reset player votes
       await supabase
         .from('players')
         .update({ vote: null })
@@ -342,7 +343,6 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Reset player votes
     await supabase
       .from('players')
       .update({ vote: null })

@@ -1,4 +1,3 @@
-
 import { useState, FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { useGame } from "@/contexts/GameContext";
 import { useNavigate } from "react-router-dom";
+import { Users, UserPlus2, Share2 } from "lucide-react";
 
 export default function LandingPage() {
   const { createRoom, joinRoom } = useGame();
@@ -49,16 +49,31 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/10 to-secondary/20 flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent mb-2">
+        <div className="text-center mb-8 animate-fade-in">
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent mb-2 logo-animate">
             Chameleon Undercover
           </h1>
           <p className="text-muted-foreground">
             The social deduction game where blending in is the key to victory
           </p>
+          
+          <div className="flex justify-center gap-4 mt-4 mb-6">
+            <div className="text-center animate-bounce-slow">
+              <Users className="h-12 w-12 text-primary mb-2" />
+              <p className="text-sm">Play with Friends</p>
+            </div>
+            <div className="text-center animate-bounce-slow delay-100">
+              <UserPlus2 className="h-12 w-12 text-secondary mb-2" />
+              <p className="text-sm">Easy to Join</p>
+            </div>
+            <div className="text-center animate-bounce-slow delay-200">
+              <Share2 className="h-12 w-12 text-accent mb-2" />
+              <p className="text-sm">Share & Play</p>
+            </div>
+          </div>
         </div>
 
-        <Card className="border-2 border-primary/20 shadow-lg">
+        <Card className="border-2 border-primary/20 shadow-lg animate-scale-in">
           <Tabs defaultValue="create">
             <TabsList className="grid grid-cols-2 mb-4">
               <TabsTrigger value="create">Create Game</TabsTrigger>
@@ -136,14 +151,14 @@ export default function LandingPage() {
           </Tabs>
         </Card>
 
-        <div className="mt-8 p-6 bg-card rounded-lg border-2 border-secondary/20 shadow-lg">
-          <h2 className="text-2xl font-bold mb-3">How to Play</h2>
+        <div className="mt-8 p-6 bg-card rounded-lg border-2 border-secondary/20 shadow-lg animate-fade-in">
+          <h2 className="text-2xl font-bold mb-3">How to Play Online</h2>
           <ol className="list-decimal list-inside space-y-2 text-sm">
-            <li>Everyone gets a word except the Chameleon, who doesn't know it</li>
-            <li>Players take turns describing the word without saying it</li>
-            <li>The Chameleon must blend in and fake knowing the word</li>
-            <li>Everyone votes on who they think the Chameleon is</li>
-            <li>If caught, the Chameleon can still win by guessing the secret word</li>
+            <li className="hover:text-primary transition-colors">Create a room and get a unique room code</li>
+            <li className="hover:text-primary transition-colors">Share the room code with friends</li>
+            <li className="hover:text-primary transition-colors">Anyone can join using the code from any device</li>
+            <li className="hover:text-primary transition-colors">No installation needed - just use a web browser</li>
+            <li className="hover:text-primary transition-colors">Works on phones, tablets, and computers</li>
           </ol>
         </div>
       </div>

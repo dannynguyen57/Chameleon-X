@@ -21,6 +21,13 @@ export type Database = {
           secret_word: string | null
           state: string
           timer: number | null
+          max_players: number
+          discussion_time: number
+          game_mode: string
+          team_size: number
+          chaos_mode: boolean
+          time_per_round: number
+          voting_time: number
         }
         Insert: {
           category?: string | null
@@ -33,6 +40,13 @@ export type Database = {
           secret_word?: string | null
           state?: string
           timer?: number | null
+          max_players?: number
+          discussion_time?: number
+          game_mode?: string
+          team_size?: number
+          chaos_mode?: boolean
+          time_per_round?: number
+          voting_time?: number
         }
         Update: {
           category?: string | null
@@ -45,6 +59,13 @@ export type Database = {
           secret_word?: string | null
           state?: string
           timer?: number | null
+          max_players?: number
+          discussion_time?: number
+          game_mode?: string
+          team_size?: number
+          chaos_mode?: boolean
+          time_per_round?: number
+          voting_time?: number
         }
         Relationships: []
       }

@@ -1,4 +1,3 @@
-
 import { useState, FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,11 +9,10 @@ import { useNavigate } from "react-router-dom";
 import { Users, UserPlus2, Share2 } from "lucide-react";
 
 export default function LandingPage() {
-  const { createRoom, joinRoom, setPlayerName: setContextPlayerName } = useGame();
+  const { createRoom, joinRoom } = useGame();
   const [playerName, setPlayerName] = useState("");
   const [roomId, setRoomId] = useState("");
   const [error, setError] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleCreateRoom = async (e: FormEvent) => {
@@ -24,19 +22,20 @@ export default function LandingPage() {
       return;
     }
     
-    setIsLoading(true);
-    setError("");
-    
-    try {
-      // Store player name in context
-      setContextPlayerName(playerName);
-      await createRoom(playerName);
+    const success = await createRoom(playerName, {
+      maxPlayers: 10,
+      discussionTime: 120,
+      maxRounds: 3,
+      gameMode: 'classic',
+      teamSize: 2,
+      chaosMode: false,
+      timePerRound: 60,
+      votingTime: 30
+    });
+    if (success) {
       navigate("/room");
-    } catch (err) {
-      console.error("Error creating room:", err);
+    } else {
       setError("Failed to create room. Please try again.");
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -52,12 +51,7 @@ export default function LandingPage() {
       return;
     }
     
-    setIsLoading(true);
-    setError("");
-    
     try {
-      // Store player name in context
-      setContextPlayerName(playerName);
       const success = await joinRoom(roomId.toUpperCase(), playerName);
       if (success) {
         navigate("/room");
@@ -65,10 +59,7 @@ export default function LandingPage() {
         setError("Failed to join room. Please check the room code.");
       }
     } catch (err) {
-      console.error("Error joining room:", err);
-      setError("Failed to join room. Please try again.");
-    } finally {
-      setIsLoading(false);
+      setError("An error occurred while joining the room. Please try again.");
     }
   };
 
@@ -128,12 +119,8 @@ export default function LandingPage() {
                 </CardContent>
 
                 <CardFooter className="flex flex-col gap-4">
-                  <Button 
-                    type="submit" 
-                    className="w-full" 
-                    disabled={isLoading}
-                  >
-                    {isLoading ? "Creating Room..." : "Create Room"}
+                  <Button type="submit" className="w-full">
+                    Create Room
                   </Button>
                   {error && <p className="text-red-500 text-sm">{error}</p>}
                 </CardFooter>
@@ -171,12 +158,8 @@ export default function LandingPage() {
                 </CardContent>
 
                 <CardFooter className="flex flex-col gap-4">
-                  <Button 
-                    type="submit" 
-                    className="w-full"
-                    disabled={isLoading}
-                  >
-                    {isLoading ? "Joining Room..." : "Join Room"}
+                  <Button type="submit" className="w-full">
+                    Join Room
                   </Button>
                   {error && <p className="text-red-500 text-sm">{error}</p>}
                 </CardFooter>

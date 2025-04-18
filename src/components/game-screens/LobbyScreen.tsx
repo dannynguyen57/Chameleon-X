@@ -1,32 +1,59 @@
-
+import { useState } from 'react';
 import { useGame } from "@/contexts/GameContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ShieldCheck, UserCircle2 } from "lucide-react";
+import { ShieldCheck, UserCircle2, Settings, Copy, Users } from "lucide-react";
+import GameSettings from './GameSettings';
+import { toast } from '@/components/ui/use-toast';
 
 export default function LobbyScreen() {
   const { room, startGame, playerId } = useGame();
-
-  if (!room) return null;
+  const [showSettings, setShowSettings] = useState(false);
 
   const isHost = playerId === room.hostId;
   const canStartGame = room.players.length >= 3;
+
+  const copyRoomCode = () => {
+    navigator.clipboard.writeText(room?.id || '');
+    toast({
+      title: "Room code copied!",
+      description: "Share this code with your friends to join the game.",
+    });
+  };
+
+  if (showSettings) {
+    return <GameSettings onClose={() => setShowSettings(false)} />;
+  }
 
   return (
     <div className="space-y-6">
       <Card className="border-2 border-primary/20 shadow-lg">
         <CardHeader>
-          <CardTitle className="text-2xl">Game Lobby</CardTitle>
-          <CardDescription>
-            {isHost 
-              ? "You are the host. Start the game when everyone has joined." 
-              : "Waiting for the host to start the game..."}
-          </CardDescription>
+          <div className="flex justify-between items-center">
+            <div>
+              <CardTitle className="text-2xl">Game Lobby</CardTitle>
+              <CardDescription>
+                {isHost 
+                  ? "You are the host. Start the game when everyone has joined." 
+                  : "Waiting for the host to start the game..."}
+              </CardDescription>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="icon" onClick={copyRoomCode}>
+                <Copy className="h-4 w-4" />
+              </Button>
+              {isHost && (
+                <Button variant="outline" size="icon" onClick={() => setShowSettings(true)}>
+                  <Settings className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <h3 className="font-medium mb-2">Players ({room.players.length})</h3>
+            <h3 className="font-medium mb-2">Players ({room.players.length}/{room.settings.maxPlayers || 10})</h3>
             <div className="grid gap-2">
               {room.players.map((player) => (
                 <div 

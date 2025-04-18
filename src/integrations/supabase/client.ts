@@ -2,10 +2,41 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = "https://anygoguuswcmmmghcbnk.supabase.co";
-const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFueWdvZ3V1c3djbW1tZ2hjYm5rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ5ODA1NzYsImV4cCI6MjA2MDU1NjU3Nn0.C2VSoR7EgROYimonz624HjulewnFBOCi5OvbJyY0S5U";
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl) {
+  throw new Error('Missing environment variable: VITE_SUPABASE_URL');
+}
+
+if (!supabaseAnonKey) {
+  throw new Error('Missing environment variable: VITE_SUPABASE_ANON_KEY');
+}
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
-export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true
+  },
+  realtime: {
+    params: {
+      eventsPerSecond: 10,
+      heartbeatIntervalMs: 1000,
+      reconnectDelayMs: 1000
+    }
+  }
+});
+
+// Add type definitions for RPC functions
+declare module '@supabase/supabase-js' {
+  interface SupabaseClient {
+    rpc(
+      fn: 'start_game',
+      params?: { room_id: string }
+    ): Promise<{ data: void; error: null } | { data: null; error: Error }>;
+  }
+}

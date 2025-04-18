@@ -9,7 +9,80 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      [_ in never]: never
+      game_rooms: {
+        Row: {
+          category: string | null
+          chameleon_id: string | null
+          created_at: string | null
+          host_id: string
+          id: string
+          max_rounds: number
+          round: number
+          secret_word: string | null
+          state: string
+          timer: number | null
+        }
+        Insert: {
+          category?: string | null
+          chameleon_id?: string | null
+          created_at?: string | null
+          host_id: string
+          id: string
+          max_rounds?: number
+          round?: number
+          secret_word?: string | null
+          state?: string
+          timer?: number | null
+        }
+        Update: {
+          category?: string | null
+          chameleon_id?: string | null
+          created_at?: string | null
+          host_id?: string
+          id?: string
+          max_rounds?: number
+          round?: number
+          secret_word?: string | null
+          state?: string
+          timer?: number | null
+        }
+        Relationships: []
+      }
+      players: {
+        Row: {
+          created_at: string | null
+          id: string
+          is_host: boolean
+          name: string
+          room_id: string
+          vote: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id: string
+          is_host?: boolean
+          name: string
+          room_id: string
+          vote?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          is_host?: boolean
+          name?: string
+          room_id?: string
+          vote?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "players_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "game_rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never

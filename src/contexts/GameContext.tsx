@@ -1,259 +1,85 @@
 
-import React, { createContext, useContext, useReducer, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Player, GameRoom, GameState, GameSettings } from '@/lib/types';
 import { categories } from '@/lib/word-categories';
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/components/ui/use-toast";
 
-// Default game settings
 const DEFAULT_SETTINGS: GameSettings = {
   maxPlayers: 10,
-  discussionTime: 120, // 2 minutes
+  discussionTime: 120,
   maxRounds: 3
 };
 
-// Context types
 type GameContextType = {
   playerId: string;
   room: GameRoom | null;
   settings: GameSettings;
-  createRoom: (playerName: string) => void;
-  joinRoom: (roomId: string, playerName: string) => boolean;
-  startGame: () => void;
-  selectCategory: (categoryName: string) => void;
-  submitVote: (targetPlayerId: string) => void;
-  nextRound: () => void;
-  leaveRoom: () => void;
-  resetGame: () => void;
+  createRoom: (playerName: string) => Promise<void>;
+  joinRoom: (roomId: string, playerName: string) => Promise<boolean>;
+  startGame: () => Promise<void>;
+  selectCategory: (categoryName: string) => Promise<void>;
+  submitVote: (targetPlayerId: string) => Promise<void>;
+  nextRound: () => Promise<void>;
+  leaveRoom: () => Promise<void>;
+  resetGame: () => Promise<void>;
   isPlayerChameleon: boolean;
   remainingTime: number | null;
   playerName: string;
   setPlayerName: (name: string) => void;
 };
 
-// Actions
-type GameAction = 
-  | { type: 'CREATE_ROOM'; payload: { playerName: string } }
-  | { type: 'JOIN_ROOM'; payload: { roomId: string; playerName: string } }
-  | { type: 'START_GAME' }
-  | { type: 'SELECT_CATEGORY'; payload: { categoryName: string } }
-  | { type: 'SUBMIT_VOTE'; payload: { playerId: string; targetId: string } }
-  | { type: 'TICK_TIMER' }
-  | { type: 'NEXT_ROUND' }
-  | { type: 'LEAVE_ROOM'; payload: { playerId: string } }
-  | { type: 'RESET_GAME' };
+const GameContext = createContext<GameContextType>(null!);
 
-// Default context
-const defaultGameContext: GameContextType = {
-  playerId: '',
-  room: null,
-  settings: DEFAULT_SETTINGS,
-  createRoom: () => {},
-  joinRoom: () => false,
-  startGame: () => {},
-  selectCategory: () => {},
-  submitVote: () => {},
-  nextRound: () => {},
-  leaveRoom: () => {},
-  resetGame: () => {},
-  isPlayerChameleon: false,
-  remainingTime: null,
-  playerName: '',
-  setPlayerName: () => {},
-};
-
-// Create context
-const GameContext = createContext<GameContextType>(defaultGameContext);
-
-// Reducer function
-function gameReducer(state: GameRoom | null, action: GameAction): GameRoom | null {
-  switch (action.type) {
-    case 'CREATE_ROOM': {
-      const playerId = uuidv4();
-      return {
-        id: uuidv4().substring(0, 6).toUpperCase(), // Shorter, user-friendly room ID
-        hostId: playerId,
-        players: [
-          { id: playerId, name: action.payload.playerName, isHost: true }
-        ],
-        state: 'lobby',
-        round: 0,
-        maxRounds: DEFAULT_SETTINGS.maxRounds,
-      };
-    }
-    
-    case 'JOIN_ROOM': {
-      if (!state) return null;
-      
-      // Check if player name already exists in the room
-      const nameExists = state.players.some(p => p.name === action.payload.playerName);
-      if (nameExists) return state; // Return current state if name exists
-      
-      const playerId = uuidv4();
-      return {
-        ...state,
-        players: [...state.players, { 
-          id: playerId, 
-          name: action.payload.playerName, 
-          isHost: false 
-        }]
-      };
-    }
-    
-    case 'START_GAME': {
-      if (!state || state.players.length < 3) return state;
-      
-      return {
-        ...state,
-        state: 'selecting',
-        round: state.round + 1,
-      };
-    }
-    
-    case 'SELECT_CATEGORY': {
-      if (!state) return null;
-      
-      const selectedCategory = categories.find(c => c.name === action.payload.categoryName);
-      if (!selectedCategory) return state;
-      
-      // Choose random word from the category
-      const randomWordIndex = Math.floor(Math.random() * selectedCategory.words.length);
-      const secretWord = selectedCategory.words[randomWordIndex];
-      
-      // Choose a random player to be the chameleon
-      const chameleonIndex = Math.floor(Math.random() * state.players.length);
-      const chameleonId = state.players[chameleonIndex].id;
-      
-      return {
-        ...state,
-        state: 'presenting',
-        category: selectedCategory.name,
-        secretWord,
-        chameleonId,
-        timer: DEFAULT_SETTINGS.discussionTime
-      };
-    }
-    
-    case 'SUBMIT_VOTE': {
-      if (!state) return null;
-      
-      const updatedPlayers = state.players.map(player => {
-        if (player.id === action.payload.playerId) {
-          return { ...player, vote: action.payload.targetId };
-        }
-        return player;
-      });
-      
-      // Check if all players have voted
-      const allVoted = updatedPlayers.every(player => player.vote);
-      
-      return {
-        ...state,
-        players: updatedPlayers,
-        state: allVoted ? 'results' : state.state
-      };
-    }
-    
-    case 'TICK_TIMER': {
-      if (!state || !state.timer) return state;
-      
-      const newTimer = state.timer - 1;
-      
-      // If timer reached zero, move to voting phase
-      if (newTimer <= 0 && state.state === 'presenting') {
-        return {
-          ...state,
-          state: 'voting',
-          timer: 0
-        };
-      }
-      
-      return {
-        ...state,
-        timer: newTimer
-      };
-    }
-    
-    case 'NEXT_ROUND': {
-      if (!state) return null;
-      
-      // Check if we've reached max rounds
-      if (state.round >= state.maxRounds) {
-        return {
-          ...state,
-          state: 'lobby',
-          round: 0,
-          category: undefined,
-          secretWord: undefined,
-          chameleonId: undefined,
-          players: state.players.map(player => ({ ...player, vote: undefined }))
-        };
-      }
-      
-      // Set up for next round
-      return {
-        ...state,
-        state: 'selecting',
-        round: state.round + 1,
-        category: undefined,
-        secretWord: undefined,
-        chameleonId: undefined,
-        timer: undefined,
-        players: state.players.map(player => ({ ...player, vote: undefined }))
-      };
-    }
-    
-    case 'LEAVE_ROOM': {
-      if (!state) return null;
-      
-      const remainingPlayers = state.players.filter(p => p.id !== action.payload.playerId);
-      
-      // If no players left, return null
-      if (remainingPlayers.length === 0) return null;
-      
-      // If the host left, assign a new host
-      let newHostId = state.hostId;
-      if (action.payload.playerId === state.hostId && remainingPlayers.length > 0) {
-        newHostId = remainingPlayers[0].id;
-        remainingPlayers[0] = { ...remainingPlayers[0], isHost: true };
-      }
-      
-      return {
-        ...state,
-        hostId: newHostId,
-        players: remainingPlayers
-      };
-    }
-    
-    case 'RESET_GAME': {
-      if (!state) return null;
-      
-      return {
-        ...state,
-        state: 'lobby',
-        round: 0,
-        category: undefined,
-        secretWord: undefined,
-        chameleonId: undefined,
-        timer: undefined,
-        players: state.players.map(player => ({ ...player, vote: undefined }))
-      };
-    }
-    
-    default:
-      return state;
-  }
-}
-
-// Provider component
 export function GameProvider({ children }: { children: React.ReactNode }) {
-  const [playerId, setPlayerId] = useState<string>('');
-  const [room, dispatch] = useReducer(gameReducer, null);
+  const [playerId] = useState(() => uuidv4());
+  const [room, setRoom] = useState<GameRoom | null>(null);
   const [settings] = useState<GameSettings>(DEFAULT_SETTINGS);
   const [remainingTime, setRemainingTime] = useState<number | null>(null);
   const [playerName, setPlayerName] = useState<string>('');
+  const { toast } = useToast();
 
-  // Check if the current player is the chameleon
   const isPlayerChameleon = !!(room?.chameleonId && playerId === room.chameleonId);
+
+  // Subscribe to real-time updates
+  useEffect(() => {
+    if (!room) return;
+
+    const roomChannel = supabase
+      .channel(`room:${room.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'game_rooms',
+          filter: `id=eq.${room.id}`,
+        },
+        async (payload) => {
+          if (payload.new) {
+            // Fetch the updated room with its players
+            const { data: updatedRoom } = await supabase
+              .from('game_rooms')
+              .select('*, players(*)')
+              .eq('id', room.id)
+              .single();
+
+            if (updatedRoom) {
+              setRoom({
+                ...updatedRoom,
+                players: updatedRoom.players || [],
+              });
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(roomChannel);
+    };
+  }, [room?.id]);
 
   // Timer effect
   useEffect(() => {
@@ -261,8 +87,15 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     
     if (room?.timer && room.timer > 0 && room.state === 'presenting') {
       setRemainingTime(room.timer);
-      timerId = window.setInterval(() => {
-        dispatch({ type: 'TICK_TIMER' });
+      timerId = window.setInterval(async () => {
+        const { error } = await supabase
+          .from('game_rooms')
+          .update({ timer: room.timer - 1 })
+          .eq('id', room.id);
+
+        if (error) {
+          console.error('Error updating timer:', error);
+        }
       }, 1000);
     } else {
       setRemainingTime(null);
@@ -271,62 +104,249 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     return () => {
       if (timerId) clearInterval(timerId);
     };
-  }, [room?.timer, room?.state]);
+  }, [room?.timer, room?.state, room?.id]);
 
-  // Create a new room
-  const createRoom = (playerName: string) => {
-    const newPlayerId = uuidv4();
-    setPlayerId(newPlayerId);
+  const createRoom = async (playerName: string) => {
+    const roomId = uuidv4().substring(0, 6).toUpperCase();
+    
+    const { error: roomError } = await supabase
+      .from('game_rooms')
+      .insert({
+        id: roomId,
+        host_id: playerId,
+        state: 'lobby'
+      });
+
+    if (roomError) {
+      toast({
+        variant: "destructive",
+        title: "Error creating room",
+        description: roomError.message
+      });
+      return;
+    }
+
+    const { error: playerError } = await supabase
+      .from('players')
+      .insert({
+        id: playerId,
+        room_id: roomId,
+        name: playerName,
+        is_host: true
+      });
+
+    if (playerError) {
+      toast({
+        variant: "destructive",
+        title: "Error joining room",
+        description: playerError.message
+      });
+      return;
+    }
+
     setPlayerName(playerName);
-    dispatch({ type: 'CREATE_ROOM', payload: { playerName } });
   };
 
-  // Join an existing room
-  const joinRoom = (roomId: string, playerName: string): boolean => {
-    if (!roomId) return false;
-    
-    const newPlayerId = uuidv4();
-    setPlayerId(newPlayerId);
+  const joinRoom = async (roomId: string, playerName: string): Promise<boolean> => {
+    const { data: existingRoom } = await supabase
+      .from('game_rooms')
+      .select('*, players(*)')
+      .eq('id', roomId)
+      .single();
+
+    if (!existingRoom) {
+      toast({
+        variant: "destructive",
+        title: "Room not found",
+        description: "Please check the room code and try again."
+      });
+      return false;
+    }
+
+    const { error: playerError } = await supabase
+      .from('players')
+      .insert({
+        id: playerId,
+        room_id: roomId,
+        name: playerName,
+        is_host: false
+      });
+
+    if (playerError) {
+      toast({
+        variant: "destructive",
+        title: "Error joining room",
+        description: playerError.message
+      });
+      return false;
+    }
+
     setPlayerName(playerName);
-    dispatch({ type: 'JOIN_ROOM', payload: { roomId, playerName } });
     return true;
   };
 
-  // Start the game
-  const startGame = () => {
-    if (room && room.hostId === playerId) {
-      dispatch({ type: 'START_GAME' });
+  const startGame = async () => {
+    if (!room || room.players.length < 3) return;
+
+    const { error } = await supabase
+      .from('game_rooms')
+      .update({
+        state: 'selecting',
+        round: room.round + 1
+      })
+      .eq('id', room.id);
+
+    if (error) {
+      toast({
+        variant: "destructive",
+        title: "Error starting game",
+        description: error.message
+      });
     }
   };
 
-  // Select a category
-  const selectCategory = (categoryName: string) => {
-    dispatch({ type: 'SELECT_CATEGORY', payload: { categoryName } });
-  };
+  const selectCategory = async (categoryName: string) => {
+    if (!room) return;
 
-  // Submit a vote
-  const submitVote = (targetPlayerId: string) => {
-    if (playerId) {
-      dispatch({ type: 'SUBMIT_VOTE', payload: { playerId, targetId: targetPlayerId } });
+    const selectedCategory = categories.find(c => c.name === categoryName);
+    if (!selectedCategory) return;
+
+    const randomWordIndex = Math.floor(Math.random() * selectedCategory.words.length);
+    const secretWord = selectedCategory.words[randomWordIndex];
+    const chameleonIndex = Math.floor(Math.random() * room.players.length);
+    const chameleonId = room.players[chameleonIndex].id;
+
+    const { error } = await supabase
+      .from('game_rooms')
+      .update({
+        state: 'presenting',
+        category: selectedCategory.name,
+        secret_word: secretWord,
+        chameleon_id: chameleonId,
+        timer: settings.discussionTime
+      })
+      .eq('id', room.id);
+
+    if (error) {
+      toast({
+        variant: "destructive",
+        title: "Error selecting category",
+        description: error.message
+      });
     }
   };
 
-  // Move to next round
-  const nextRound = () => {
-    dispatch({ type: 'NEXT_ROUND' });
-  };
+  const submitVote = async (targetPlayerId: string) => {
+    if (!room || !playerId) return;
 
-  // Leave the room
-  const leaveRoom = () => {
-    if (playerId) {
-      dispatch({ type: 'LEAVE_ROOM', payload: { playerId } });
-      setPlayerId('');
+    const { error } = await supabase
+      .from('players')
+      .update({ vote: targetPlayerId })
+      .eq('id', playerId);
+
+    if (error) {
+      toast({
+        variant: "destructive",
+        title: "Error submitting vote",
+        description: error.message
+      });
+      return;
+    }
+
+    // Check if all players have voted
+    const allVoted = room.players.every(p => p.vote);
+    if (allVoted) {
+      await supabase
+        .from('game_rooms')
+        .update({ state: 'results' })
+        .eq('id', room.id);
     }
   };
 
-  // Reset the game
-  const resetGame = () => {
-    dispatch({ type: 'RESET_GAME' });
+  const nextRound = async () => {
+    if (!room) return;
+
+    if (room.round >= room.maxRounds) {
+      await resetGame();
+    } else {
+      const { error } = await supabase
+        .from('game_rooms')
+        .update({
+          state: 'selecting',
+          round: room.round + 1,
+          category: null,
+          secret_word: null,
+          chameleon_id: null,
+          timer: null
+        })
+        .eq('id', room.id);
+
+      if (error) {
+        toast({
+          variant: "destructive",
+          title: "Error starting next round",
+          description: error.message
+        });
+      }
+
+      // Reset player votes
+      await supabase
+        .from('players')
+        .update({ vote: null })
+        .eq('room_id', room.id);
+    }
+  };
+
+  const leaveRoom = async () => {
+    if (!room || !playerId) return;
+
+    const { error } = await supabase
+      .from('players')
+      .delete()
+      .eq('id', playerId);
+
+    if (error) {
+      toast({
+        variant: "destructive",
+        title: "Error leaving room",
+        description: error.message
+      });
+      return;
+    }
+
+    setRoom(null);
+    setPlayerName('');
+  };
+
+  const resetGame = async () => {
+    if (!room) return;
+
+    const { error } = await supabase
+      .from('game_rooms')
+      .update({
+        state: 'lobby',
+        round: 0,
+        category: null,
+        secret_word: null,
+        chameleon_id: null,
+        timer: null
+      })
+      .eq('id', room.id);
+
+    if (error) {
+      toast({
+        variant: "destructive",
+        title: "Error resetting game",
+        description: error.message
+      });
+      return;
+    }
+
+    // Reset player votes
+    await supabase
+      .from('players')
+      .update({ vote: null })
+      .eq('room_id', room.id);
   };
 
   const value = {
@@ -354,5 +374,4 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Custom hook to use the game context
 export const useGame = () => useContext(GameContext);

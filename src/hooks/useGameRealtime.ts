@@ -1,7 +1,7 @@
 
 import { useEffect } from 'react';
 import { supabase } from "@/integrations/supabase/client";
-import { GameRoom, Player } from '@/lib/types';
+import { GameRoom, Player, GameState } from '@/lib/types';
 
 export const useGameRealtime = (
   roomId: string | undefined,

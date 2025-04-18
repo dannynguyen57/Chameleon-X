@@ -45,11 +45,23 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const remainingTime = useGameTimer(room?.id, room?.timer, room?.state);
   const gameActions = useGameActions(playerId, room, settings);
 
+  // Modify the createRoom function to match the expected return type
+  const createRoomWrapper = async (playerName: string): Promise<void> => {
+    await gameActions.createRoom(playerName);
+  };
+
   const value = {
     playerId,
     room,
     settings,
-    ...gameActions,
+    createRoom: createRoomWrapper,
+    joinRoom: gameActions.joinRoom,
+    startGame: gameActions.startGame,
+    selectCategory: gameActions.selectCategory,
+    submitVote: gameActions.submitVote,
+    nextRound: gameActions.nextRound,
+    leaveRoom: gameActions.leaveRoom,
+    resetGame: gameActions.resetGame,
     isPlayerChameleon,
     remainingTime,
     playerName,

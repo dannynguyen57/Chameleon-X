@@ -1,4 +1,3 @@
-
 import { useToast } from "@/components/ui/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { categories } from '@/lib/word-categories';
@@ -11,7 +10,7 @@ export const useGameActions = (
 ) => {
   const { toast } = useToast();
 
-  const createRoom = async (playerName: string) => {
+  const createRoom = async (playerName: string): Promise<boolean> => {
     const roomId = playerId.substring(0, 6).toUpperCase();
     
     const { error: roomError } = await supabase
@@ -28,7 +27,7 @@ export const useGameActions = (
         title: "Error creating room",
         description: roomError.message
       });
-      return;
+      return false;
     }
 
     const { error: playerError } = await supabase
@@ -46,7 +45,7 @@ export const useGameActions = (
         title: "Error joining room",
         description: playerError.message
       });
-      return;
+      return false;
     }
 
     return true;

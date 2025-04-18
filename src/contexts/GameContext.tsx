@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Player, GameRoom, GameState, GameSettings } from '@/lib/types';
@@ -63,6 +64,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
               .single();
 
             if (updatedRoom) {
+              // Map players from database format to our Player type
               const mappedPlayers: Player[] = updatedRoom.players.map((player: any) => ({
                 id: player.id,
                 name: player.name,
@@ -70,10 +72,21 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
                 vote: player.vote
               }));
 
-              setRoom({
-                ...updatedRoom,
+              // Map room data from database format to our GameRoom type
+              const mappedRoom: GameRoom = {
+                id: updatedRoom.id,
+                hostId: updatedRoom.host_id,
                 players: mappedPlayers,
-              });
+                state: updatedRoom.state as GameState,
+                category: updatedRoom.category || undefined,
+                secretWord: updatedRoom.secret_word || undefined,
+                chameleonId: updatedRoom.chameleon_id || undefined,
+                timer: updatedRoom.timer || undefined,
+                round: updatedRoom.round,
+                maxRounds: updatedRoom.max_rounds
+              };
+
+              setRoom(mappedRoom);
             }
           }
         }

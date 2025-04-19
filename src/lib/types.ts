@@ -1,4 +1,4 @@
-export type GameMode = 'classic' | 'timed' | 'chaos' | 'team';
+export type GameMode = 'classic' | 'timed' | 'chaos' | 'team' | 'creative';
 
 export type GameSettings = {
   max_players: number;
@@ -33,36 +33,39 @@ export enum PlayerRole {
   Trickster = 'trickster'       // Can swap roles with another player once
 }
 
-export type Player = {
+export interface Player {
   id: string;
   name: string;
-  isHost: boolean;
-  vote: string | null;
-  team?: number;
+  room_id: string;
   role?: PlayerRole;
-  specialWord?: string;         // For roles that know a different word
-  specialAbilityUsed?: boolean; // Track if special ability was used
+  is_host: boolean;
+  is_ready: boolean;
   turn_description?: string;
+  vote?: string;
   last_active: string;
   last_updated: string;
-};
+  is_protected?: boolean;
+  vote_multiplier?: number;
+  special_word?: string;
+  special_ability_used?: boolean;
+  timeout_at?: string;
+}
 
 export enum GameState {
   Lobby = 'lobby',
   Selecting = 'selecting',
   Presenting = 'presenting',
+  Discussion = 'discussion',
   Voting = 'voting',
-  Results = 'results'
+  Results = 'results',
+  Ended = 'ended'
 }
 
 export interface GameRoom {
   id: string;
   host_id: string;
   state: GameState;
-  round: number;
-  created_at: string;
-  updated_at: string;
-  last_updated: string;
+  settings: GameSettings;
   max_players: number;
   discussion_time: number;
   max_rounds: number;
@@ -71,15 +74,21 @@ export interface GameRoom {
   chaos_mode: boolean;
   time_per_round: number;
   voting_time: number;
-  settings: GameSettings;
+  created_at: string;
+  updated_at: string;
+  last_updated: string;
   players: Player[];
-  category?: string;
-  secret_word?: string;
-  chameleon_id?: string;
-  timer?: number;
+  category?: string | null;
+  secret_word?: string | null;
+  chameleon_id?: string | null;
+  timer?: number | null;
   current_turn?: number;
   turn_order?: string[];
-  chat_messages?: ChatMessage[];
+  round_outcome?: string | null;
+  votes_tally?: { [playerId: string]: number } | null;
+  revealed_player_id?: string | null;
+  revealed_role?: PlayerRole | null;
+  round?: number;
 }
 
 export interface ChatMessage {

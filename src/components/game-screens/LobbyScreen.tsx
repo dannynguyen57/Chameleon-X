@@ -69,7 +69,7 @@ export default function LobbyScreen() {
                       <Badge variant="outline" className="ml-2">You</Badge>
                     )}
                   </div>
-                  {player.isHost && (
+                  {player.is_host && (
                     <Badge variant="secondary" className="flex gap-1">
                       <ShieldCheck className="h-3 w-3" /> Host
                     </Badge>

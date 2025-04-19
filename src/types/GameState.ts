@@ -1,0 +1,1 @@
+export type GameState = 'lobby' | 'selecting' | 'presenting' | 'discussion' | 'voting' | 'results'; 

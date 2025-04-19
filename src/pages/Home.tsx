@@ -6,9 +6,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useGame } from '@/hooks/useGame';
 import { useNavigate } from 'react-router-dom';
 import PublicRooms from '@/components/PublicRooms';
-import { PlayerRole } from '@/lib/types';
+import { PlayerRole, GameMode } from '@/lib/types';
 import { Gamepad2, PlusCircle, Search, Crown, Users, Clock, Trophy } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { v4 as uuidv4 } from 'uuid';
+import { Room } from '@/types/Room';
 
 export default function Home() {
   const [playerName, setPlayerName] = useState('');
@@ -18,16 +20,16 @@ export default function Home() {
 
   const handleCreateRoom = async () => {
     if (!playerName) return;
-    const newRoomId = await createRoom(playerName, {
+    
+    const settings = {
       max_players: 10,
       discussion_time: 120,
       max_rounds: 3,
-      game_mode: 'classic',
+      game_mode: 'classic' as GameMode,
       team_size: 2,
       chaos_mode: false,
       time_per_round: 60,
       voting_time: 30,
-      special_abilities: false,
       roles: {
         classic: [PlayerRole.Regular, PlayerRole.Chameleon],
         creative: [
@@ -44,24 +46,27 @@ export default function Home() {
           PlayerRole.Guardian,
           PlayerRole.Trickster
         ],
-        team: [
-          PlayerRole.Regular,
-          PlayerRole.Chameleon,
-          PlayerRole.Mimic,
-          PlayerRole.Guardian
-        ],
+        team: [PlayerRole.Regular, PlayerRole.Chameleon],
         chaos: [
           PlayerRole.Regular,
           PlayerRole.Chameleon,
           PlayerRole.Mimic,
+          PlayerRole.Oracle,
           PlayerRole.Jester,
           PlayerRole.Spy,
-          PlayerRole.Mirror
+          PlayerRole.Mirror,
+          PlayerRole.Whisperer,
+          PlayerRole.Timekeeper,
+          PlayerRole.Illusionist,
+          PlayerRole.Guardian,
+          PlayerRole.Trickster
         ]
       }
-    });
-    if (newRoomId) {
-      navigate(`/room/${newRoomId}`);
+    };
+
+    const roomId = await createRoom(playerName, settings);
+    if (roomId) {
+      navigate(`/room/${roomId}`);
     }
   };
 

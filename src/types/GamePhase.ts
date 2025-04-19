@@ -1,6 +1,7 @@
 export enum GamePhase {
   Lobby = 'lobby',
-  Playing = 'playing',
+  Selecting = 'selecting',
+  Presenting = 'presenting',
   Discussion = 'discussion',
   Voting = 'voting',
   Results = 'results'

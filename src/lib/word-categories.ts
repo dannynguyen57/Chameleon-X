@@ -1,4 +1,3 @@
-
 // Over 1000 words organized by categories for the Chameleon Undercover game
 
 export type WordCategory = {
@@ -320,6 +319,84 @@ export const categories: WordCategory[] = [
       "Steam Locomotive", "Electric Scooter", "Catamaran", "Barge", "Hang Glider", 
       "Dune Buggy", "Rocket", "Fighter Jet", "Drone", "Double-Decker Bus", "Bulldozer", 
       "Tractor", "ATV", "Gondola", "Parachute", "Glider", "Sled"
+    ]
+  },
+  {
+    name: "Random Topics",
+    emoji: "🎲",
+    words: [
+      "Time Travel", "Parallel Universe", "Artificial Intelligence", "Virtual Reality", "Space Exploration",
+      "Climate Change", "Renewable Energy", "Cryptocurrency", "Blockchain", "Quantum Computing",
+      "Robotics", "Nanotechnology", "Genetic Engineering", "Sustainable Living", "Urban Farming",
+      "Mindfulness", "Meditation", "Yoga", "Wellness", "Mental Health",
+      "Digital Art", "Street Art", "Gaming", "Streaming", "Podcasting",
+      "Social Media", "Influencer", "Viral Content", "Memes", "Trends",
+      "Fashion", "Design", "Architecture", "Interior Design", "Graphic Design",
+      "Photography", "Videography", "Animation", "Visual Effects", "3D Modeling",
+      "Music Production", "Sound Design", "Audio Engineering", "DJing", "Live Performance",
+      "Cooking", "Baking", "Mixology", "Food Photography", "Food Blogging",
+      "Travel", "Adventure", "Backpacking", "Solo Travel", "Digital Nomad"
+    ]
+  },
+  {
+    name: "Internet Culture",
+    emoji: "🌐",
+    words: [
+      "Meme", "Viral", "Trending", "Hashtag", "Influencer",
+      "Streamer", "Content Creator", "Vlogger", "Podcaster", "TikTok",
+      "YouTube", "Instagram", "Twitter", "Facebook", "Reddit",
+      "Discord", "Twitch", "OnlyFans", "Patreon", "Substack",
+      "NFT", "Crypto", "Blockchain", "Metaverse", "Web3",
+      "AI Art", "Deepfake", "Chatbot", "Algorithm", "Big Data",
+      "Cancel Culture", "Woke", "SJW", "Troll", "Keyboard Warrior",
+      "Doomscrolling", "Binge-watching", "Streaming", "Binge-listening", "Podcast",
+      "ASMR", "Mukbang", "Unboxing", "Reaction Video", "Tutorial",
+      "Challenge", "Trend", "Dance", "Lip Sync", "Remix"
+    ]
+  },
+  {
+    name: "Science Fiction",
+    emoji: "🚀",
+    words: [
+      "Time Machine", "Teleportation", "Hologram", "Force Field", "Lightsaber",
+      "Spaceship", "Warp Drive", "Hyperspace", "Wormhole", "Black Hole",
+      "Robot", "Android", "Cyborg", "AI", "Virtual Reality",
+      "Neural Interface", "Brain Upload", "Digital Consciousness", "Simulation", "Matrix",
+      "Alien", "Extraterrestrial", "UFO", "First Contact", "Xenomorph",
+      "Dystopia", "Utopia", "Post-apocalyptic", "Cyberpunk", "Steampunk",
+      "Parallel Universe", "Multiverse", "Alternate Reality", "Time Loop", "Time Paradox",
+      "Genetic Engineering", "Cloning", "Mutation", "Superhuman", "Transhumanism",
+      "Space Colony", "Terraforming", "Space Station", "Moon Base", "Mars Colony"
+    ]
+  },
+  {
+    name: "Mythology",
+    emoji: "🏛️",
+    words: [
+      "Zeus", "Poseidon", "Hades", "Athena", "Apollo",
+      "Aphrodite", "Ares", "Hermes", "Dionysus", "Hera",
+      "Thor", "Odin", "Loki", "Freya", "Tyr",
+      "Ra", "Anubis", "Osiris", "Isis", "Horus",
+      "Amaterasu", "Susanoo", "Tsukuyomi", "Izanagi", "Izanami",
+      "Dragon", "Phoenix", "Unicorn", "Griffin", "Kraken",
+      "Minotaur", "Medusa", "Cyclops", "Sphinx", "Chimera",
+      "Valkyrie", "Nymph", "Satyr", "Centaur", "Mermaid",
+      "Vampire", "Werewolf", "Zombie", "Ghost", "Demon"
+    ]
+  },
+  {
+    name: "Sports Teams",
+    emoji: "🏆",
+    words: [
+      "Real Madrid", "Barcelona", "Manchester United", "Liverpool", "Bayern Munich",
+      "Paris Saint-Germain", "Juventus", "AC Milan", "Arsenal", "Chelsea",
+      "Los Angeles Lakers", "Chicago Bulls", "Boston Celtics", "Golden State Warriors", "Miami Heat",
+      "New York Yankees", "Boston Red Sox", "Los Angeles Dodgers", "Chicago Cubs", "San Francisco Giants",
+      "Dallas Cowboys", "New England Patriots", "Green Bay Packers", "Pittsburgh Steelers", "San Francisco 49ers",
+      "Toronto Maple Leafs", "Montreal Canadiens", "Boston Bruins", "Chicago Blackhawks", "Detroit Red Wings",
+      "Los Angeles Kings", "New York Rangers", "Philadelphia Flyers", "Edmonton Oilers", "Vancouver Canucks",
+      "Formula 1", "MotoGP", "NASCAR", "IndyCar", "Le Mans",
+      "Olympics", "World Cup", "Super Bowl", "NBA Finals", "Stanley Cup"
     ]
   }
 ];

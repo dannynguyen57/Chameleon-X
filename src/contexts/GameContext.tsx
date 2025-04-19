@@ -8,12 +8,16 @@ import { useGameActions } from '@/hooks/useGameActions';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/components/ui/use-toast';
 
+// Check if dev mode is enabled
+const isDevMode = process.env.NEXT_PUBLIC_ENABLE_DEV_MODE === 'true';
+
 interface DatabasePlayer {
   id: string;
   name: string;
   room_id: string;
   role?: PlayerRole;
   is_host: boolean;
+  is_ready: boolean;
   turn_description?: string;
   vote?: string;
   last_active: string;
@@ -42,19 +46,26 @@ interface DatabaseRoom {
   chameleon_id: string | null;
   timer: number | null;
   players: DatabasePlayer[];
+  revealed_role: PlayerRole | null;
+  revealed_player_id: string | null;
+  round_outcome: string | null;
+  votes_tally: { [playerId: string]: number } | null;
+  turn_order: string[] | null;
+  current_turn: number | null;
 }
 
-const DEFAULT_SETTINGS: GameSettings = {
+// Define DEFAULT_SETTINGS here and export it
+export const DEFAULT_SETTINGS: GameSettings = {
   max_players: Number(import.meta.env.VITE_MAX_PLAYERS) || 10,
-  discussion_time: Number(import.meta.env.VITE_DEFAULT_DISCUSSION_TIME) || 120,
+  discussion_time: 30,
   max_rounds: Number(import.meta.env.VITE_DEFAULT_MAX_ROUNDS) || 3,
   game_mode: 'classic',
   team_size: 2,
   chaos_mode: false,
-  time_per_round: Number(import.meta.env.VITE_DEFAULT_TIME_PER_ROUND) || 60,
-  voting_time: Number(import.meta.env.VITE_DEFAULT_VOTING_TIME) || 30,
+  time_per_round: 30,
+  voting_time: 30,
   roles: {
-    classic: [PlayerRole.Regular, PlayerRole.Chameleon],
+    classic: [PlayerRole.Regular, PlayerRole.Chameleon, PlayerRole.Mimic],
     creative: [
       PlayerRole.Regular,
       PlayerRole.Chameleon,
@@ -87,11 +98,12 @@ const DEFAULT_SETTINGS: GameSettings = {
   special_abilities: false
 };
 
+// Export the type
 export type GameContextType = {
   playerId: string;
   room: GameRoom | null;
   settings: GameSettings;
-  createRoom: (playerName: string, settings: GameSettings) => Promise<string | null>;
+  createRoom: (playerName: string, settings: GameSettings) => Promise<GameRoom | null>;
   joinRoom: (roomId: string, playerName: string) => Promise<boolean>;
   startGame: () => Promise<void>;
   selectCategory: (categoryName: string) => Promise<void>;
@@ -107,34 +119,39 @@ export type GameContextType = {
   setRoom: (room: GameRoom | null) => void;
 };
 
+// Export the context
 export const GameContext = createContext<GameContextType | null>(null);
 
-export const GameProvider = React.memo(({ children }: { children: React.ReactNode }) => {
-  // State hooks
+// Export the hook
+export const useGame = () => {
+  const context = useContext(GameContext);
+  if (!context) {
+    throw new Error('useGame must be used within a GameProvider');
+  }
+  return context;
+};
+
+export const GameProvider = ({ children }: { children: React.ReactNode }) => {
   const [playerId] = useState(() => uuidv4());
   const [room, setRoom] = useState<GameRoom | null>(null);
-  const [settings] = useState<GameSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS);
   const [playerName, setPlayerName] = useState<string>('');
   const [isConnected, setIsConnected] = useState(false);
 
-  // Refs
   const roomRef = useRef<GameRoom | null>(null);
   const reconnectAttempts = useRef<number>(0);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const lastUpdateRef = useRef<number>(0);
 
-  // Effects
   useEffect(() => {
     roomRef.current = room;
   }, [room]);
 
-  // Derived values
   const isPlayerChameleon = useMemo(() => 
     Boolean(room?.chameleon_id && playerId === room.chameleon_id),
     [room?.chameleon_id, playerId]
   );
 
-  // Custom hooks
   const { createRoom: createRoomAction, joinRoom: joinRoomAction, ...gameActions } = useGameActions(
     playerId,
     room,
@@ -152,7 +169,7 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
         .from('game_rooms')
         .select(`
           *,
-          players (*)
+          players!players_room_id_fkey (*)
         `)
         .eq('id', room.id)
         .single();
@@ -185,7 +202,6 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
   useEffect(() => {
     if (!room?.id) return;
     
-    // Clean up existing subscription if any
     if (channelRef.current) {
       console.log('Cleaning up old subscription');
       supabase.removeChannel(channelRef.current);
@@ -210,7 +226,6 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
         }, 
         async (payload) => {
           console.log('Room change detected:', payload);
-          // Force immediate update for room changes
           await fetchRoom();
         }
       )
@@ -223,7 +238,6 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
         }, 
         async (payload) => {
           console.log('Player change detected:', payload);
-          // Force immediate update for player changes
           await fetchRoom();
         }
       )
@@ -234,17 +248,15 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
       .subscribe((status) => {
         console.log('Subscription status:', status);
         if (status === 'SUBSCRIBED') {
-          // Force an immediate fetch after successful subscription
           fetchRoom();
         }
       });
 
     channelRef.current = channel;
 
-    // Add periodic sync check
     const syncInterval = setInterval(() => {
       fetchRoom();
-    }, 2000); // Check every 2 seconds
+    }, 2000);
 
     return () => {
       if (channelRef.current) {
@@ -254,45 +266,93 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
       }
       clearInterval(syncInterval);
     };
-  }, [room?.id]);
+  }, [room?.id, fetchRoom]);
 
-  // Callbacks
-  const createRoom = useCallback(async (playerName: string, settings: GameSettings): Promise<string | null> => {
+  const createRoom = useCallback(async (playerName: string, settings: GameSettings): Promise<GameRoom | null> => {
     const roomId = playerId.substring(0, 6).toUpperCase();
-    const success = await createRoomAction(playerName, settings);
+    const success = await createRoomAction(playerName, settings, roomId);
     
     if (success) {
-      try {
-        const { data: newRoom, error } = await supabase
-          .from('game_rooms')
-          .select('*, players(*)')
-          .eq('id', roomId)
-          .single();
+      // Add retry logic to handle eventual consistency
+      let retries = 3;
+      let delay = 1000; // Start with 1 second delay
 
-        if (error) {
-          console.error('Error fetching room after creation:', error);
+      while (retries > 0) {
+        try {
+          // First check if the room exists
+          const { data: roomCheck, error: checkError } = await supabase
+            .from('game_rooms')
+            .select('id')
+            .eq('id', roomId)
+            .single();
+
+          if (checkError && checkError.code !== 'PGRST116') {
+            console.error('Error checking room existence:', checkError);
+            throw checkError;
+          }
+
+          if (!roomCheck) {
+            // Room doesn't exist yet, wait and retry
+            retries--;
+            if (retries > 0) {
+              await new Promise(resolve => setTimeout(resolve, delay));
+              delay *= 2;
+              continue;
+            }
+            throw new Error('Room not found after creation');
+          }
+
+          // Room exists, now fetch full data
+          const { data: newRoom, error: fetchError } = await supabase
+            .from('game_rooms')
+            .select(`
+              *,
+              players (
+                id,
+                name,
+                room_id,
+                role,
+                is_host,
+                is_ready,
+                turn_description,
+                vote,
+                last_active,
+                last_updated,
+                is_protected,
+                vote_multiplier,
+                special_word,
+                special_ability_used
+              )
+            `)
+            .eq('id', roomId)
+            .single();
+
+          if (fetchError) {
+            console.error('Error fetching room data:', fetchError);
+            throw fetchError;
+          }
+
+          if (newRoom) {
+            const mappedRoom = mapRoomData(newRoom);
+            setRoom(mappedRoom);
+            roomRef.current = mappedRoom;
+            return mappedRoom;
+          }
+        } catch (error) {
+          console.error('Error in createRoom:', error);
+          retries--;
+          if (retries > 0) {
+            await new Promise(resolve => setTimeout(resolve, delay));
+            delay *= 2;
+            continue;
+          }
           toast({
             variant: "destructive",
             title: "Error creating room",
-            description: "Room was created but could not be loaded."
+            description: error instanceof Error ? error.message : "An unexpected error occurred"
           });
           return null;
         }
-
-        if (newRoom) {
-          const mappedRoom = mapRoomData(newRoom);
-          setRoom(mappedRoom);
-          roomRef.current = mappedRoom;
-          return roomId;
-        }
-      } catch (error) {
-        console.error('Error in createRoom:', error);
-        toast({
-          variant: "destructive",
-          title: "Error creating room",
-          description: "An unexpected error occurred"
-        });
-        return null;
       }
     }
     return null;
@@ -302,7 +362,6 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
     const success = await joinRoomAction(roomId, playerName);
     if (success) {
       try {
-        // Fetch room data immediately after joining
         const { data: newRoom, error } = await supabase
           .from('game_rooms')
           .select('*, players(*)')
@@ -324,12 +383,13 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
           setRoom(mappedRoom);
           roomRef.current = mappedRoom;
           
-          // Update player's last_active timestamp
           await supabase
             .from('players')
-            .update({ last_active: new Date().toISOString() })
-            .eq('id', playerId)
-            .eq('room_id', roomId);
+            .update({ 
+              last_active: new Date().toISOString(),
+              room_id: roomId
+            })
+            .eq('id', playerId);
             
           return true;
         }
@@ -346,205 +406,23 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
     return false;
   }, [joinRoomAction, playerId]);
 
-  const startGame = useCallback(async () => {
-    if (!room) {
-      toast({
-        variant: "destructive",
-        title: "Error starting game",
-        description: "No room found"
-      });
-      return;
-    }
-
-    // Check if player is host
-    if (playerId !== room.host_id) {
-      toast({
-        variant: "destructive",
-        title: "Error starting game",
-        description: "Only the host can start the game"
-      });
-      return;
-    }
-
-    // Check minimum players
-    if (room.players.length < 3) {
-      toast({
-        variant: "destructive",
-        title: "Error starting game",
-        description: "Need at least 3 players to start"
-      });
-      return;
-    }
-
-    // Check game state
-    if (room.state !== 'lobby') {
-      toast({
-        variant: "destructive",
-        title: "Error starting game",
-        description: "Game is already in progress"
-      });
-      return;
-    }
-
-    try {
-      // First, update the room state to 'selecting'
-      const { error: updateError } = await supabase
-        .from('game_rooms')
-        .update({
-          state: GameState.Selecting,
-          round: 1,
-          category: null,
-          secret_word: null,
-          chameleon_id: null,
-          timer: null,
-          current_turn: 0,
-          turn_order: room.players.map(p => p.id),
-          last_updated: new Date().toISOString()
-        })
-        .eq('id', room.id);
-
-      if (updateError) {
-        console.error('Error updating room state:', updateError);
-        toast({
-          variant: "destructive",
-          title: "Error starting game",
-          description: updateError.message
-        });
-        return;
-      }
-
-      // Broadcast game start to all players
-      const channel = supabase.channel(`room:${room.id}`);
-      await channel.send({
-        type: 'broadcast',
-        event: 'game_start',
-        payload: { timestamp: Date.now() }
-      });
-
-      // Update all players' last_active timestamp
-      const { error: playersError } = await supabase
-        .from('players')
-        .update({ 
-          last_active: new Date().toISOString(),
-          turn_description: null,
-          vote: null
-        })
-        .eq('room_id', room.id);
-
-      if (playersError) {
-        console.error('Error updating players:', playersError);
-      }
-
-      // Then call the start_game procedure
-      const { error: startError } = await supabase.rpc('start_game', {
-        room_id: room.id
-      });
-
-      if (startError) {
-        console.error('Error in start_game procedure:', startError);
-        toast({
-          variant: "destructive",
-          title: "Error starting game",
-          description: startError.message
-        });
-        return;
-      }
-
-      // Force a room data refresh for all players
-      await fetchRoom();
-
-      toast({
-        title: "Game started!",
-        description: "Select a category to begin."
-      });
-    } catch (error) {
-      console.error('Error in startGame:', error);
-      toast({
-        variant: "destructive",
-        title: "Error starting game",
-        description: "An unexpected error occurred."
-      });
-    }
-  }, [room, playerId, fetchRoom]);
-
-  const updateSettings = useCallback(async (newSettings: GameSettings) => {
-    if (!room) return;
-
-    try {
-      // Update settings in the database
-      const { error: updateError } = await supabase
-        .from('game_rooms')
-        .update({
-          settings: {
-            ...room.settings,
-            ...newSettings,
-            discussion_time: newSettings.discussion_time,
-            time_per_round: newSettings.time_per_round,
-            voting_time: newSettings.voting_time
-          },
-          discussion_time: newSettings.discussion_time,
-          time_per_round: newSettings.time_per_round,
-          voting_time: newSettings.voting_time,
-          timer: newSettings.discussion_time
-        })
-        .eq('id', room.id);
-
-      if (updateError) {
-        console.error('Error updating settings:', updateError);
-        toast({
-          variant: "destructive",
-          title: "Error updating settings",
-          description: updateError.message
-        });
-        return;
-      }
-
-      // Update local state immediately
-      const updatedRoom = {
-        ...room,
-        settings: {
-          ...room.settings,
-          ...newSettings,
-          discussion_time: newSettings.discussion_time,
-          time_per_round: newSettings.time_per_round,
-          voting_time: newSettings.voting_time
-        },
-        discussion_time: newSettings.discussion_time,
-        time_per_round: newSettings.time_per_round,
-        voting_time: newSettings.voting_time,
-        timer: newSettings.discussion_time
-      };
-      setRoom(updatedRoom);
-      roomRef.current = updatedRoom;
-
-      toast({
-        title: "Settings updated!",
-        description: "Game settings have been successfully updated."
-      });
-    } catch (error) {
-      console.error('Error in updateSettings:', error);
-      toast({
-        variant: "destructive",
-        title: "Error updating settings",
-        description: "An unexpected error occurred."
-      });
-    }
-  }, [room]);
-
-  // Context value
   const value = useMemo(() => ({
     playerId,
     room,
     settings,
     createRoom,
     joinRoom,
-    startGame,
-    ...gameActions,
+    startGame: gameActions.startGame,
+    selectCategory: gameActions.selectCategory,
+    submitVote: gameActions.submitVote,
+    nextRound: gameActions.nextRound,
+    leaveRoom: gameActions.leaveRoom,
+    resetGame: gameActions.resetGame,
+    updateSettings: gameActions.updateSettings,
     isPlayerChameleon,
     remainingTime,
     playerName,
     setPlayerName,
-    updateSettings,
     setRoom
   }), [
     playerId,
@@ -552,12 +430,10 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
     settings,
     createRoom,
     joinRoom,
-    startGame,
     gameActions,
     isPlayerChameleon,
     remainingTime,
     playerName,
-    updateSettings,
     setRoom
   ]);
 
@@ -566,14 +442,6 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
       {children}
     </GameContext.Provider>
   );
-});
+};
 
 GameProvider.displayName = 'GameProvider';
-
-export const useGame = () => {
-  const context = useContext(GameContext);
-  if (!context) {
-    throw new Error('useGame must be used within a GameProvider');
-  }
-  return context;
-};

@@ -23,10 +23,7 @@ export default function PublicRooms() {
           id,
           host_id,
           state,
-          round,
-          created_at,
-          updated_at,
-          last_updated,
+          settings,
           max_players,
           discussion_time,
           max_rounds,
@@ -35,11 +32,15 @@ export default function PublicRooms() {
           chaos_mode,
           time_per_round,
           voting_time,
-          settings,
-          players (
+          created_at,
+          updated_at,
+          last_updated,
+          players!players_room_id_fkey (
             id,
             name,
-            room_id
+            room_id,
+            is_host,
+            is_ready
           )
         `)
         .eq('state', 'lobby')
@@ -59,41 +60,30 @@ export default function PublicRooms() {
       if (data) {
         const mappedRooms = data.map(room => ({
           id: room.id,
-          host_id: room.host_id || '',
+          host_id: room.host_id,
           state: room.state,
-          round: room.round || 0,
+          settings: room.settings,
+          max_players: room.max_players,
+          discussion_time: room.discussion_time,
+          max_rounds: room.max_rounds,
+          game_mode: room.game_mode,
+          team_size: room.team_size,
+          chaos_mode: room.chaos_mode,
+          time_per_round: room.time_per_round,
+          voting_time: room.voting_time,
           created_at: room.created_at,
-          updated_at: room.updated_at || new Date().toISOString(),
-          last_updated: room.last_updated || new Date().toISOString(),
-          max_players: room.max_players || 10,
-          discussion_time: room.discussion_time || 120,
-          max_rounds: room.max_rounds || 3,
-          game_mode: room.game_mode || 'classic',
-          team_size: room.team_size || 2,
-          chaos_mode: room.chaos_mode || false,
-          time_per_round: room.time_per_round || 60,
-          voting_time: room.voting_time || 30,
+          updated_at: room.updated_at,
+          last_updated: room.last_updated,
           players: (room.players || []).map(player => ({
             id: player.id,
             name: player.name,
             room_id: player.room_id,
-            isHost: player.id === room.host_id,
+            is_host: player.is_host,
+            is_ready: player.is_ready || false,
             vote: null,
             last_active: new Date().toISOString(),
             last_updated: new Date().toISOString()
-          })),
-          settings: {
-            max_players: room.max_players || 10,
-            discussion_time: room.discussion_time || 120,
-            max_rounds: room.max_rounds || 3,
-            game_mode: room.game_mode || 'classic',
-            team_size: room.team_size || 2,
-            chaos_mode: room.chaos_mode || false,
-            time_per_round: room.time_per_round || 60,
-            voting_time: room.voting_time || 30,
-            roles: room.settings?.roles || {},
-            special_abilities: room.settings?.special_abilities || false
-          }
+          }))
         }));
         setRooms(mappedRooms);
       }
@@ -157,43 +147,46 @@ export default function PublicRooms() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
         {rooms.map((room) => (
-          <Card key={room.id} className="hover:shadow-lg transition-shadow">
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span>Room {room.id}</span>
-                <Badge variant={room.players.length >= room.settings.max_players ? "destructive" : "default"}>
+          <Card key={room.id} className="hover:shadow-lg transition-all duration-200 w-full border-2 border-transparent hover:border-primary/20">
+            <CardHeader className="p-3 sm:p-4">
+              <CardTitle className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1.5 sm:gap-2">
+                <span className="text-base sm:text-lg font-semibold">Room {room.id}</span>
+                <Badge 
+                  variant={room.players.length >= room.settings.max_players ? "destructive" : "default"}
+                  className="text-xs sm:text-sm"
+                >
                   {room.players.length}/{room.settings.max_players} Players
                 </Badge>
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="text-xs sm:text-sm text-muted-foreground">
                 Created {new Date(room.created_at).toLocaleTimeString()}
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
+            <CardContent className="p-3 sm:p-4">
+              <div className="space-y-2.5 sm:space-y-3">
                 <div className="flex items-center gap-2">
-                  <Gamepad2 className="h-4 w-4" />
-                  <p className="text-sm">
+                  <Gamepad2 className="h-4 w-4 flex-shrink-0 text-primary" />
+                  <p className="text-xs sm:text-sm truncate">
                     <span className="font-medium">Mode:</span> {room.settings.game_mode}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Settings2 className="h-4 w-4" />
-                  <p className="text-sm">
+                  <Settings2 className="h-4 w-4 flex-shrink-0 text-primary" />
+                  <p className="text-xs sm:text-sm truncate">
                     <span className="font-medium">Rounds:</span> {room.settings.max_rounds}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4" />
-                  <p className="text-sm">
+                  <Clock className="h-4 w-4 flex-shrink-0 text-primary" />
+                  <p className="text-xs sm:text-sm truncate">
                     <span className="font-medium">Time:</span> {room.settings.discussion_time}s
                   </p>
                 </div>
                 <Button
-                  className="w-full"
+                  className="w-full mt-2 text-xs sm:text-sm h-8 sm:h-9"
                   onClick={() => handleJoinRoom(room)}
                   disabled={room.players.length >= room.settings.max_players}
                 >
@@ -205,7 +198,7 @@ export default function PublicRooms() {
         ))}
         {rooms.length === 0 && (
           <div className="col-span-full text-center py-8">
-            <p className="text-muted-foreground">No public rooms available. Create one to get started!</p>
+            <p className="text-sm sm:text-base text-muted-foreground">No public rooms available. Create one to get started!</p>
           </div>
         )}
       </div>

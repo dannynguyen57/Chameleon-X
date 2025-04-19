@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from "@/integrations/supabase/client";
-import { GameSettings } from '@/lib/types';
+import { GameSettings, GameState } from '@/lib/types';
 
 export const useGameTimer = (
   roomId: string | undefined,
   timer: number | undefined,
-  gameState: string | undefined,
+  gameState: GameState | undefined,
   settings: GameSettings | undefined
 ) => {
   const [remainingTime, setRemainingTime] = useState<number | null>(null);
@@ -20,7 +20,7 @@ export const useGameTimer = (
     }
 
     // Only start timer for valid game states and when we have a room ID and timer
-    if (timer && timer > 0 && roomId && (gameState === 'presenting' || gameState === 'voting')) {
+    if (timer && timer > 0 && roomId && (gameState === 'presenting' || gameState === 'voting' || gameState === 'discussion')) {
       setRemainingTime(timer);
       lastUpdateRef.current = Date.now();
 
@@ -33,10 +33,23 @@ export const useGameTimer = (
           if (!prevTime) return null;
           const newTime = prevTime - elapsed;
           
+          // Update the timer in the database
+          if (newTime > 0) {
+            supabase
+              .from('game_rooms')
+              .update({ timer: newTime })
+              .eq('id', roomId)
+              .then(({ error }) => {
+                if (error) {
+                  console.error('Error updating timer:', error);
+                }
+              });
+          }
+          
           if (newTime <= 0) {
             // Time's up, handle based on game state
             if (gameState === 'presenting') {
-              // For presenting state, move to next player or voting
+              // For presenting state, move to next player or discussion
               supabase
                 .from('game_rooms')
                 .select('current_turn, players, state')
@@ -54,12 +67,12 @@ export const useGameTimer = (
                     const isLastPlayer = nextTurn >= data.players.length;
 
                     if (isLastPlayer) {
-                      // Move to voting phase
+                      // Move to discussion phase
                       supabase
                         .from('game_rooms')
                         .update({ 
-                          state: 'voting',
-                          timer: settings?.voting_time || 30,
+                          state: 'discussion',
+                          timer: settings?.discussion_time || 30,
                           current_turn: 0
                         })
                         .eq('id', roomId);
@@ -69,19 +82,20 @@ export const useGameTimer = (
                         .from('game_rooms')
                         .update({ 
                           current_turn: nextTurn,
-                          timer: settings?.discussion_time || 60
+                          timer: settings?.time_per_round || 30
                         })
                         .eq('id', roomId);
                     }
                   }
                 });
-            } else if (gameState === 'voting') {
-              // For voting state, move to results
+            } else if (gameState === 'discussion') {
+              // Move to voting phase when discussion time is up
               supabase
                 .from('game_rooms')
                 .update({ 
-                  state: 'results',
-                  timer: 0
+                  state: 'voting',
+                  timer: settings?.voting_time || 30,
+                  current_turn: 0
                 })
                 .eq('id', roomId);
             }

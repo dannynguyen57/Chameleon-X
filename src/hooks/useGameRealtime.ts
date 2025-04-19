@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { GameRoom, PlayerRole, GameState, GameMode } from '@/lib/types';
+import { GameRoom, PlayerRole, GameState, GameMode, GameSettings, Player } from '@/lib/types';
+import { GamePhase } from '@/types/GamePhase';
+import { Room } from '@/types/Room';
 import { toast } from '@/components/ui/use-toast';
 
 interface DatabasePlayer {
@@ -9,13 +11,18 @@ interface DatabasePlayer {
   room_id: string;
   role?: PlayerRole;
   is_host: boolean;
+  is_ready: boolean;
   turn_description?: string;
   vote?: string;
   last_active: string;
   last_updated: string;
+  is_protected?: boolean | null;
+  vote_multiplier?: number | null;
+  special_word?: string | null;
+  special_ability_used?: boolean | null;
 }
 
-interface DatabaseRoom {
+export interface DatabaseRoom {
   id: string;
   host_id: string;
   state: GameState;
@@ -31,68 +38,118 @@ interface DatabaseRoom {
   chaos_mode: boolean;
   time_per_round: number;
   voting_time: number;
-  settings?: {
-    roles?: Record<string, string[]>;
-    special_abilities?: boolean;
-  };
+  settings?: GameSettings | null;
   players: DatabasePlayer[];
   category?: string;
   secret_word?: string;
   chameleon_id?: string;
   timer?: number;
   current_turn?: number;
+  round_outcome?: string | null;
+  votes_tally?: { [playerId: string]: number } | null;
+  revealed_player_id?: string | null;
+  revealed_role?: PlayerRole | null;
   turn_order?: string[];
 }
 
+const DEFAULT_SETTINGS_REALTIME: GameSettings = {
+  max_players: 10,
+  discussion_time: 30,
+  max_rounds: 3,
+  game_mode: 'classic',
+  team_size: 2,
+  chaos_mode: false,
+  time_per_round: 30,
+  voting_time: 30,
+  roles: {
+    classic: [PlayerRole.Regular, PlayerRole.Chameleon],
+    creative: [
+      PlayerRole.Regular,
+      PlayerRole.Chameleon,
+      PlayerRole.Mimic,
+      PlayerRole.Oracle,
+      PlayerRole.Jester,
+      PlayerRole.Spy,
+      PlayerRole.Mirror,
+      PlayerRole.Whisperer,
+      PlayerRole.Timekeeper,
+      PlayerRole.Illusionist,
+      PlayerRole.Guardian,
+      PlayerRole.Trickster
+    ],
+    team: [
+      PlayerRole.Regular,
+      PlayerRole.Chameleon,
+      PlayerRole.Mimic,
+      PlayerRole.Guardian
+    ],
+    chaos: [
+      PlayerRole.Regular,
+      PlayerRole.Chameleon,
+      PlayerRole.Mimic,
+      PlayerRole.Jester,
+      PlayerRole.Spy,
+      PlayerRole.Mirror
+    ]
+  },
+  special_abilities: false
+};
+
 export const mapRoomData = (data: DatabaseRoom): GameRoom => {
-  if (!data) return null;
+  const settings = data.settings ?? DEFAULT_SETTINGS_REALTIME;
 
-  const safeDate = (dateStr: string) => {
-    try {
-      return new Date(dateStr).toISOString();
-    } catch (e) {
-      return new Date().toISOString();
-    }
-  };
-
-  // Sort players by their join order (using last_updated timestamp)
-  const sortedPlayers = [...data.players].sort((a, b) => 
-    new Date(a.last_updated).getTime() - new Date(b.last_updated).getTime()
-  );
+  const mappedPlayers: GameRoom['players'] = data.players.map((player): GameRoom['players'][number] => ({
+    id: player.id,
+    name: player.name,
+    is_host: player.is_host,
+    is_ready: player.is_ready || false,
+    vote: player.vote || null,
+    role: player.role as PlayerRole | undefined,
+    turn_description: player.turn_description || '',
+    last_active: player.last_active || new Date().toISOString(),
+    last_updated: player.last_updated || new Date().toISOString(),
+    room_id: player.room_id,
+    is_protected: player.is_protected ?? false,
+    vote_multiplier: player.vote_multiplier ?? 1,
+    special_word: player.special_word || undefined,
+    special_ability_used: player.special_ability_used ?? false,
+  }));
 
   return {
-    ...data,
-    players: sortedPlayers.map((player: DatabasePlayer) => ({
-      id: player.id,
-      name: player.name,
-      room_id: player.room_id,
-      role: player.role,
-      isHost: player.is_host,
-      turn_description: player.turn_description || '',
-      vote: player.vote || null,
-      last_active: safeDate(player.last_active),
-      last_updated: safeDate(player.last_updated),
-      severity: 0
-    })),
-    last_updated: safeDate(data.last_updated),
-    created_at: safeDate(data.created_at),
-    updated_at: safeDate(data.updated_at),
+    id: data.id,
+    host_id: data.host_id,
+    state: data.state as GameState,
+    round: data.round,
+    created_at: data.created_at,
+    updated_at: data.updated_at,
+    last_updated: data.last_updated,
+    max_players: data.max_players,
+    discussion_time: data.discussion_time,
+    max_rounds: data.max_rounds,
+    game_mode: data.game_mode as GameMode,
+    team_size: data.team_size,
+    chaos_mode: data.chaos_mode,
+    time_per_round: data.time_per_round,
+    voting_time: data.voting_time,
     settings: {
-      max_players: data.max_players,
-      discussion_time: data.discussion_time,
-      max_rounds: data.max_rounds,
-      game_mode: data.game_mode,
-      team_size: data.team_size,
-      chaos_mode: data.chaos_mode,
-      time_per_round: data.time_per_round,
-      voting_time: data.voting_time,
-      roles: data.settings?.roles || {},
-      special_abilities: data.settings?.special_abilities || false
-    }
+      ...DEFAULT_SETTINGS_REALTIME,
+      ...settings
+    },
+    players: mappedPlayers,
+    category: data.category || undefined,
+    secret_word: data.secret_word || undefined,
+    chameleon_id: data.chameleon_id || undefined,
+    timer: data.timer ?? undefined,
+    current_turn: data.current_turn ?? 0,
+    turn_order: data.turn_order || data.players.map(p => p.id),
+    round_outcome: data.round_outcome,
+    votes_tally: data.votes_tally,
+    revealed_player_id: data.revealed_player_id,
+    revealed_role: data.revealed_role as PlayerRole | null
   };
 };
 
-export const useGameRealtime = (roomId: string | undefined) => {
+export const useGameRealtime = (roomId: string | undefined): { room: GameRoom | null; isLoading: boolean; error: string | null } => {
   const [room, setRoom] = useState<GameRoom | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -103,63 +160,44 @@ export const useGameRealtime = (roomId: string | undefined) => {
     if (!roomId) return;
 
     try {
-      const { data, error } = await supabase
+      const { data, error: fetchErr } = await supabase
         .from('game_rooms')
-        .select(`
-          *,
-          players (
-            id,
-            name,
-            role,
-            is_host,
-            turn_description,
-            vote,
-            last_active,
-            last_updated
-          )
-        `)
+        .select('*, players!players_room_id_fkey (*)')
         .eq('id', roomId)
         .single();
 
-      if (error) throw error;
+      if (fetchErr) throw fetchErr;
 
       if (data) {
         const mappedRoom = mapRoomData(data as DatabaseRoom);
-        setRoom(mappedRoom);
+        setRoom(mappedRoom as unknown as GameRoom);
         setError(null);
         lastUpdateRef.current = Date.now();
       }
     } catch (err) {
-      console.error('Error fetching room data:', err);
-      setError('Failed to fetch room data');
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Failed to fetch room data. Please try again."
-      });
+      const error = err as Error;
+      console.error('Error fetching room data:', error);
+      setError('Failed to fetch room data: ' + error.message);
     } finally {
       setIsLoading(false);
     }
   }, [roomId]);
 
   useEffect(() => {
-    if (!roomId) return;
-
-    // Initial fetch
+    if (!roomId) {
+      setIsLoading(false);
+      setRoom(null);
+      return;
+    }
+    setIsLoading(true);
     fetchRoomData();
 
-    // Setup realtime subscription
     if (channelRef.current) {
       channelRef.current.unsubscribe();
     }
 
     const channel = supabase
-      .channel(`room:${roomId}`, {
-        config: {
-          broadcast: { self: true },
-          presence: { key: '' },
-        },
-      })
+      .channel(`room:${roomId}`)
       .on(
         'postgres_changes',
         {
@@ -170,7 +208,6 @@ export const useGameRealtime = (roomId: string | undefined) => {
         },
         async (payload) => {
           console.log('Room change detected:', payload);
-          // Only fetch if it's been more than 1 second since last update
           if (Date.now() - lastUpdateRef.current > 1000) {
             await fetchRoomData();
           }
@@ -186,7 +223,6 @@ export const useGameRealtime = (roomId: string | undefined) => {
         },
         async (payload) => {
           console.log('Player change detected:', payload);
-          // Force immediate update for player changes
           await fetchRoomData();
         }
       )
@@ -197,16 +233,14 @@ export const useGameRealtime = (roomId: string | undefined) => {
       .subscribe((status) => {
         console.log('Subscription status:', status);
         if (status === 'SUBSCRIBED') {
-          // Force an immediate fetch after successful subscription
           fetchRoomData();
         }
       });
 
     channelRef.current = channel;
 
-    // Add periodic sync check
     const syncInterval = setInterval(() => {
-      if (Date.now() - lastUpdateRef.current > 5000) { // 5 seconds
+      if (Date.now() - lastUpdateRef.current > 5000) {
         fetchRoomData();
       }
     }, 5000);

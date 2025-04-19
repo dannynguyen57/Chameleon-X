@@ -49,6 +49,12 @@ export interface Player {
   special_word?: string;
   special_ability_used?: boolean;
   timeout_at?: string;
+  protected_player_id?: string;
+  investigated_player_id?: string;
+  revealed_role?: PlayerRole;
+  team?: number;
+  is_illusionist?: boolean;
+  can_see_word?: boolean;
 }
 
 export enum GameState {

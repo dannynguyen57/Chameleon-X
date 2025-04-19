@@ -797,6 +797,34 @@ export const useGameActions = (
     }
   };
 
+  const setPlayerRole = async (playerId: string, role: PlayerRole) => {
+    if (!room) return false;
+
+    try {
+      const { error } = await supabase
+        .from('players')
+        .update({ 
+          role,
+          last_updated: new Date().toISOString()
+        })
+        .eq('id', playerId)
+        .eq('room_id', room.id);
+
+      if (error) throw error;
+
+      const updatedRoom = await fetchRoom(room.id);
+      if (updatedRoom) {
+        setRoom(updatedRoom);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Error setting player role:', error);
+      toast.error("Failed to update player role");
+      return false;
+    }
+  };
+
   return {
     createRoom,
     joinRoom,
@@ -809,5 +837,6 @@ export const useGameActions = (
     resetGame,
     updateSettings,
     handleRoleAbility,
+    setPlayerRole
   };
 };

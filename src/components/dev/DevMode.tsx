@@ -4,12 +4,24 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useGame } from '@/contexts/GameContext';
-import { PlayerRole } from '@/lib/types';
+import { PlayerRole, GameMode } from '@/lib/types';
 import { toast } from '@/components/ui/use-toast';
 import { Slider } from "@/components/ui/slider";
+import { useGameActions } from '@/hooks/useGameActions';
 
 export default function DevMode() {
   const { room, playerId, setRoom } = useGame();
+  const defaultSettings = {
+    max_players: 10,
+    discussion_time: 30,
+    max_rounds: 3,
+    game_mode: 'classic' as GameMode,
+    team_size: 2,
+    chaos_mode: false,
+    time_per_round: 30,
+    voting_time: 30
+  };
+  const { setPlayerRole } = useGameActions(playerId, room, room?.settings || defaultSettings, setRoom);
   const [devSettings, setDevSettings] = useState({
     timeScale: 1,
     autoFillDescriptions: false,
@@ -72,24 +84,17 @@ export default function DevMode() {
     });
   };
 
-  const handleSetTestRole = (role: PlayerRole) => {
-    if (!room.players) return;
-
-    const updatedPlayers = room.players.map(player => {
-      if (player.id === playerId) {
-        return {
-          ...player,
-          role
-        };
-      }
-      return player;
-    });
-
-    setRoom({ ...room, players: updatedPlayers });
-    toast({
-      title: "Role changed",
-      description: `Your role is now ${role}`
-    });
+  const handleSetTestRole = async (role: PlayerRole) => {
+    if (!playerId) return;
+    
+    const success = await setPlayerRole(playerId, role);
+    if (success) {
+      setDevSettings({ ...devSettings, testRole: role });
+      toast({
+        title: "Role changed",
+        description: `Your role is now ${role}`
+      });
+    }
   };
 
   return (

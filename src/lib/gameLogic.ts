@@ -153,6 +153,10 @@ export const handleGameStateTransition = async (
      case GameState.Lobby: {
        const nextStateConst = GameState.Selecting;
        determinedNextState = nextStateConst;
+       
+       // Assign roles before transitioning to Selecting state
+       await assignRoles(roomId, room.players);
+       
        updateData = { 
          state: nextStateConst,
          round: 1,

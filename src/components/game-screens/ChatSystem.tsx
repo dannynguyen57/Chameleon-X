@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { supabase } from '@/integrations/supabase/client';
-import { ChatMessage } from '@/lib/types';
+import { ChatMessage, GameState } from '@/lib/types';
 
 export default function ChatSystem() {
   const { room, playerId } = useGame();
@@ -108,6 +108,8 @@ export default function ChatSystem() {
     setIsHint(false);
   };
 
+  const isChatDisabled = room?.state === GameState.Voting;
+
   return (
     <div className="flex flex-col h-[600px]">
       <ScrollArea ref={scrollRef} className="flex-1 p-4">
@@ -144,30 +146,38 @@ export default function ChatSystem() {
         </div>
       </ScrollArea>
       <div className="p-4 border-t">
-        <div className="flex items-center gap-2 mb-2">
-          <Checkbox
-            id="is-hint"
-            checked={isHint}
-            onCheckedChange={(checked) => setIsHint(checked as boolean)}
-          />
-          <label htmlFor="is-hint" className="text-sm">
-            Mark as hint
-          </label>
-        </div>
-        <div className="flex gap-2">
-          <Input
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            placeholder="Type your message..."
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSendMessage();
-              }
-            }}
-          />
-          <Button onClick={handleSendMessage}>Send</Button>
-        </div>
+        {isChatDisabled ? (
+          <div className="text-center text-muted-foreground">
+            Chat is disabled during voting phase
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 mb-2">
+              <Checkbox
+                id="is-hint"
+                checked={isHint}
+                onCheckedChange={(checked) => setIsHint(checked as boolean)}
+              />
+              <label htmlFor="is-hint" className="text-sm">
+                Mark as hint
+              </label>
+            </div>
+            <div className="flex gap-2">
+              <Input
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                placeholder="Type your message..."
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }
+                }}
+              />
+              <Button onClick={handleSendMessage}>Send</Button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

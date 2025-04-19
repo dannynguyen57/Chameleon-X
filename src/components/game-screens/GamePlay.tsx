@@ -15,19 +15,193 @@ import { useGameSounds } from "@/hooks/useGameSounds";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sheet, SheetContent, SheetTrigger, SheetClose } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { PlayerRole } from "@/lib/types";
+import { GamePhase } from '@/types/GamePhase';
+import { gameService } from '@/services';
+import { useGameActions } from "@/hooks/useGameActions";
+import { toast } from "@/components/ui/use-toast";
 
 export default function GamePlay() {
-  const { room, isPlayerChameleon, remainingTime, settings, playerId } = useGame();
+  const { room, isPlayerChameleon, remainingTime, settings, playerId, setRoom } = useGame();
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isTurnDialogOpen, setIsTurnDialogOpen] = useState(false);
   const [turnDescription, setTurnDescription] = useState('');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   useGameSounds();
 
+  const { submitWord } = useGameActions(playerId, room, settings, setRoom);
+
   const getPlayerRoleIcon = useMemo(() => (role?: string) => {
-    // Always return a generic icon to hide roles
+    // Only show role icon to the player themselves
+    if (playerId === room?.players.find(p => p.id === playerId)?.id) {
+      switch (role) {
+        case PlayerRole.Chameleon:
+          return '🦎';
+        case PlayerRole.Mimic:
+          return '🔄';
+        case PlayerRole.Oracle:
+          return '🔍';
+        case PlayerRole.Jester:
+          return '🤡';
+        case PlayerRole.Spy:
+          return '🕵️';
+        case PlayerRole.Mirror:
+          return '🪞';
+        case PlayerRole.Whisperer:
+          return '🗣️';
+        case PlayerRole.Timekeeper:
+          return '⏱️';
+        case PlayerRole.Illusionist:
+          return '🎭';
+        case PlayerRole.Guardian:
+          return '🛡️';
+        case PlayerRole.Trickster:
+          return '🎪';
+        case PlayerRole.Regular:
+        default:
+          return '👤';
+      }
+    }
     return '👤';
-  }, []);
+  }, [playerId, room?.players]);
+
+  const getRoleTheme = useMemo(() => (role?: string) => {
+    // Only show role theme to the player themselves
+    if (playerId === room?.players.find(p => p.id === playerId)?.id) {
+      switch (role) {
+        case PlayerRole.Chameleon:
+          return {
+            bg: "bg-red-50/50 dark:bg-red-950/20",
+            border: "border-red-500/20",
+            button: "bg-red-500 hover:bg-red-600",
+            card: "bg-red-100/50 dark:bg-red-900/20",
+            text: "text-red-500 dark:text-red-400",
+            icon: "🦎",
+            name: "Chameleon"
+          };
+        case PlayerRole.Mimic:
+          return {
+            bg: "bg-purple-50/50 dark:bg-purple-950/20",
+            border: "border-purple-500/20",
+            button: "bg-purple-500 hover:bg-purple-600",
+            card: "bg-purple-100/50 dark:bg-purple-900/20",
+            text: "text-purple-500 dark:text-purple-400",
+            icon: "🔄",
+            name: "Mimic"
+          };
+        case PlayerRole.Oracle:
+          return {
+            bg: "bg-blue-50/50 dark:bg-blue-950/20",
+            border: "border-blue-500/20",
+            button: "bg-blue-500 hover:bg-blue-600",
+            card: "bg-blue-100/50 dark:bg-blue-900/20",
+            text: "text-blue-500 dark:text-blue-400",
+            icon: "🔍",
+            name: "Oracle"
+          };
+        case PlayerRole.Jester:
+          return {
+            bg: "bg-yellow-50/50 dark:bg-yellow-950/20",
+            border: "border-yellow-500/20",
+            button: "bg-yellow-500 hover:bg-yellow-600",
+            card: "bg-yellow-100/50 dark:bg-yellow-900/20",
+            text: "text-yellow-500 dark:text-yellow-400",
+            icon: "🤡",
+            name: "Jester"
+          };
+        case PlayerRole.Spy:
+          return {
+            bg: "bg-gray-50/50 dark:bg-gray-950/20",
+            border: "border-gray-500/20",
+            button: "bg-gray-500 hover:bg-gray-600",
+            card: "bg-gray-100/50 dark:bg-gray-900/20",
+            text: "text-gray-500 dark:text-gray-400",
+            icon: "🕵️",
+            name: "Spy"
+          };
+        case PlayerRole.Mirror:
+          return {
+            bg: "bg-indigo-50/50 dark:bg-indigo-950/20",
+            border: "border-indigo-500/20",
+            button: "bg-indigo-500 hover:bg-indigo-600",
+            card: "bg-indigo-100/50 dark:bg-indigo-900/20",
+            text: "text-indigo-500 dark:text-indigo-400",
+            icon: "🪞",
+            name: "Mirror"
+          };
+        case PlayerRole.Whisperer:
+          return {
+            bg: "bg-pink-50/50 dark:bg-pink-950/20",
+            border: "border-pink-500/20",
+            button: "bg-pink-500 hover:bg-pink-600",
+            card: "bg-pink-100/50 dark:bg-pink-900/20",
+            text: "text-pink-500 dark:text-pink-400",
+            icon: "🗣️",
+            name: "Whisperer"
+          };
+        case PlayerRole.Timekeeper:
+          return {
+            bg: "bg-cyan-50/50 dark:bg-cyan-950/20",
+            border: "border-cyan-500/20",
+            button: "bg-cyan-500 hover:bg-cyan-600",
+            card: "bg-cyan-100/50 dark:bg-cyan-900/20",
+            text: "text-cyan-500 dark:text-cyan-400",
+            icon: "⏱️",
+            name: "Timekeeper"
+          };
+        case PlayerRole.Illusionist:
+          return {
+            bg: "bg-violet-50/50 dark:bg-violet-950/20",
+            border: "border-violet-500/20",
+            button: "bg-violet-500 hover:bg-violet-600",
+            card: "bg-violet-100/50 dark:bg-violet-900/20",
+            text: "text-violet-500 dark:text-violet-400",
+            icon: "🎭",
+            name: "Illusionist"
+          };
+        case PlayerRole.Guardian:
+          return {
+            bg: "bg-emerald-50/50 dark:bg-emerald-950/20",
+            border: "border-emerald-500/20",
+            button: "bg-emerald-500 hover:bg-emerald-600",
+            card: "bg-emerald-100/50 dark:bg-emerald-900/20",
+            text: "text-emerald-500 dark:text-emerald-400",
+            icon: "🛡️",
+            name: "Guardian"
+          };
+        case PlayerRole.Trickster:
+          return {
+            bg: "bg-amber-50/50 dark:bg-amber-950/20",
+            border: "border-amber-500/20",
+            button: "bg-amber-500 hover:bg-amber-600",
+            card: "bg-amber-100/50 dark:bg-amber-900/20",
+            text: "text-amber-500 dark:text-amber-400",
+            icon: "🎪",
+            name: "Trickster"
+          };
+        case PlayerRole.Regular:
+        default:
+          return {
+            bg: "bg-green-50/50 dark:bg-green-950/20",
+            border: "border-green-500/20",
+            button: "bg-green-500 hover:bg-green-600",
+            card: "bg-green-100/50 dark:bg-green-900/20",
+            text: "text-green-500 dark:text-green-400",
+            icon: "👤",
+            name: "Regular"
+          };
+      }
+    }
+    return {
+      bg: "",
+      border: "border-primary/20",
+      button: "",
+      card: "bg-primary/10",
+      text: "",
+      icon: "👤",
+      name: "Player"
+    };
+  }, [playerId, room?.players]);
 
   if (!room || !room.category) return null;
 
@@ -39,6 +213,8 @@ export default function GamePlay() {
   const currentPlayer = room.players[room.current_turn || 0];
   const isCurrentPlayer = currentPlayer?.id === playerId;
   const isLastPlayer = room.current_turn === room.players.length - 1;
+  const playerRole = room.players.find(p => p.id === playerId)?.role;
+  const roleTheme = getRoleTheme(playerRole);
 
   // Sort players by their turn order
   const sortedPlayers = [...room.players].sort((a, b) => {
@@ -48,52 +224,37 @@ export default function GamePlay() {
   });
 
   const handleSubmitTurn = async () => {
-    if (!turnDescription.trim()) return;
+    if (!room || !playerId || !turnDescription.trim()) return;
 
     try {
-      const { error } = await supabase
-        .from('players')
-        .update({ 
-          turn_description: turnDescription,
-          last_active: new Date().toISOString()
-        })
-        .eq('id', playerId)
-        .eq('room_id', room.id);
-
-      if (error) {
-        console.error('Error submitting turn:', error);
-        return;
+      // Use submitWord from useGameActions
+      const success = await submitWord(turnDescription.trim());
+      if (success) {
+        setIsTurnDialogOpen(false);
+        setTurnDescription('');
+        
+        // Check if all players have submitted their descriptions
+        const allPlayersSubmitted = room.players.every(p => p.turn_description);
+        if (allPlayersSubmitted) {
+          // Move to discussion phase
+          await gameService.updateGamePhase(room.id, GamePhase.Discussion);
+        }
       }
-
-      if (isLastPlayer) {
-        await supabase
-          .from('game_rooms')
-          .update({ 
-            state: 'voting',
-            timer: settings.voting_time,
-            current_turn: 0
-          })
-          .eq('id', room.id);
-      } else {
-        const nextTurn = (room.current_turn || 0) + 1;
-        await supabase
-          .from('game_rooms')
-          .update({ 
-            current_turn: nextTurn,
-            timer: settings.discussion_time
-          })
-          .eq('id', room.id);
-      }
-
-      setIsTurnDialogOpen(false);
-      setTurnDescription('');
     } catch (error) {
-      console.error('Error in handleSubmitTurn:', error);
+      console.error('Error submitting turn:', error);
+      toast({
+        variant: "destructive",
+        title: "Error submitting turn",
+        description: "Failed to submit your turn. Please try again."
+      });
     }
   };
 
   return (
-    <div className="container mx-auto p-1 sm:p-2 space-y-2 sm:space-y-4">
+    <div className={cn(
+      "container mx-auto p-1 sm:p-2 space-y-2 sm:space-y-4",
+      roleTheme.bg
+    )}>
       {/* Mobile Menu Button */}
       <div className="lg:hidden flex justify-between items-center mb-2">
         <Button 
@@ -155,31 +316,37 @@ export default function GamePlay() {
 
               <div className="space-y-2">
                 <h3 className="font-medium">Players</h3>
-                {sortedPlayers.map((player) => (
-                  <div key={player.id} className="flex items-center gap-2 p-2 rounded-lg bg-muted/50">
-                    <Avatar className="h-8 w-8">
-                      <AvatarFallback>👤</AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">{player.name}</span>
-                        {player.id === playerId && (
-                          <Badge variant="outline">
-                            {isPlayerChameleon ? 'Chameleon' : 'Regular'}
-                          </Badge>
-                        )}
-                        {player.id === room.host_id && (
-                          <Badge variant="secondary">Host</Badge>
+                {sortedPlayers.map((player) => {
+                  const playerRoleTheme = getRoleTheme(player.role);
+                  return (
+                    <div key={player.id} className={cn(
+                      "flex items-center gap-2 p-2 rounded-lg",
+                      playerRoleTheme.card
+                    )}>
+                      <Avatar className="h-8 w-8">
+                        <AvatarFallback>{playerRoleTheme.icon}</AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{player.name}</span>
+                          {player.id === playerId && (
+                            <Badge variant={playerRole === PlayerRole.Chameleon ? "destructive" : playerRole === PlayerRole.Oracle ? "default" : "outline"}>
+                              {playerRoleTheme.name}
+                            </Badge>
+                          )}
+                          {player.id === room.host_id && (
+                            <Badge variant="secondary">Host</Badge>
+                          )}
+                        </div>
+                        {player.turn_description && (
+                          <p className="text-xs text-muted-foreground mt-1 italic">
+                            "{player.turn_description}"
+                          </p>
                         )}
                       </div>
-                      {player.turn_description && (
-                        <p className="text-xs text-muted-foreground mt-1 italic">
-                          "{player.turn_description}"
-                        </p>
-                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               <Button 
@@ -200,7 +367,10 @@ export default function GamePlay() {
       {/* Main Game Area */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 sm:gap-4">
         <div className={`lg:col-span-2 space-y-2 sm:space-y-4 ${isChatOpen ? 'hidden lg:block' : ''}`}>
-          <Card className="border-2 border-primary/20 shadow-lg overflow-hidden">
+          <Card className={cn(
+            "border-2 shadow-lg overflow-hidden",
+            roleTheme.border
+          )}>
             <CardHeader className="p-2 sm:p-4">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                 <div>
@@ -217,15 +387,24 @@ export default function GamePlay() {
                     )}
                   </div>
                 </div>
+                {room.state === 'presenting' && (
+                  <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                    <Clock className="h-4 w-4" />
+                    <span>{remainingTime}s</span>
+                  </div>
+                )}
               </div>
             </CardHeader>
             <CardContent className="p-2 sm:p-4 space-y-2 sm:space-y-4">
               {/* Current Player's Turn */}
-              <div className="bg-primary/10 p-2 sm:p-3 rounded-lg">
+              <div className={cn(
+                "p-2 sm:p-3 rounded-lg",
+                roleTheme.card
+              )}>
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <Avatar className="h-8 w-8 sm:h-10 sm:w-10">
-                      <AvatarFallback>👤</AvatarFallback>
+                      <AvatarFallback>{getPlayerRoleIcon(currentPlayer?.role)}</AvatarFallback>
                     </Avatar>
                     <div>
                       <h3 className="text-sm sm:text-base font-medium">
@@ -233,7 +412,11 @@ export default function GamePlay() {
                       </h3>
                       <p className="text-xs sm:text-sm text-muted-foreground">
                         {isCurrentPlayer 
-                          ? "Click to describe the word"
+                          ? (isPlayerChameleon 
+                              ? "You are the Chameleon! Try to blend in..."
+                              : playerRole === PlayerRole.Oracle
+                                ? "You are a Detective! Give a clear hint about the word."
+                                : "Click to describe the word")
                           : "Waiting for their description..."}
                       </p>
                       {currentPlayer?.turn_description && (
@@ -246,7 +429,10 @@ export default function GamePlay() {
                   {isCurrentPlayer && !currentPlayer?.turn_description && (
                     <Button 
                       onClick={() => setIsTurnDialogOpen(true)} 
-                      className="w-full sm:w-auto text-xs sm:text-sm"
+                      className={cn(
+                        "w-full sm:w-auto text-xs sm:text-sm",
+                        roleTheme.button
+                      )}
                     >
                       Describe Word
                     </Button>
@@ -282,12 +468,17 @@ export default function GamePlay() {
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 10 }}
-                  className="bg-secondary/10 p-2 rounded-lg text-center"
+                  className={cn(
+                    "p-2 rounded-lg text-center",
+                    roleTheme.card
+                  )}
                 >
                   <p className="text-xs sm:text-sm font-medium">
                     {isPlayerChameleon 
-                      ? "You are the Chameleon! Try to blend in..."
-                      : `The word is "${room.secret_word}". Describe it without saying it!`}
+                      ? "You are the Chameleon! Try to blend in by giving a vague description that could fit any word in this category. 🦎"
+                      : playerRole === PlayerRole.Oracle
+                        ? `You are a Detective! The word is "${room.secret_word}". Give a clear hint without saying it directly! 🔍`
+                        : `The word is "${room.secret_word}". Describe it without saying it!`}
                   </p>
                 </motion.div>
               )}

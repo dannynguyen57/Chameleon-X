@@ -4,6 +4,8 @@ import { categories } from '@/lib/word-categories';
 import { GameRoom, GameSettings } from '@/lib/types';
 import { useEffect, useCallback } from 'react';
 import { mapRoomData } from '@/hooks/useGameRealtime';
+import { PlayerRole } from '@/lib/types';
+import { Player } from '@/lib/types';
 
 export const useGameActions = (
   playerId: string,
@@ -213,20 +215,100 @@ export const useGameActions = (
       const chameleonIndex = Math.floor(Math.random() * room.players.length);
       const chameleonId = room.players[chameleonIndex].id;
 
-      // First update all players' roles
-      const playerUpdates = room.players.map(player => ({
-        id: player.id,
-        role: player.id === chameleonId ? 'chameleon' : 'regular',
-        turn_description: null,
-        vote: null,
-        last_active: new Date().toISOString()
-      }));
+      // Get available roles for current game mode
+      const availableRoles = room.settings.roles?.[room.settings.game_mode] || [PlayerRole.Regular, PlayerRole.Chameleon];
+      
+      // First update all players' roles and words
+      const playerUpdates = room.players.map(player => {
+        let role = PlayerRole.Regular;
+        let specialWord = secretWord;
+        const specialAbilityUsed = false;
+
+        // Assign roles based on game mode
+        if (room.settings.game_mode === 'classic') {
+          role = player.id === chameleonId ? PlayerRole.Chameleon : PlayerRole.Regular;
+        } else {
+          // For other modes, randomly assign roles from available roles
+          const randomRoleIndex = Math.floor(Math.random() * availableRoles.length);
+          role = availableRoles[randomRoleIndex];
+          
+          // Handle special words and abilities for each role
+          switch (role) {
+            case PlayerRole.Mimic: {
+              // Find a similar word from the same category
+              const similarWords = allWords.filter(w => 
+                w.category === selectedCategory && 
+                w.word !== secretWord
+              );
+              if (similarWords.length > 0) {
+                specialWord = similarWords[Math.floor(Math.random() * similarWords.length)].word;
+              }
+              break;
+            }
+            case PlayerRole.Chameleon:
+              specialWord = ''; // Doesn't know the word
+              break;
+            case PlayerRole.Oracle:
+              // Oracle knows the word and can see who the chameleon is
+              specialWord = secretWord;
+              break;
+            case PlayerRole.Jester:
+              // Jester wins if voted as chameleon
+              specialWord = secretWord;
+              break;
+            case PlayerRole.Spy:
+              // Spy knows the word but must pretend they don't
+              specialWord = secretWord;
+              break;
+            case PlayerRole.Mirror:
+              // Mirror must repeat what the previous player said
+              specialWord = secretWord;
+              break;
+            case PlayerRole.Whisperer:
+              // Whisperer can secretly communicate with one other player
+              specialWord = secretWord;
+              break;
+            case PlayerRole.Timekeeper:
+              // Timekeeper can extend or reduce the timer once
+              specialWord = secretWord;
+              break;
+            case PlayerRole.Illusionist:
+              // Illusionist can make one player's vote count double
+              specialWord = secretWord;
+              break;
+            case PlayerRole.Guardian:
+              // Guardian can protect one player from being voted
+              specialWord = secretWord;
+              break;
+            case PlayerRole.Trickster:
+              // Trickster can swap roles with another player once
+              specialWord = secretWord;
+              break;
+            case PlayerRole.Regular:
+            default:
+              specialWord = secretWord;
+              break;
+          }
+        }
+
+        return {
+          id: player.id,
+          role,
+          specialWord,
+          specialAbilityUsed,
+          turn_description: null,
+          vote: null,
+          last_active: new Date().toISOString()
+        };
+      });
 
       for (const update of playerUpdates) {
         const { error: playerError } = await supabase
           .from('players')
           .update({
             role: update.role,
+            special_word: update.specialWord,
+            special_ability_used: update.specialAbilityUsed,
             turn_description: update.turn_description,
             vote: update.vote,
             last_active: update.last_active
@@ -312,17 +394,17 @@ export const useGameActions = (
     }
   };
 
-  const handleError = (error: Error | { message: string }, action: string) => {
-    console.error(`Error in ${action}:`, error);
-    toast({
-      variant: "destructive",
-      title: `Failed to ${action}`,
-      description: error.message || 'Unknown error'
-    });
-    return false;
-  };
-
   const submitWord = useCallback(async (word: string) => {
+    const handleError = (error: Error | { message: string }, action: string) => {
+      console.error(`Error in ${action}:`, error);
+      toast({
+        variant: "destructive",
+        title: `Failed to ${action}`,
+        description: error.message || 'Unknown error'
+      });
+      return false;
+    };
+
     if (!room || !playerId) {
       toast({
         variant: "destructive",
@@ -366,7 +448,8 @@ export const useGameActions = (
         .from('players')
         .update({ 
           turn_description: word,
-          last_active: new Date().toISOString()
+          last_active: new Date().toISOString(),
+          last_updated: new Date().toISOString()
         })
         .eq('id', playerId)
         .eq('room_id', room.id);
@@ -375,26 +458,58 @@ export const useGameActions = (
         return handleError(updateError, 'update player word');
       }
 
-      // Check if this is the last player
+      // Check if all players have submitted
       const allPlayersSubmitted = room.players.every(p => p.turn_description);
       if (allPlayersSubmitted) {
-        // Move to voting phase
-        const { error: stateError } = await supabase
+        // Move to discussion phase first
+        const { error: discussionError } = await supabase
           .from('game_rooms')
           .update({ 
-            state: 'voting',
-            timer: settings.voting_time,
-            current_turn: 0
+            state: 'discussion',
+            timer: settings.discussion_time,
+            last_updated: new Date().toISOString()
           })
           .eq('id', room.id);
 
-        if (stateError) {
-          return handleError(stateError, 'update game state to voting');
+        if (discussionError) {
+          return handleError(discussionError, 'update game state to discussion');
         }
+
+        // Set up a timer to move to voting phase after discussion
+        setTimeout(async () => {
+          const { error: votingError } = await supabase
+            .from('game_rooms')
+            .update({ 
+              state: 'voting',
+              timer: settings.voting_time,
+              last_updated: new Date().toISOString()
+            })
+            .eq('id', room.id);
+
+          if (votingError) {
+            console.error('Error moving to voting phase:', votingError);
+          }
+        }, settings.discussion_time * 1000);
       } else {
-        // Move to next player in the turn order
-        const currentIndex = room.players.findIndex(p => p.id === playerId);
-        const nextIndex = (currentIndex + 1) % room.players.length;
+        // Find the next player who hasn't described yet
+        let nextIndex = -1;
+        for (let i = 0; i < room.players.length; i++) {
+          const player = room.players[i];
+          if (!player.turn_description) {
+            nextIndex = i;
+            break;
+          }
+        }
+
+        // If no player found without description, something went wrong
+        if (nextIndex === -1) {
+          toast({
+            variant: "destructive",
+            title: "Error",
+            description: "Could not find next player"
+          });
+          return false;
+        }
 
         // Force refresh room data before updating turn
         const { data: updatedRoom, error: fetchError } = await supabase
@@ -429,7 +544,8 @@ export const useGameActions = (
             .from('game_rooms')
             .update({ 
               current_turn: nextIndex,
-              timer: settings.discussion_time
+              timer: settings.discussion_time,
+              last_updated: new Date().toISOString()
             })
             .eq('id', room.id);
 
@@ -476,7 +592,7 @@ export const useGameActions = (
     } catch (error) {
       return handleError(error, 'submit word');
     }
-  }, [room, playerId, settings, setRoom, handleError, toast]);
+  }, [room, playerId, settings, setRoom, toast]);
 
   const submitVote = async (targetPlayerId: string) => {
     if (!room || !playerId) return;
@@ -735,25 +851,181 @@ export const useGameActions = (
   const updateSettings = async (newSettings: GameSettings) => {
     if (!room) return;
 
-    const { error } = await supabase
-      .from('game_rooms')
-      .update({
-        max_rounds: newSettings.max_rounds,
-        discussion_time: newSettings.discussion_time,
-        game_mode: newSettings.game_mode,
-        max_players: newSettings.max_players,
-        team_size: newSettings.team_size,
-        chaos_mode: newSettings.chaos_mode,
-        time_per_round: newSettings.time_per_round,
-        voting_time: newSettings.voting_time
-      })
-      .eq('id', room.id);
+    try {
+      // Update the room settings
+      const { error: updateError } = await supabase
+        .from('game_rooms')
+        .update({
+          settings: {
+            ...newSettings,
+            discussion_time: newSettings.discussion_time,
+            voting_time: newSettings.voting_time,
+            game_mode: newSettings.game_mode,
+            max_rounds: newSettings.max_rounds,
+            max_players: newSettings.max_players,
+            team_size: newSettings.team_size,
+            chaos_mode: newSettings.chaos_mode,
+            time_per_round: newSettings.time_per_round
+          },
+          timer: newSettings.discussion_time,
+          last_updated: new Date().toISOString()
+        })
+        .eq('id', room.id);
 
-    if (error) {
+      if (updateError) {
+        toast({
+          variant: "destructive",
+          title: "Error updating settings",
+          description: updateError.message
+        });
+        return;
+      }
+
+      // Update all players' roles based on new settings
+      const availableRoles = newSettings.roles?.[newSettings.game_mode] || [PlayerRole.Regular];
+      const defaultRole = availableRoles.includes(PlayerRole.Regular) ? PlayerRole.Regular : availableRoles[0];
+      
+      const { error: roleError } = await supabase
+        .from('players')
+        .update({
+          role: defaultRole,
+          last_updated: new Date().toISOString()
+        })
+        .eq('room_id', room.id);
+
+      if (roleError) {
+        toast({
+          variant: "destructive",
+          title: "Error updating roles",
+          description: roleError.message
+        });
+        return;
+      }
+
+      // Force refresh room data to get updated settings
+      const { data: updatedRoom, error: fetchError } = await supabase
+        .from('game_rooms')
+        .select(`
+          *,
+          players (
+            id,
+            name,
+            room_id,
+            role,
+            is_host,
+            turn_description,
+            vote,
+            last_active,
+            last_updated
+          )
+        `)
+        .eq('id', room.id)
+        .single();
+
+      if (fetchError) {
+        toast({
+          variant: "destructive",
+          title: "Error fetching updated settings",
+          description: fetchError.message
+        });
+        return;
+      }
+
+      if (updatedRoom) {
+        const mappedRoom = mapRoomData(updatedRoom);
+        setRoom(mappedRoom);
+      }
+
+      toast({
+        title: "Settings Updated",
+        description: "Game settings have been successfully updated"
+      });
+    } catch (error) {
       toast({
         variant: "destructive",
         title: "Error updating settings",
-        description: error.message
+        description: "An unexpected error occurred"
+      });
+    }
+  };
+
+  const handleSpecialAbility = async (roomId: string, playerId: string, targetPlayerId?: string) => {
+    if (!room) return;
+
+    const player = room.players.find(p => p.id === playerId);
+    if (!player || player.specialAbilityUsed) return;
+
+    try {
+      let newTimer: number;
+      let targetPlayer: Player | undefined;
+
+      switch (player.role) {
+        case PlayerRole.Timekeeper:
+          // Extend or reduce timer by 30 seconds
+          newTimer = (room.timer || 0) + 30;
+          await supabase
+            .from('game_rooms')
+            .update({ timer: newTimer })
+            .eq('id', roomId);
+          break;
+
+        case PlayerRole.Illusionist:
+          // Make target player's vote count double
+          if (!targetPlayerId) return;
+          await supabase
+            .from('players')
+            .update({ vote_multiplier: 2 })
+            .eq('id', targetPlayerId)
+            .eq('room_id', roomId);
+          break;
+
+        case PlayerRole.Guardian:
+          // Protect target player from being voted
+          if (!targetPlayerId) return;
+          await supabase
+            .from('players')
+            .update({ is_protected: true })
+            .eq('id', targetPlayerId)
+            .eq('room_id', roomId);
+          break;
+
+        case PlayerRole.Trickster:
+          // Swap roles with target player
+          if (!targetPlayerId) return;
+          targetPlayer = room.players.find(p => p.id === targetPlayerId);
+          if (!targetPlayer) return;
+
+          await supabase
+            .from('players')
+            .update([
+              { id: playerId, role: targetPlayer.role, special_word: targetPlayer.specialWord },
+              { id: targetPlayerId, role: player.role, special_word: player.specialWord }
+            ])
+            .eq('room_id', roomId);
+          break;
+
+        case PlayerRole.Whisperer:
+          // Send secret message to target player
+          if (!targetPlayerId) return;
+          // This will be handled in the chat system
+          break;
+      }
+
+      // Mark ability as used
+      await supabase
+        .from('players')
+        .update({ special_ability_used: true })
+        .eq('id', playerId)
+        .eq('room_id', roomId);
+
+      // Refresh room data
+      await fetchRoom();
+    } catch (error) {
+      console.error('Error using special ability:', error);
+      toast({
+        variant: "destructive",
+        title: "Error using ability",
+        description: "Failed to use special ability"
       });
     }
   };
@@ -768,6 +1040,7 @@ export const useGameActions = (
     nextRound,
     leaveRoom,
     resetGame,
-    updateSettings
+    updateSettings,
+    handleSpecialAbility
   };
 };

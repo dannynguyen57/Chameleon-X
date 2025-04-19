@@ -104,6 +104,7 @@ export type GameContextType = {
   remainingTime: number | null;
   playerName: string;
   setPlayerName: (name: string) => void;
+  setRoom: (room: GameRoom | null) => void;
 };
 
 export const GameContext = createContext<GameContextType | null>(null);
@@ -480,7 +481,11 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
             discussion_time: newSettings.discussion_time,
             time_per_round: newSettings.time_per_round,
             voting_time: newSettings.voting_time
-          }
+          },
+          discussion_time: newSettings.discussion_time,
+          time_per_round: newSettings.time_per_round,
+          voting_time: newSettings.voting_time,
+          timer: newSettings.discussion_time
         })
         .eq('id', room.id);
 
@@ -503,7 +508,11 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
           discussion_time: newSettings.discussion_time,
           time_per_round: newSettings.time_per_round,
           voting_time: newSettings.voting_time
-        }
+        },
+        discussion_time: newSettings.discussion_time,
+        time_per_round: newSettings.time_per_round,
+        voting_time: newSettings.voting_time,
+        timer: newSettings.discussion_time
       };
       setRoom(updatedRoom);
       roomRef.current = updatedRoom;
@@ -535,7 +544,8 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
     remainingTime,
     playerName,
     setPlayerName,
-    updateSettings
+    updateSettings,
+    setRoom
   }), [
     playerId,
     room,
@@ -547,7 +557,8 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
     isPlayerChameleon,
     remainingTime,
     playerName,
-    updateSettings
+    updateSettings,
+    setRoom
   ]);
 
   return (

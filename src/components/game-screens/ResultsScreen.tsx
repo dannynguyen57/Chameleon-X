@@ -1,10 +1,10 @@
-
 import { useState } from "react";
 import { useGame } from "@/contexts/GameContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { User, Crown, ThumbsUp, ThumbsDown } from "lucide-react";
+import { PlayerRole } from "@/lib/types";
 
 export default function ResultsScreen() {
   const { room, nextRound, playerId, isPlayerChameleon, resetGame } = useGame();
@@ -12,7 +12,7 @@ export default function ResultsScreen() {
   const [hasGuessed, setHasGuessed] = useState<boolean>(false);
   const [guessCorrect, setGuessCorrect] = useState<boolean | null>(null);
   
-  if (!room || !room.chameleonId || !room.secretWord) return null;
+  if (!room || !room.chameleon_id || !room.secret_word) return null;
   
   // Tally votes
   const votes: Record<string, number> = {};
@@ -28,18 +28,22 @@ export default function ResultsScreen() {
   );
   
   const mostVotedPlayer = sortedPlayers[0];
-  const chameleonCaught = mostVotedPlayer?.id === room.chameleonId;
-  const chameleonPlayer = room.players.find(p => p.id === room.chameleonId);
-  const isHost = playerId === room.hostId;
+  const chameleonCaught = mostVotedPlayer?.id === room.chameleon_id;
+  const chameleonPlayer = room.players.find(p => p.id === room.chameleon_id);
+  const isHost = playerId === room.host_id;
+  
+  // Check if Jester won
+  const jesterPlayer = room.players.find(p => p.role === PlayerRole.Jester);
+  const jesterWon = jesterPlayer && mostVotedPlayer?.id === jesterPlayer.id;
   
   const handleChameleonGuess = () => {
-    const isCorrect = chameleonGuess.toLowerCase().trim() === room.secretWord?.toLowerCase().trim();
+    const isCorrect = chameleonGuess.toLowerCase().trim() === room.secret_word?.toLowerCase().trim();
     setGuessCorrect(isCorrect);
     setHasGuessed(true);
   };
   
   const handleNextRound = () => {
-    if (room.round >= room.maxRounds) {
+    if (room.round >= room.max_rounds) {
       resetGame();
     } else {
       nextRound();
@@ -52,31 +56,14 @@ export default function ResultsScreen() {
         <CardHeader>
           <CardTitle className="text-2xl">Round Results</CardTitle>
           <CardDescription>
-            The votes are in!
+            {jesterWon 
+              ? "The Jester has won by being voted as the Chameleon! 🤡"
+              : chameleonCaught
+                ? "The Chameleon was caught!"
+                : "The Chameleon escaped!"}
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Chameleon Reveal */}
-          <div className="bg-secondary/30 p-6 rounded-lg text-center">
-            <h3 className="text-lg font-medium mb-3">The Chameleon was...</h3>
-            <div className="inline-flex items-center justify-center gap-2 bg-primary text-primary-foreground py-2 px-6 rounded-md">
-              <User className="h-5 w-5" />
-              <span className="font-bold text-xl">{chameleonPlayer?.name}</span>
-            </div>
-            
-            <div className="mt-4 grid gap-2">
-              <div className="flex justify-center items-center gap-2">
-                <span className="font-medium">Secret Word:</span>
-                <span className="bg-accent px-3 py-1 rounded font-mono">{room.secretWord}</span>
-              </div>
-              <div className="flex justify-center items-center gap-2">
-                <span className="font-medium">Category:</span>
-                <span>{room.category}</span>
-              </div>
-            </div>
-          </div>
-          
-          {/* Vote Results */}
+        <CardContent className="space-y-4">
           <div>
             <h3 className="font-medium mb-3">Vote Results</h3>
             <div className="grid gap-2">
@@ -88,7 +75,7 @@ export default function ResultsScreen() {
                   <div 
                     key={player.id} 
                     className={`flex items-center justify-between p-3 rounded-md ${
-                      player.id === room.chameleonId 
+                      player.id === room.chameleon_id 
                         ? "bg-primary/10" 
                         : isMostVoted 
                           ? "bg-secondary/20"
@@ -100,8 +87,11 @@ export default function ResultsScreen() {
                         <Crown className="h-4 w-4 text-amber-500" />
                       )}
                       <span>{player.name}</span>
-                      {player.id === room.chameleonId && (
+                      {player.id === room.chameleon_id && (
                         <Badge variant="secondary" className="ml-1">Chameleon</Badge>
+                      )}
+                      {player.role === PlayerRole.Jester && (
+                        <Badge variant="outline" className="ml-1">Jester</Badge>
                       )}
                     </div>
                     <Badge variant={voteCount > 0 ? "secondary" : "outline"}>
@@ -149,7 +139,7 @@ export default function ResultsScreen() {
                 ) : (
                   <>
                     <ThumbsDown className="h-5 w-5" />
-                    <span className="font-medium">Wrong guess! The word was "{room.secretWord}"</span>
+                    <span className="font-medium">Wrong guess! The word was "{room.secret_word}"</span>
                   </>
                 )}
               </div>
@@ -177,7 +167,7 @@ export default function ResultsScreen() {
               onClick={handleNextRound} 
               className="w-full"
             >
-              {room.round >= room.maxRounds ? "End Game" : "Next Round"}
+              {room.round >= room.max_rounds ? "End Game" : "Next Round"}
             </Button>
           </CardFooter>
         )}

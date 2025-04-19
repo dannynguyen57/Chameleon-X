@@ -1,23 +1,33 @@
 import { useGame } from "@/contexts/GameContext";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
-import { UserCircle2, Clock, MessageSquare, Lightbulb, Mic, X } from "lucide-react";
+import { Clock, Lightbulb, Trophy, Gamepad2, Users, Menu, X } from "lucide-react";
 import { categories } from "@/lib/word-categories";
 import ChatSystem from "./ChatSystem";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { useState } from "react";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { useState, useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from '@/integrations/supabase/client';
+import { GameAnimations } from "./GameAnimations";
+import { useGameSounds } from "@/hooks/useGameSounds";
+import { motion, AnimatePresence } from "framer-motion";
+import { Sheet, SheetContent, SheetTrigger, SheetClose } from "@/components/ui/sheet";
+import { cn } from "@/lib/utils";
 
 export default function GamePlay() {
   const { room, isPlayerChameleon, remainingTime, settings, playerId } = useGame();
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isTurnDialogOpen, setIsTurnDialogOpen] = useState(false);
   const [turnDescription, setTurnDescription] = useState('');
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  useGameSounds();
+
+  const getPlayerRoleIcon = useMemo(() => (role?: string) => {
+    // Always return a generic icon to hide roles
+    return '👤';
+  }, []);
 
   if (!room || !room.category) return null;
 
@@ -30,29 +40,17 @@ export default function GamePlay() {
   const isCurrentPlayer = currentPlayer?.id === playerId;
   const isLastPlayer = room.current_turn === room.players.length - 1;
 
-  const getPlayerRoleIcon = (role?: string) => {
-    if (!role) return '👤';
-    switch (role) {
-      case 'chameleon': return '🦎';
-      case 'mimic': return '🦜';
-      case 'oracle': return '🔮';
-      case 'jester': return '🎭';
-      case 'spy': return '🕵️';
-      case 'mirror': return '🪞';
-      case 'whisperer': return '🤫';
-      case 'timekeeper': return '⏱️';
-      case 'illusionist': return '🎪';
-      case 'guardian': return '🛡️';
-      case 'trickster': return '🎯';
-      default: return '👤';
-    }
-  };
+  // Sort players by their turn order
+  const sortedPlayers = [...room.players].sort((a, b) => {
+    const aIndex = room.players.findIndex(p => p.id === a.id);
+    const bIndex = room.players.findIndex(p => p.id === b.id);
+    return aIndex - bIndex;
+  });
 
   const handleSubmitTurn = async () => {
     if (!turnDescription.trim()) return;
 
     try {
-      // Update the player's turn description
       const { error } = await supabase
         .from('players')
         .update({ 
@@ -67,22 +65,21 @@ export default function GamePlay() {
         return;
       }
 
-      // Move to next player or end the round
       if (isLastPlayer) {
-        // End the round and move to voting
         await supabase
           .from('game_rooms')
           .update({ 
             state: 'voting',
-            timer: settings.voting_time
+            timer: settings.voting_time,
+            current_turn: 0
           })
           .eq('id', room.id);
       } else {
-        // Move to next player
+        const nextTurn = (room.current_turn || 0) + 1;
         await supabase
           .from('game_rooms')
           .update({ 
-            current_turn: (room.current_turn || 0) + 1,
+            current_turn: nextTurn,
             timer: settings.discussion_time
           })
           .eq('id', room.id);
@@ -96,147 +93,217 @@ export default function GamePlay() {
   };
 
   return (
-    <div className="container mx-auto p-4 max-w-6xl">
-      {/* Turn Dialog */}
-      <Dialog open={isTurnDialogOpen} onOpenChange={setIsTurnDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Your Turn to Describe</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              {isPlayerChameleon 
-                ? "You are the chameleon! Try to blend in by giving a vague description."
-                : `Describe the word "${room.secret_word}" without saying it directly. Be creative!`}
-            </p>
-            <Textarea
-              value={turnDescription}
-              onChange={(e) => setTurnDescription(e.target.value)}
-              placeholder="Type your description..."
-              className="min-h-[100px]"
-            />
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setIsTurnDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleSubmitTurn}>Submit</Button>
-            </div>
+    <div className="container mx-auto p-1 sm:p-2 space-y-2 sm:space-y-4">
+      {/* Mobile Menu Button */}
+      <div className="lg:hidden flex justify-between items-center mb-2">
+        <Button 
+          variant="outline" 
+          size="icon"
+          onClick={() => setIsMenuOpen(!isMenuOpen)}
+          className={cn(
+            "transition-transform duration-200",
+            isMenuOpen ? "rotate-90" : ""
+          )}
+        >
+          <Menu className="h-4 w-4" />
+        </Button>
+        {room.state === 'presenting' && (
+          <div className="flex items-center gap-1 text-sm text-muted-foreground">
+            <Clock className="h-4 w-4" />
+            <span>{remainingTime}s</span>
           </div>
-        </DialogContent>
-      </Dialog>
+        )}
+      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main Game Area */}
-        <div className={`lg:col-span-2 space-y-6 ${isChatOpen ? 'hidden lg:block' : ''}`}>
-          <Card className="border-2 border-primary/20 shadow-lg overflow-hidden">
-            <CardHeader>
+      {/* Mobile Menu */}
+      <AnimatePresence>
+        {isMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            className="lg:hidden fixed inset-0 bg-background/95 z-50"
+          >
+            <div className="p-4 space-y-4">
               <div className="flex justify-between items-center">
+                <h2 className="text-xl font-semibold">Game Info</h2>
+                <Button variant="ghost" size="icon" onClick={() => setIsMenuOpen(false)}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Trophy className="h-5 w-5 text-amber-500" />
+                  <span>Round {room.round}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Gamepad2 className="h-5 w-5 text-primary" />
+                  <span className="capitalize">{room.settings?.game_mode}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-sm">
+                    {category?.emoji} {room.category}
+                  </Badge>
+                  {!isPlayerChameleon && room.secret_word && (
+                    <Badge variant="secondary" className="text-sm">
+                      Word: {room.secret_word}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="font-medium">Players</h3>
+                {sortedPlayers.map((player) => (
+                  <div key={player.id} className="flex items-center gap-2 p-2 rounded-lg bg-muted/50">
+                    <Avatar className="h-8 w-8">
+                      <AvatarFallback>👤</AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{player.name}</span>
+                        {player.id === playerId && (
+                          <Badge variant="outline">
+                            {isPlayerChameleon ? 'Chameleon' : 'Regular'}
+                          </Badge>
+                        )}
+                        {player.id === room.host_id && (
+                          <Badge variant="secondary">Host</Badge>
+                        )}
+                      </div>
+                      {player.turn_description && (
+                        <p className="text-xs text-muted-foreground mt-1 italic">
+                          "{player.turn_description}"
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <Button 
+                variant="outline" 
+                className="w-full"
+                onClick={() => {
+                  setIsChatOpen(!isChatOpen);
+                  setIsMenuOpen(false);
+                }}
+              >
+                {isChatOpen ? 'Hide Chat' : 'Show Chat'}
+              </Button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Main Game Area */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 sm:gap-4">
+        <div className={`lg:col-span-2 space-y-2 sm:space-y-4 ${isChatOpen ? 'hidden lg:block' : ''}`}>
+          <Card className="border-2 border-primary/20 shadow-lg overflow-hidden">
+            <CardHeader className="p-2 sm:p-4">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                 <div>
-                  <CardTitle className="text-2xl">Round {room.round} of {room.max_rounds}</CardTitle>
-                  <CardDescription>
-                    Category: <Badge variant="outline" className="ml-1">
+                  <CardTitle className="text-lg sm:text-xl">Round {room.round} of {room.max_rounds}</CardTitle>
+                  <div className="flex flex-wrap items-center gap-1 mt-1">
+                    <span className="text-xs sm:text-sm text-muted-foreground">Category:</span>
+                    <Badge variant="outline" className="text-xs sm:text-sm">
                       {category?.emoji} {room.category}
                     </Badge>
-                  </CardDescription>
-                </div>
-                <div className="text-right">
-                  <div className="text-sm text-muted-foreground mb-1 flex items-center justify-end">
-                    <Clock className="h-4 w-4 mr-1" />
-                    <span>{remainingTime || 0}s</span>
+                    {!isPlayerChameleon && room.secret_word && (
+                      <Badge variant="secondary" className="text-xs sm:text-sm">
+                        Word: {room.secret_word}
+                      </Badge>
+                    )}
                   </div>
-                  <Progress value={timePercentage} className="w-32 h-2" />
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className="p-2 sm:p-4 space-y-2 sm:space-y-4">
               {/* Current Player's Turn */}
-              <div className="bg-primary/10 p-4 rounded-lg">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <Avatar className="h-12 w-12">
-                      <AvatarFallback>
-                        {getPlayerRoleIcon(currentPlayer?.role)}
-                      </AvatarFallback>
+              <div className="bg-primary/10 p-2 sm:p-3 rounded-lg">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Avatar className="h-8 w-8 sm:h-10 sm:w-10">
+                      <AvatarFallback>👤</AvatarFallback>
                     </Avatar>
                     <div>
-                      <h3 className="font-medium">
+                      <h3 className="text-sm sm:text-base font-medium">
                         {isCurrentPlayer ? "Your Turn" : `${currentPlayer?.name}'s Turn`}
                       </h3>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-xs sm:text-sm text-muted-foreground">
                         {isCurrentPlayer 
                           ? "Click to describe the word"
                           : "Waiting for their description..."}
                       </p>
                       {currentPlayer?.turn_description && (
-                        <p className="mt-2 text-sm italic">
+                        <p className="mt-1 text-xs sm:text-sm italic">
                           "{currentPlayer.turn_description}"
                         </p>
                       )}
                     </div>
                   </div>
                   {isCurrentPlayer && !currentPlayer?.turn_description && (
-                    <Button onClick={() => setIsTurnDialogOpen(true)}>
+                    <Button 
+                      onClick={() => setIsTurnDialogOpen(true)} 
+                      className="w-full sm:w-auto text-xs sm:text-sm"
+                    >
                       Describe Word
                     </Button>
                   )}
                 </div>
               </div>
 
-              {/* Players List */}
-              <div>
-                <h3 className="font-medium mb-3">Players Order</h3>
-                <div className="grid gap-2">
-                  {room.players.map((player, index) => (
-                    <div 
-                      key={player.id} 
-                      className={`flex items-center gap-2 p-3 rounded-md ${
-                        index === room.current_turn 
-                          ? 'bg-primary/10 border-2 border-primary' 
-                          : 'bg-card/60'
-                      }`}
-                    >
-                      <Avatar className="h-8 w-8">
-                        <AvatarFallback>
-                          {getPlayerRoleIcon(player.role)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">{player.name}</span>
-                          {player.role && (
-                            <Badge variant="outline" className="ml-2">
-                              {player.role}
-                            </Badge>
-                          )}
-                        </div>
-                        {player.turn_description && (
-                          <p className="text-xs text-muted-foreground mt-1 italic">
+              {/* Player Descriptions */}
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium">Player Descriptions</h4>
+                <div className="space-y-2">
+                  {sortedPlayers.map((player) => (
+                    player.turn_description && (
+                      <div key={player.id} className="flex items-start gap-2 p-2 rounded-lg bg-muted/10">
+                        <Avatar className="h-6 w-6 mt-1">
+                          <AvatarFallback>👤</AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="text-xs font-medium">{player.name}</p>
+                          <p className="text-xs text-muted-foreground italic">
                             "{player.turn_description}"
                           </p>
-                        )}
-                        {index === room.current_turn && (
-                          <p className="text-xs text-muted-foreground">
-                            Currently speaking
-                          </p>
-                        )}
+                        </div>
                       </div>
-                    </div>
+                    )
                   ))}
                 </div>
               </div>
+
+              {/* Game State Banner */}
+              {room.state === 'presenting' && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  className="bg-secondary/10 p-2 rounded-lg text-center"
+                >
+                  <p className="text-xs sm:text-sm font-medium">
+                    {isPlayerChameleon 
+                      ? "You are the Chameleon! Try to blend in..."
+                      : `The word is "${room.secret_word}". Describe it without saying it!`}
+                  </p>
+                </motion.div>
+              )}
             </CardContent>
           </Card>
 
           {/* Game Tips */}
           <Card className="border border-secondary/20">
-            <CardHeader>
+            <CardHeader className="p-2 sm:p-4">
               <div className="flex items-center gap-2">
-                <Lightbulb className="h-5 w-5 text-amber-500" />
-                <CardTitle className="text-lg">Game Tips</CardTitle>
+                <Lightbulb className="h-4 w-4 sm:h-5 sm:w-5 text-amber-500" />
+                <CardTitle className="text-sm sm:text-base">Game Tips</CardTitle>
               </div>
             </CardHeader>
-            <CardContent>
-              <ul className="list-disc list-inside space-y-2 text-sm text-muted-foreground">
+            <CardContent className="p-2 sm:p-4">
+              <ul className="list-disc list-inside space-y-1 text-xs sm:text-sm text-muted-foreground">
                 <li>Give clear but indirect hints about the word</li>
                 <li>Pay attention to other players' descriptions</li>
                 <li>Try to spot inconsistencies in others' hints</li>
@@ -248,10 +315,47 @@ export default function GamePlay() {
         </div>
 
         {/* Chat Area */}
-        <div className={`space-y-6 ${!isChatOpen ? 'hidden lg:block' : ''}`}>
+        <div className={`space-y-2 sm:space-y-4 ${!isChatOpen ? 'hidden lg:block' : ''}`}>
           <ChatSystem />
         </div>
       </div>
+
+      {/* Turn Dialog */}
+      <Dialog open={isTurnDialogOpen} onOpenChange={setIsTurnDialogOpen}>
+        <DialogContent className="sm:max-w-[425px] p-4">
+          <DialogHeader>
+            <DialogTitle className="text-lg">Your Turn to Describe</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-xs sm:text-sm text-muted-foreground">
+              {isPlayerChameleon 
+                ? "You are the chameleon! Try to blend in by giving a vague description."
+                : `Describe the word "${room.secret_word}" without saying it directly. Be creative!`}
+            </p>
+            <Textarea
+              value={turnDescription}
+              onChange={(e) => setTurnDescription(e.target.value)}
+              placeholder="Type your description..."
+              className="min-h-[80px] sm:min-h-[100px] text-sm"
+            />
+            <div className="flex justify-end gap-2">
+              <Button 
+                variant="outline" 
+                onClick={() => setIsTurnDialogOpen(false)}
+                className="text-xs sm:text-sm"
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleSubmitTurn}
+                className="text-xs sm:text-sm"
+              >
+                Submit
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

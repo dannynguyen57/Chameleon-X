@@ -8,6 +8,42 @@ import { useGameActions } from '@/hooks/useGameActions';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/components/ui/use-toast';
 
+interface DatabasePlayer {
+  id: string;
+  name: string;
+  room_id: string;
+  role?: PlayerRole;
+  is_host: boolean;
+  turn_description?: string;
+  vote?: string;
+  last_active: string;
+  last_updated: string;
+}
+
+interface DatabaseRoom {
+  id: string;
+  host_id: string;
+  state: GameState;
+  round: number;
+  created_at: string;
+  updated_at: string;
+  last_updated: string;
+  max_players: number;
+  discussion_time: number;
+  max_rounds: number;
+  game_mode: GameMode;
+  team_size: number;
+  chaos_mode: boolean;
+  time_per_round: number;
+  voting_time: number;
+  settings: GameSettings;
+  category: string | null;
+  secret_word: string | null;
+  chameleon_id: string | null;
+  timer: number | null;
+  players: DatabasePlayer[];
+}
+
 const DEFAULT_SETTINGS: GameSettings = {
   max_players: Number(import.meta.env.VITE_MAX_PLAYERS) || 10,
   discussion_time: Number(import.meta.env.VITE_DEFAULT_DISCUSSION_TIME) || 120,
@@ -82,7 +118,7 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
 
   // Refs
   const roomRef = useRef<GameRoom | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectAttempts = useRef<number>(0);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const lastUpdateRef = useRef<number>(0);
 
@@ -93,7 +129,7 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
 
   // Derived values
   const isPlayerChameleon = useMemo(() => 
-    !!(room?.chameleon_id && playerId === room.chameleon_id),
+    Boolean(room?.chameleon_id && playerId === room.chameleon_id),
     [room?.chameleon_id, playerId]
   );
 
@@ -104,16 +140,10 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
     settings,
     setRoom
   );
-  const remainingTime = useGameTimer(room?.id, room?.timer, room?.state);
+  const remainingTime = useGameTimer(room?.id, room?.timer, room?.state, settings);
 
   const fetchRoom = useCallback(async () => {
     if (!room?.id) return;
-
-    const now = Date.now();
-    if (now - lastUpdateRef.current < 500) {
-      return; // Prevent too frequent updates
-    }
-    lastUpdateRef.current = now;
 
     try {
       console.log('Fetching room data for:', room.id);
@@ -121,15 +151,7 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
         .from('game_rooms')
         .select(`
           *,
-          players (
-            id,
-            name,
-            room_id,
-            role,
-            vote,
-            turn_description,
-            last_active
-          )
+          players (*)
         `)
         .eq('id', room.id)
         .single();
@@ -138,123 +160,100 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
         console.error('Error fetching room:', error);
         toast({
           variant: "destructive",
-          title: "Error fetching room",
-          description: error.message
+          title: "Error fetching game data",
+          description: "Could not retrieve the latest game data. Please refresh the page."
         });
         return;
       }
 
       if (data) {
-        console.log('Room data received:', data);
-        const mappedRoom = mapRoomData(data);
+        const mappedRoom = mapRoomData(data as DatabaseRoom);
         setRoom(mappedRoom);
+        roomRef.current = mappedRoom;
       }
     } catch (error) {
       console.error('Error in fetchRoom:', error);
+      toast({
+        variant: "destructive",
+        title: "Unexpected error",
+        description: "An error occurred while refreshing game data."
+      });
     }
   }, [room?.id]);
 
-  const setupSubscription = useCallback(() => {
-    if (!room?.id || channelRef.current) return;
-
-    console.log('Setting up subscription for room:', room.id);
-
-    // Cleanup any existing subscription
+  useEffect(() => {
+    if (!room?.id) return;
+    
+    // Clean up existing subscription if any
     if (channelRef.current) {
-      console.log('Cleaning up existing subscription');
-      channelRef.current.unsubscribe();
+      console.log('Cleaning up old subscription');
+      supabase.removeChannel(channelRef.current);
       channelRef.current = null;
     }
 
-    // Set up new subscription
-    channelRef.current = supabase
+    console.log('Setting up realtime subscription for room:', room.id);
+
+    const channel = supabase
       .channel(`room:${room.id}`, {
         config: {
           broadcast: { self: true },
           presence: { key: '' },
         },
       })
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
+      .on('postgres_changes', 
+        { 
+          event: '*', 
+          schema: 'public', 
           table: 'game_rooms',
           filter: `id=eq.${room.id}`
-        },
-        (payload) => {
-          console.log('Room update received:', payload);
-          fetchRoom();
+        }, 
+        async (payload) => {
+          console.log('Room change detected:', payload);
+          // Force immediate update for room changes
+          await fetchRoom();
         }
       )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
+      .on('postgres_changes', 
+        { 
+          event: '*', 
+          schema: 'public', 
           table: 'players',
           filter: `room_id=eq.${room.id}`
-        },
-        (payload) => {
-          console.log('Player update received:', payload);
-          fetchRoom();
+        }, 
+        async (payload) => {
+          console.log('Player change detected:', payload);
+          // Force immediate update for player changes
+          await fetchRoom();
         }
       )
-      .on('broadcast', { event: 'sync' }, () => {
+      .on('broadcast', { event: 'sync' }, async () => {
         console.log('Sync broadcast received');
-        fetchRoom();
+        await fetchRoom();
       })
       .subscribe((status) => {
-        console.log('Subscription status changed:', status);
+        console.log('Subscription status:', status);
         if (status === 'SUBSCRIBED') {
-          console.log('Successfully subscribed to room updates');
-          setIsConnected(true);
-          if (reconnectTimeoutRef.current) {
-            clearTimeout(reconnectTimeoutRef.current);
-            reconnectTimeoutRef.current = null;
-          }
+          // Force an immediate fetch after successful subscription
           fetchRoom();
-        } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
-          console.log('Subscription closed or error occurred');
-          setIsConnected(false);
-          if (!reconnectTimeoutRef.current) {
-            console.log('Scheduling reconnection...');
-            reconnectTimeoutRef.current = setTimeout(() => {
-              console.log('Attempting to reconnect...');
-              if (channelRef.current) {
-                channelRef.current.unsubscribe();
-                channelRef.current = null;
-              }
-              setupSubscription();
-            }, 2000); // Increased delay to 2 seconds
-          }
         }
       });
-  }, [room?.id, fetchRoom]);
 
-  useEffect(() => {
-    if (!room?.id) return;
+    channelRef.current = channel;
 
-    fetchRoom();
-    setupSubscription();
-
+    // Add periodic sync check
     const syncInterval = setInterval(() => {
-      if (isConnected) {
-        fetchRoom();
-      }
-    }, 5000);
+      fetchRoom();
+    }, 2000); // Check every 2 seconds
 
     return () => {
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
       if (channelRef.current) {
-        channelRef.current.unsubscribe();
+        console.log('Cleaning up subscription for room:', room.id);
+        supabase.removeChannel(channelRef.current);
         channelRef.current = null;
       }
       clearInterval(syncInterval);
     };
-  }, [room?.id, fetchRoom, setupSubscription, isConnected]);
+  }, [room?.id]);
 
   // Callbacks
   const createRoom = useCallback(async (playerName: string, settings: GameSettings): Promise<string | null> => {
@@ -271,6 +270,11 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
 
         if (error) {
           console.error('Error fetching room after creation:', error);
+          toast({
+            variant: "destructive",
+            title: "Error creating room",
+            description: "Room was created but could not be loaded."
+          });
           return null;
         }
 
@@ -282,6 +286,11 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
         }
       } catch (error) {
         console.error('Error in createRoom:', error);
+        toast({
+          variant: "destructive",
+          title: "Error creating room",
+          description: "An unexpected error occurred"
+        });
         return null;
       }
     }
@@ -291,23 +300,90 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
   const joinRoom = useCallback(async (roomId: string, playerName: string): Promise<boolean> => {
     const success = await joinRoomAction(roomId, playerName);
     if (success) {
-      const { data: newRoom } = await supabase
-        .from('game_rooms')
-        .select('*, players(*)')
-        .eq('id', roomId)
-        .single();
+      try {
+        // Fetch room data immediately after joining
+        const { data: newRoom, error } = await supabase
+          .from('game_rooms')
+          .select('*, players(*)')
+          .eq('id', roomId)
+          .single();
 
-      if (newRoom) {
-        const mappedRoom = mapRoomData(newRoom);
-        setRoom(mappedRoom);
-        roomRef.current = mappedRoom;
+        if (error) {
+          console.error('Error fetching room after joining:', error);
+          toast({
+            variant: "destructive",
+            title: "Error joining room",
+            description: "Could not load room data after joining."
+          });
+          return false;
+        }
+
+        if (newRoom) {
+          const mappedRoom = mapRoomData(newRoom);
+          setRoom(mappedRoom);
+          roomRef.current = mappedRoom;
+          
+          // Update player's last_active timestamp
+          await supabase
+            .from('players')
+            .update({ last_active: new Date().toISOString() })
+            .eq('id', playerId)
+            .eq('room_id', roomId);
+            
+          return true;
+        }
+      } catch (error) {
+        console.error('Error in joinRoom:', error);
+        toast({
+          variant: "destructive",
+          title: "Error joining room",
+          description: "An unexpected error occurred while joining the room."
+        });
+        return false;
       }
     }
-    return success;
-  }, [joinRoomAction]);
+    return false;
+  }, [joinRoomAction, playerId]);
 
   const startGame = useCallback(async () => {
-    if (!room) return;
+    if (!room) {
+      toast({
+        variant: "destructive",
+        title: "Error starting game",
+        description: "No room found"
+      });
+      return;
+    }
+
+    // Check if player is host
+    if (playerId !== room.host_id) {
+      toast({
+        variant: "destructive",
+        title: "Error starting game",
+        description: "Only the host can start the game"
+      });
+      return;
+    }
+
+    // Check minimum players
+    if (room.players.length < 3) {
+      toast({
+        variant: "destructive",
+        title: "Error starting game",
+        description: "Need at least 3 players to start"
+      });
+      return;
+    }
+
+    // Check game state
+    if (room.state !== 'lobby') {
+      toast({
+        variant: "destructive",
+        title: "Error starting game",
+        description: "Game is already in progress"
+      });
+      return;
+    }
 
     try {
       // First, update the room state to 'selecting'
@@ -319,7 +395,10 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
           category: null,
           secret_word: null,
           chameleon_id: null,
-          timer: null
+          timer: null,
+          current_turn: 0,
+          turn_order: room.players.map(p => p.id),
+          last_updated: new Date().toISOString()
         })
         .eq('id', room.id);
 
@@ -331,6 +410,28 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
           description: updateError.message
         });
         return;
+      }
+
+      // Broadcast game start to all players
+      const channel = supabase.channel(`room:${room.id}`);
+      await channel.send({
+        type: 'broadcast',
+        event: 'game_start',
+        payload: { timestamp: Date.now() }
+      });
+
+      // Update all players' last_active timestamp
+      const { error: playersError } = await supabase
+        .from('players')
+        .update({ 
+          last_active: new Date().toISOString(),
+          turn_description: null,
+          vote: null
+        })
+        .eq('room_id', room.id);
+
+      if (playersError) {
+        console.error('Error updating players:', playersError);
       }
 
       // Then call the start_game procedure
@@ -348,18 +449,8 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
         return;
       }
 
-      // Update local state
-      const updatedRoom = {
-        ...room,
-        state: GameState.Selecting,
-        round: 1,
-        category: undefined,
-        secret_word: undefined,
-        chameleon_id: undefined,
-        timer: undefined
-      };
-      setRoom(updatedRoom);
-      roomRef.current = updatedRoom;
+      // Force a room data refresh for all players
+      await fetchRoom();
 
       toast({
         title: "Game started!",
@@ -373,22 +464,25 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
         description: "An unexpected error occurred."
       });
     }
-  }, [room]);
+  }, [room, playerId, fetchRoom]);
 
   const updateSettings = useCallback(async (newSettings: GameSettings) => {
     if (!room) return;
 
     try {
-      // Update settings in the database using raw SQL
-      const { error: updateError } = await supabase.rpc('update_room_settings', {
-        room_id: room.id,
-        new_settings: {
-          ...newSettings,
-          discussion_time: newSettings.discussion_time,
-          time_per_round: newSettings.time_per_round,
-          voting_time: newSettings.voting_time
-        }
-      });
+      // Update settings in the database
+      const { error: updateError } = await supabase
+        .from('game_rooms')
+        .update({
+          settings: {
+            ...room.settings,
+            ...newSettings,
+            discussion_time: newSettings.discussion_time,
+            time_per_round: newSettings.time_per_round,
+            voting_time: newSettings.voting_time
+          }
+        })
+        .eq('id', room.id);
 
       if (updateError) {
         console.error('Error updating settings:', updateError);
@@ -400,7 +494,7 @@ export const GameProvider = React.memo(({ children }: { children: React.ReactNod
         return;
       }
 
-      // Update local state
+      // Update local state immediately
       const updatedRoom = {
         ...room,
         settings: {

@@ -16,41 +16,18 @@ if (!supabaseAnonKey) {
   throw new Error('Missing environment variable: VITE_SUPABASE_ANON_KEY');
 }
 
-// Create a singleton instance
-let supabaseInstance: ReturnType<typeof createClient<Database>> | null = null;
-
-export const supabase = (() => {
-  if (!supabaseInstance) {
-    supabaseInstance = createClient<Database>(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true,
-        storageKey: 'chameleon-game-auth'
-      },
-      realtime: {
-        params: {
-          eventsPerSecond: 20,
-          heartbeatIntervalMs: 500,
-          reconnectDelayMs: 500
-        }
-      },
-      db: {
-        schema: 'public'
-      },
-      global: {
-        headers: {
-          'x-application-name': 'secret-agent-wordsmith',
-          'apikey': supabaseAnonKey,
-          'Authorization': `Bearer ${supabaseAnonKey}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-      },
-    });
+export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true
+  },
+  realtime: {
+    params: {
+      eventsPerSecond: 20
+    }
   }
-  return supabaseInstance;
-})();
+});
 
 // Add type definitions for RPC functions
 declare module '@supabase/supabase-js' {

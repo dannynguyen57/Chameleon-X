@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { GameRoom, PlayerRole, GameState, GameMode } from '@/lib/types';
 import { toast } from '@/components/ui/use-toast';
@@ -47,22 +47,36 @@ interface DatabaseRoom {
 export const mapRoomData = (data: DatabaseRoom): GameRoom => {
   if (!data) return null;
 
+  const safeDate = (dateStr: string) => {
+    try {
+      return new Date(dateStr).toISOString();
+    } catch (e) {
+      return new Date().toISOString();
+    }
+  };
+
+  // Sort players by their join order (using last_updated timestamp)
+  const sortedPlayers = [...data.players].sort((a, b) => 
+    new Date(a.last_updated).getTime() - new Date(b.last_updated).getTime()
+  );
+
   return {
     ...data,
-    players: data.players.map((player: DatabasePlayer) => ({
+    players: sortedPlayers.map((player: DatabasePlayer) => ({
       id: player.id,
       name: player.name,
       room_id: player.room_id,
       role: player.role,
       isHost: player.is_host,
-      turn_description: player.turn_description,
-      vote: player.vote,
-      last_active: new Date(player.last_active).toISOString(),
-      last_updated: new Date(player.last_updated).toISOString()
+      turn_description: player.turn_description || '',
+      vote: player.vote || null,
+      last_active: safeDate(player.last_active),
+      last_updated: safeDate(player.last_updated),
+      severity: 0
     })),
-    last_updated: new Date(data.last_updated).toISOString(),
-    created_at: new Date(data.created_at).toISOString(),
-    updated_at: new Date(data.updated_at).toISOString(),
+    last_updated: safeDate(data.last_updated),
+    created_at: safeDate(data.created_at),
+    updated_at: safeDate(data.updated_at),
     settings: {
       max_players: data.max_players,
       discussion_time: data.discussion_time,
@@ -82,6 +96,8 @@ export const useGameRealtime = (roomId: string | undefined) => {
   const [room, setRoom] = useState<GameRoom | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const lastUpdateRef = useRef<number>(0);
 
   const fetchRoomData = useCallback(async () => {
     if (!roomId) return;
@@ -108,8 +124,10 @@ export const useGameRealtime = (roomId: string | undefined) => {
       if (error) throw error;
 
       if (data) {
-        setRoom(mapRoomData(data as DatabaseRoom));
+        const mappedRoom = mapRoomData(data as DatabaseRoom);
+        setRoom(mappedRoom);
         setError(null);
+        lastUpdateRef.current = Date.now();
       }
     } catch (err) {
       console.error('Error fetching room data:', err);
@@ -127,31 +145,21 @@ export const useGameRealtime = (roomId: string | undefined) => {
   useEffect(() => {
     if (!roomId) return;
 
-    let mounted = true;
-    let retryCount = 0;
-    const maxRetries = 3;
+    // Initial fetch
+    fetchRoomData();
 
-    const fetchWithRetry = async () => {
-      while (mounted && retryCount < maxRetries) {
-        try {
-          await fetchRoomData();
-          break;
-        } catch (err) {
-          retryCount++;
-          if (retryCount === maxRetries) {
-            console.error('Max retries reached:', err);
-            break;
-          }
-          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
-        }
-      }
-    };
+    // Setup realtime subscription
+    if (channelRef.current) {
+      channelRef.current.unsubscribe();
+    }
 
-    fetchWithRetry();
-
-    // Create a single channel for both room and player changes
     const channel = supabase
-      .channel(`room:${roomId}`)
+      .channel(`room:${roomId}`, {
+        config: {
+          broadcast: { self: true },
+          presence: { key: '' },
+        },
+      })
       .on(
         'postgres_changes',
         {
@@ -162,7 +170,8 @@ export const useGameRealtime = (roomId: string | undefined) => {
         },
         async (payload) => {
           console.log('Room change detected:', payload);
-          if (mounted) {
+          // Only fetch if it's been more than 1 second since last update
+          if (Date.now() - lastUpdateRef.current > 1000) {
             await fetchRoomData();
           }
         }
@@ -177,29 +186,37 @@ export const useGameRealtime = (roomId: string | undefined) => {
         },
         async (payload) => {
           console.log('Player change detected:', payload);
-          if (mounted) {
-            await fetchRoomData();
-          }
+          // Force immediate update for player changes
+          await fetchRoomData();
         }
       )
+      .on('broadcast', { event: 'sync' }, () => {
+        console.log('Sync broadcast received');
+        fetchRoomData();
+      })
       .subscribe((status) => {
         console.log('Subscription status:', status);
         if (status === 'SUBSCRIBED') {
-          console.log('Successfully subscribed to room changes');
-        } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
-          console.error('Subscription error:', status);
-          // Attempt to resubscribe
-          if (mounted) {
-            setTimeout(() => {
-              channel.subscribe();
-            }, 1000);
-          }
+          // Force an immediate fetch after successful subscription
+          fetchRoomData();
         }
       });
 
+    channelRef.current = channel;
+
+    // Add periodic sync check
+    const syncInterval = setInterval(() => {
+      if (Date.now() - lastUpdateRef.current > 5000) { // 5 seconds
+        fetchRoomData();
+      }
+    }, 5000);
+
     return () => {
-      mounted = false;
-      channel.unsubscribe();
+      if (channelRef.current) {
+        channelRef.current.unsubscribe();
+        channelRef.current = null;
+      }
+      clearInterval(syncInterval);
     };
   }, [roomId, fetchRoomData]);
 

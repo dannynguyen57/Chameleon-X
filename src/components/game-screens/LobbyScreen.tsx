@@ -11,7 +11,7 @@ export default function LobbyScreen() {
   const { room, startGame, playerId } = useGame();
   const [showSettings, setShowSettings] = useState(false);
 
-  const isHost = playerId === room.hostId;
+  const isHost = playerId === room.host_id;
   const canStartGame = room.players.length >= 3;
 
   const copyRoomCode = () => {
@@ -53,7 +53,7 @@ export default function LobbyScreen() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <h3 className="font-medium mb-2">Players ({room.players.length}/{room.settings.maxPlayers || 10})</h3>
+            <h3 className="font-medium mb-2">Players ({room.players.length}/{room.settings.max_players || 10})</h3>
             <div className="grid gap-2">
               {room.players.map((player) => (
                 <div 

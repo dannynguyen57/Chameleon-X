@@ -11,7 +11,7 @@ export default function CategorySelection() {
   
   if (!room) return null;
   
-  const isHost = playerId === room.hostId;
+  const isHost = playerId === room.host_id;
   const canSelectCategory = isHost && !!selectedCategory;
   
   const handleCategorySelect = (categoryName: string) => {
@@ -73,7 +73,7 @@ export default function CategorySelection() {
       
       <Card className="border border-secondary/20">
         <CardHeader>
-          <CardTitle className="text-xl">Round {room.round} of {room.maxRounds}</CardTitle>
+          <CardTitle className="text-xl">Round {room.round} of {room.max_rounds}</CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-muted-foreground">

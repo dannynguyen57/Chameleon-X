@@ -1,6 +1,5 @@
-
-import LandingPage from "@/components/LandingPage";
+import Home from "@/pages/Home";
 
 export default function Index() {
-  return <LandingPage />;
+  return <Home />;
 }

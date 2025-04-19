@@ -23,14 +23,14 @@ export default function LandingPage() {
     }
     
     const success = await createRoom(playerName, {
-      maxPlayers: 10,
-      discussionTime: 120,
-      maxRounds: 3,
-      gameMode: 'classic',
-      teamSize: 2,
-      chaosMode: false,
-      timePerRound: 60,
-      votingTime: 30
+      max_players: 10,
+      discussion_time: 120,
+      max_rounds: 3,
+      game_mode: 'classic',
+      team_size: 2,
+      chaos_mode: false,
+      time_per_round: 60,
+      voting_time: 30
     });
     if (success) {
       navigate("/room");

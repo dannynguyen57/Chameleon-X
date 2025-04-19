@@ -2,98 +2,78 @@ import { useToast } from "@/components/ui/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { categories } from '@/lib/word-categories';
 import { GameRoom, GameSettings } from '@/lib/types';
+import { useEffect } from 'react';
+import { mapRoomData } from '@/hooks/useGameRealtime';
 
 export const useGameActions = (
   playerId: string,
   room: GameRoom | null,
-  settings: GameSettings
+  settings: GameSettings,
+  setRoom: (room: GameRoom | null) => void
 ) => {
   const { toast } = useToast();
 
-  const createRoom = async (playerName: string, settings: GameSettings): Promise<boolean> => {
+  const createRoom = async (playerName: string, settings: GameSettings): Promise<string | null> => {
     const roomId = playerId.substring(0, 6).toUpperCase();
     
-    const { error: roomError } = await supabase
-      .from('game_rooms')
-      .insert({
-        id: roomId,
-        host_id: playerId,
-        state: 'lobby',
-        max_rounds: settings.maxRounds,
-        discussion_time: settings.discussionTime,
-        game_mode: settings.gameMode,
-        max_players: settings.maxPlayers,
-        team_size: settings.teamSize || 2,
-        chaos_mode: settings.chaosMode || false,
-        time_per_round: settings.timePerRound || 60,
-        voting_time: settings.votingTime || 30
+    try {
+      // Use a transaction to ensure atomicity
+      const { data: room, error } = await supabase.rpc('create_game_room', {
+        p_room_id: roomId,
+        p_host_id: playerId,
+        p_player_name: playerName,
+        p_settings: settings
       });
 
-    if (roomError) {
+      if (error) {
+        toast({
+          variant: "destructive",
+          title: "Error creating room",
+          description: error.message
+        });
+        return null;
+      }
+
+      return roomId;
+    } catch (error) {
+      console.error('Error in createRoom:', error);
       toast({
         variant: "destructive",
         title: "Error creating room",
-        description: roomError.message
+        description: "An unexpected error occurred"
       });
-      return false;
+      return null;
     }
-
-    const { error: playerError } = await supabase
-      .from('players')
-      .insert({
-        id: playerId,
-        room_id: roomId,
-        name: playerName,
-        is_host: true
-      });
-
-    if (playerError) {
-      toast({
-        variant: "destructive",
-        title: "Error joining room",
-        description: playerError.message
-      });
-      return false;
-    }
-
-    return true;
   };
 
   const joinRoom = async (roomId: string, playerName: string): Promise<boolean> => {
-    const { data: existingRoom } = await supabase
-      .from('game_rooms')
-      .select('*, players(*)')
-      .eq('id', roomId)
-      .single();
-
-    if (!existingRoom) {
-      toast({
-        variant: "destructive",
-        title: "Room not found",
-        description: "Please check the room code and try again."
-      });
-      return false;
-    }
-
-    const { error: playerError } = await supabase
-      .from('players')
-      .insert({
-        id: playerId,
-        room_id: roomId,
-        name: playerName,
-        is_host: false
+    try {
+      // Use a stored procedure for atomic operations
+      const { data, error } = await supabase.rpc('join_game_room', {
+        p_room_id: roomId,
+        p_player_id: playerId,
+        p_player_name: playerName
       });
 
-    if (playerError) {
+      if (error) {
+        toast({
+          variant: "destructive",
+          title: "Error joining room",
+          description: error.message
+        });
+        return false;
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Error joining room:', error);
       toast({
         variant: "destructive",
         title: "Error joining room",
-        description: playerError.message
+        description: "An unexpected error occurred while joining the room."
       });
       return false;
     }
-
-    return true;
   };
 
   const startGame = async () => {
@@ -127,22 +107,81 @@ export const useGameActions = (
     const chameleonIndex = Math.floor(Math.random() * room.players.length);
     const chameleonId = room.players[chameleonIndex].id;
 
-    const { error } = await supabase
-      .from('game_rooms')
-      .update({
-        state: 'presenting',
-        category: selectedCategory.name,
-        secret_word: secretWord,
-        chameleon_id: chameleonId,
-        timer: settings.discussionTime
-      })
-      .eq('id', room.id);
+    try {
+      // Update the room state and game setup
+      const { data: updatedRoom, error } = await supabase
+        .from('game_rooms')
+        .update({
+          state: 'presenting',
+          category: selectedCategory.name,
+          secret_word: secretWord,
+          chameleon_id: chameleonId,
+          timer: settings.discussion_time,
+          current_turn: 0,
+          turn_order: room.players.map(p => p.id),
+          round: room.round || 1,
+          last_updated: new Date().toISOString()
+        })
+        .eq('id', room.id)
+        .select()
+        .single();
 
-    if (error) {
+      if (error) {
+        toast({
+          variant: "destructive",
+          title: "Error selecting category",
+          description: error.message
+        });
+        return;
+      }
+
+      // Update all players' roles and reset their descriptions
+      const playerUpdates = room.players.map(player => ({
+        id: player.id,
+        role: player.id === chameleonId ? 'chameleon' : 'regular',
+        turn_description: null,
+        vote: null,
+        last_active: new Date().toISOString()
+      }));
+
+      for (const update of playerUpdates) {
+        const { error: playerError } = await supabase
+          .from('players')
+          .update({
+            role: update.role,
+            turn_description: update.turn_description,
+            vote: update.vote,
+            last_active: update.last_active
+          })
+          .eq('id', update.id)
+          .eq('room_id', room.id);
+
+        if (playerError) {
+          toast({
+            variant: "destructive",
+            title: "Error updating player roles",
+            description: playerError.message
+          });
+          return;
+        }
+      }
+
+      // Update local room state immediately
+      if (updatedRoom) {
+        const mappedRoom = mapRoomData(updatedRoom);
+        setRoom(mappedRoom);
+      }
+
+      toast({
+        title: "Category selected!",
+        description: "The game has started. Regular players know the word, while the chameleon must blend in!"
+      });
+    } catch (error) {
+      console.error('Error in selectCategory:', error);
       toast({
         variant: "destructive",
-        title: "Error selecting category",
-        description: error.message
+        title: "Error starting game",
+        description: "An unexpected error occurred while setting up the game."
       });
     }
   };
@@ -176,7 +215,7 @@ export const useGameActions = (
   const nextRound = async () => {
     if (!room) return;
 
-    if (room.round >= room.maxRounds) {
+    if (room.round >= room.max_rounds) {
       await resetGame();
     } else {
       const { error } = await supabase
@@ -206,76 +245,114 @@ export const useGameActions = (
     }
   };
 
-  const leaveRoom = async () => {
-    if (!room || !playerId) return;
-
+  const cleanupRoom = async (roomId: string) => {
     try {
-      // Delete the player from the room
-      const { error: playerError } = await supabase
+      // Check if room is empty
+      const { data: players, error: playersError } = await supabase
         .from('players')
-        .delete()
-        .eq('id', playerId);
+        .select('id')
+        .eq('room_id', roomId);
 
-      if (playerError) {
-        toast({
-          variant: "destructive",
-          title: "Error leaving room",
-          description: playerError.message
-        });
+      if (playersError) {
+        console.error('Error checking room players:', playersError);
         return;
       }
 
-      // Check if this was the last player
-      const { data: remainingPlayers } = await supabase
-        .from('players')
-        .select('id')
-        .eq('room_id', room.id);
-
-      if (!remainingPlayers || remainingPlayers.length === 0) {
-        // If no players left, delete the room
-        await supabase
+      // If room is empty, delete it
+      if (!players || players.length === 0) {
+        const { error: deleteError } = await supabase
           .from('game_rooms')
           .delete()
-          .eq('id', room.id);
-      } else {
-        // If host left, assign new host
-        if (playerId === room.hostId) {
-          const newHost = remainingPlayers[0];
-          await supabase
-            .from('game_rooms')
-            .update({ host_id: newHost.id })
-            .eq('id', room.id);
-        }
+          .eq('id', roomId);
 
-        // Reset game state to lobby if game was in progress
-        if (room.state !== 'lobby') {
-          await supabase
-            .from('game_rooms')
-            .update({
-              state: 'lobby',
-              round: 0,
-              category: null,
-              secret_word: null,
-              chameleon_id: null,
-              timer: null
-            })
-            .eq('id', room.id);
-
-          // Clear all votes
-          await supabase
-            .from('players')
-            .update({ vote: null })
-            .eq('room_id', room.id);
+        if (deleteError) {
+          console.error('Error deleting empty room:', deleteError);
         }
       }
-    } catch (err) {
-      toast({
-        variant: "destructive",
-        title: "Error leaving room",
-        description: "An unexpected error occurred"
-      });
+    } catch (error) {
+      console.error('Error in cleanupRoom:', error);
     }
   };
+
+  const leaveRoom = async () => {
+    if (!room) return;
+
+    try {
+      // Remove player from the room
+      const { error: deleteError } = await supabase
+        .from('players')
+        .delete()
+        .eq('id', playerId)
+        .eq('room_id', room.id);
+
+      if (deleteError) {
+        console.error('Error removing player:', deleteError);
+        return;
+      }
+
+      // Clean up the room if it's empty
+      await cleanupRoom(room.id);
+    } catch (error) {
+      console.error('Error in leaveRoom:', error);
+    }
+  };
+
+  // Add cleanup on window close
+  useEffect(() => {
+    const handleBeforeUnload = async () => {
+      if (room) {
+        await leaveRoom();
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [room, playerId]);
+
+  // Add periodic cleanup check
+  useEffect(() => {
+    if (!room) return;
+
+    const cleanupInterval = setInterval(async () => {
+      try {
+        // Check for inactive players (no activity in last 5 minutes)
+        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+        
+        const { data: inactivePlayers, error: inactiveError } = await supabase
+          .from('players')
+          .select('id')
+          .eq('room_id', room.id)
+          .lt('last_active', fiveMinutesAgo);
+
+        if (inactiveError) {
+          console.error('Error checking inactive players:', inactiveError);
+          return;
+        }
+
+        // Remove inactive players
+        if (inactivePlayers && inactivePlayers.length > 0) {
+          const { error: deleteError } = await supabase
+            .from('players')
+            .delete()
+            .in('id', inactivePlayers.map(p => p.id));
+
+          if (deleteError) {
+            console.error('Error removing inactive players:', deleteError);
+            return;
+          }
+
+          // Clean up the room if it's empty
+          await cleanupRoom(room.id);
+        }
+      } catch (error) {
+        console.error('Error in periodic cleanup:', error);
+      }
+    }, 60000); // Check every minute
+
+    return () => clearInterval(cleanupInterval);
+  }, [room]);
 
   const resetGame = async () => {
     if (!room) return;
@@ -323,14 +400,14 @@ export const useGameActions = (
     const { error } = await supabase
       .from('game_rooms')
       .update({
-        max_rounds: newSettings.maxRounds,
-        discussion_time: newSettings.discussionTime,
-        game_mode: newSettings.gameMode,
-        max_players: newSettings.maxPlayers,
-        team_size: newSettings.teamSize,
-        chaos_mode: newSettings.chaosMode,
-        time_per_round: newSettings.timePerRound,
-        voting_time: newSettings.votingTime
+        max_rounds: newSettings.max_rounds,
+        discussion_time: newSettings.discussion_time,
+        game_mode: newSettings.game_mode,
+        max_players: newSettings.max_players,
+        team_size: newSettings.team_size,
+        chaos_mode: newSettings.chaos_mode,
+        time_per_round: newSettings.time_per_round,
+        voting_time: newSettings.voting_time
       })
       .eq('id', room.id);
 

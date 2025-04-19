@@ -1,3 +1,5 @@
+import { PlayerRole } from '@/lib/types';
+
 export type Json =
   | string
   | number
@@ -230,3 +232,14 @@ export const Constants = {
     Enums: {},
   },
 } as const
+
+export interface Player {
+  id: string;
+  name: string;
+  room_id: string;
+  role?: PlayerRole;
+  vote?: string;
+  turn_description?: string;
+  last_active: string;
+  created_at: string;
+}

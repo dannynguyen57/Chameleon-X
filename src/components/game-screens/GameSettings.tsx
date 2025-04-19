@@ -5,9 +5,10 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useGame } from '@/contexts/GameContext';
-import { GameMode } from '@/lib/types';
+import { GameMode, PlayerRole, GameSettings as GameSettingsType } from '@/lib/types';
 import { X } from 'lucide-react';
+import { useGame } from '@/hooks/useGame';
+import { Badge } from '@/components/ui/badge';
 
 interface GameSettingsProps {
   onClose: () => void;
@@ -15,20 +16,99 @@ interface GameSettingsProps {
 
 export default function GameSettings({ onClose }: GameSettingsProps) {
   const { room, updateSettings } = useGame();
-  const [settings, setSettings] = useState({
-    maxPlayers: room?.settings.maxPlayers || 10,
-    discussionTime: room?.settings.discussionTime || 120,
-    maxRounds: room?.settings.maxRounds || 3,
-    gameMode: room?.settings.gameMode || 'classic',
-    teamSize: room?.settings.teamSize || 2,
-    chaosMode: room?.settings.chaosMode || false,
-    timePerRound: room?.settings.timePerRound || 60,
-    votingTime: room?.settings.votingTime || 30
+  const [settings, setSettings] = useState<GameSettingsType>({
+    max_players: room?.settings.max_players || 10,
+    discussion_time: room?.settings.discussion_time || 120,
+    max_rounds: room?.settings.max_rounds || 3,
+    game_mode: room?.settings.game_mode || 'classic',
+    team_size: room?.settings.team_size || 2,
+    chaos_mode: room?.settings.chaos_mode || false,
+    time_per_round: room?.settings.time_per_round || 60,
+    voting_time: room?.settings.voting_time || 30,
+    special_abilities: room?.settings.special_abilities || false,
+    roles: room?.settings.roles || {
+      classic: [PlayerRole.Regular, PlayerRole.Chameleon],
+      creative: [
+        PlayerRole.Regular,
+        PlayerRole.Chameleon,
+        PlayerRole.Mimic,
+        PlayerRole.Oracle,
+        PlayerRole.Jester,
+        PlayerRole.Spy,
+        PlayerRole.Mirror,
+        PlayerRole.Whisperer,
+        PlayerRole.Timekeeper,
+        PlayerRole.Illusionist,
+        PlayerRole.Guardian,
+        PlayerRole.Trickster
+      ],
+      team: [
+        PlayerRole.Regular,
+        PlayerRole.Chameleon,
+        PlayerRole.Mimic,
+        PlayerRole.Guardian
+      ],
+      chaos: [
+        PlayerRole.Regular,
+        PlayerRole.Chameleon,
+        PlayerRole.Mimic,
+        PlayerRole.Jester,
+        PlayerRole.Spy,
+        PlayerRole.Mirror
+      ]
+    }
   });
 
   const handleSave = async () => {
     await updateSettings(settings);
     onClose();
+  };
+
+  const handleRoleToggle = (role: PlayerRole) => {
+    const currentMode = settings.game_mode;
+    const currentRoles = settings.roles[currentMode] || [];
+    const newRoles = currentRoles.includes(role)
+      ? currentRoles.filter(r => r !== role)
+      : [...currentRoles, role];
+    
+    setSettings({
+      ...settings,
+      roles: {
+        ...settings.roles,
+        [currentMode]: newRoles
+      }
+    });
+  };
+
+  const getRoleDescription = (role: PlayerRole) => {
+    switch (role) {
+      case PlayerRole.Regular:
+        return "Knows the secret word and tries to describe it";
+      case PlayerRole.Chameleon:
+        return "Doesn't know the word and tries to blend in";
+      case PlayerRole.Mimic:
+        return "Knows a similar word but not the exact one";
+      case PlayerRole.Oracle:
+        return "Knows the word and can see who the chameleon is";
+      case PlayerRole.Jester:
+        return "Wins if they get voted as the chameleon";
+      case PlayerRole.Spy:
+        return "Knows the word but must pretend they don't";
+      case PlayerRole.Mirror:
+        return "Must repeat what the previous player said";
+      case PlayerRole.Whisperer:
+        return "Can secretly communicate with one other player";
+      case PlayerRole.Timekeeper:
+        return "Can extend or reduce the timer once";
+      case PlayerRole.Illusionist:
+        return "Can make one player's vote count double";
+      case PlayerRole.Guardian:
+        return "Can protect one player from being voted";
+      case PlayerRole.Trickster:
+        return "Can swap roles with another player once";
+      default:
+        return "";
+    }
   };
 
   return (
@@ -50,14 +130,15 @@ export default function GameSettings({ onClose }: GameSettingsProps) {
           <div className="space-y-2">
             <Label>Game Mode</Label>
             <Select
-              value={settings.gameMode}
-              onValueChange={(value) => setSettings({ ...settings, gameMode: value as GameMode })}
+              value={settings.game_mode}
+              onValueChange={(value) => setSettings({ ...settings, game_mode: value as GameMode })}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Select game mode" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="classic">Classic</SelectItem>
+                <SelectItem value="creative">Creative</SelectItem>
                 <SelectItem value="team">Team</SelectItem>
                 <SelectItem value="chaos">Chaos</SelectItem>
               </SelectContent>
@@ -72,8 +153,8 @@ export default function GameSettings({ onClose }: GameSettingsProps) {
                 type="number"
                 min="3"
                 max="20"
-                value={settings.maxPlayers}
-                onChange={(e) => setSettings({ ...settings, maxPlayers: parseInt(e.target.value) })}
+                value={settings.max_players}
+                onChange={(e) => setSettings({ ...settings, max_players: parseInt(e.target.value) })}
               />
             </div>
             <div className="space-y-2">
@@ -82,8 +163,8 @@ export default function GameSettings({ onClose }: GameSettingsProps) {
                 type="number"
                 min="2"
                 max="5"
-                value={settings.teamSize}
-                onChange={(e) => setSettings({ ...settings, teamSize: parseInt(e.target.value) })}
+                value={settings.team_size}
+                onChange={(e) => setSettings({ ...settings, team_size: parseInt(e.target.value) })}
               />
             </div>
           </div>
@@ -96,8 +177,8 @@ export default function GameSettings({ onClose }: GameSettingsProps) {
                 type="number"
                 min="30"
                 max="300"
-                value={settings.discussionTime}
-                onChange={(e) => setSettings({ ...settings, discussionTime: parseInt(e.target.value) })}
+                value={settings.discussion_time}
+                onChange={(e) => setSettings({ ...settings, discussion_time: parseInt(e.target.value) })}
               />
             </div>
             <div className="space-y-2">
@@ -106,8 +187,8 @@ export default function GameSettings({ onClose }: GameSettingsProps) {
                 type="number"
                 min="30"
                 max="180"
-                value={settings.timePerRound}
-                onChange={(e) => setSettings({ ...settings, timePerRound: parseInt(e.target.value) })}
+                value={settings.time_per_round}
+                onChange={(e) => setSettings({ ...settings, time_per_round: parseInt(e.target.value) })}
               />
             </div>
           </div>
@@ -119,8 +200,8 @@ export default function GameSettings({ onClose }: GameSettingsProps) {
                 type="number"
                 min="10"
                 max="60"
-                value={settings.votingTime}
-                onChange={(e) => setSettings({ ...settings, votingTime: parseInt(e.target.value) })}
+                value={settings.voting_time}
+                onChange={(e) => setSettings({ ...settings, voting_time: parseInt(e.target.value) })}
               />
             </div>
             <div className="space-y-2">
@@ -129,20 +210,44 @@ export default function GameSettings({ onClose }: GameSettingsProps) {
                 type="number"
                 min="1"
                 max="5"
-                value={settings.maxRounds}
-                onChange={(e) => setSettings({ ...settings, maxRounds: parseInt(e.target.value) })}
+                value={settings.max_rounds}
+                onChange={(e) => setSettings({ ...settings, max_rounds: parseInt(e.target.value) })}
               />
             </div>
           </div>
 
-          {/* Chaos Mode Toggle */}
+          {/* Special Abilities Toggle */}
           <div className="flex items-center space-x-2">
             <Switch
-              id="chaos-mode"
-              checked={settings.chaosMode}
-              onCheckedChange={(checked) => setSettings({ ...settings, chaosMode: checked })}
+              id="special-abilities"
+              checked={settings.special_abilities}
+              onCheckedChange={(checked) => setSettings({ ...settings, special_abilities: checked })}
             />
-            <Label htmlFor="chaos-mode">Chaos Mode</Label>
+            <Label htmlFor="special-abilities">Enable Special Abilities</Label>
+          </div>
+
+          {/* Role Selection */}
+          <div className="space-y-4">
+            <Label>Available Roles for {settings.game_mode} Mode</Label>
+            <div className="grid gap-4">
+              {Object.values(PlayerRole).map((role) => (
+                <div key={role} className="flex items-start space-x-4 p-4 border rounded-lg">
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id={`role-${role}`}
+                      checked={settings.roles[settings.game_mode]?.includes(role) || false}
+                      onCheckedChange={() => handleRoleToggle(role)}
+                    />
+                    <Label htmlFor={`role-${role}`} className="font-medium">
+                      {role}
+                    </Label>
+                  </div>
+                  <p className="text-sm text-muted-foreground flex-1">
+                    {getRoleDescription(role)}
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
         </CardContent>
         <CardFooter className="flex gap-2">

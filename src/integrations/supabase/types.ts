@@ -9,69 +9,174 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      chat_messages: {
+        Row: {
+          content: string
+          created_at: string | null
+          id: string
+          is_hint: boolean | null
+          player_id: string | null
+          player_name: string
+          role: string | null
+          room_id: string | null
+        }
+        Insert: {
+          content: string
+          created_at?: string | null
+          id?: string
+          is_hint?: boolean | null
+          player_id?: string | null
+          player_name: string
+          role?: string | null
+          room_id?: string | null
+        }
+        Update: {
+          content?: string
+          created_at?: string | null
+          id?: string
+          is_hint?: boolean | null
+          player_id?: string | null
+          player_name?: string
+          role?: string | null
+          room_id?: string | null
+        }
+        Relationships: []
+      }
       game_rooms: {
         Row: {
           category: string | null
           chameleon_id: string | null
+          chaos_mode: boolean
           created_at: string | null
+          current_turn: number | null
+          discussion_time: number
+          game_mode: string
           host_id: string
           id: string
+          last_updated: string | null
+          max_players: number
           max_rounds: number
-          round: number
+          revealed_player_id: string | null
+          revealed_role: string | null
+          round: number | null
+          round_outcome: string | null
           secret_word: string | null
+          settings: Json
           state: string
+          team_size: number
+          time_per_round: number
           timer: number | null
+          turn_order: string[] | null
+          updated_at: string | null
+          votes_tally: Json | null
+          voting_time: number
         }
         Insert: {
           category?: string | null
           chameleon_id?: string | null
+          chaos_mode: boolean
           created_at?: string | null
+          current_turn?: number | null
+          discussion_time: number
+          game_mode: string
           host_id: string
           id: string
-          max_rounds?: number
-          round?: number
+          last_updated?: string | null
+          max_players: number
+          max_rounds: number
+          revealed_player_id?: string | null
+          revealed_role?: string | null
+          round?: number | null
+          round_outcome?: string | null
           secret_word?: string | null
-          state?: string
+          settings: Json
+          state: string
+          team_size: number
+          time_per_round: number
           timer?: number | null
+          turn_order?: string[] | null
+          updated_at?: string | null
+          votes_tally?: Json | null
+          voting_time: number
         }
         Update: {
           category?: string | null
           chameleon_id?: string | null
+          chaos_mode?: boolean
           created_at?: string | null
+          current_turn?: number | null
+          discussion_time?: number
+          game_mode?: string
           host_id?: string
           id?: string
+          last_updated?: string | null
+          max_players?: number
           max_rounds?: number
-          round?: number
+          revealed_player_id?: string | null
+          revealed_role?: string | null
+          round?: number | null
+          round_outcome?: string | null
           secret_word?: string | null
+          settings?: Json
           state?: string
+          team_size?: number
+          time_per_round?: number
           timer?: number | null
+          turn_order?: string[] | null
+          updated_at?: string | null
+          votes_tally?: Json | null
+          voting_time?: number
         }
         Relationships: []
       }
       players: {
         Row: {
-          created_at: string | null
           id: string
           is_host: boolean
+          is_protected: boolean | null
+          is_ready: boolean
+          last_active: string | null
+          last_updated: string | null
           name: string
-          room_id: string
+          role: string | null
+          room_id: string | null
+          special_ability_used: boolean | null
+          special_word: string | null
+          turn_description: string | null
           vote: string | null
+          vote_multiplier: number | null
         }
         Insert: {
-          created_at?: string | null
           id: string
-          is_host?: boolean
+          is_host: boolean
+          is_protected?: boolean | null
+          is_ready: boolean
+          last_active?: string | null
+          last_updated?: string | null
           name: string
-          room_id: string
+          role?: string | null
+          room_id?: string | null
+          special_ability_used?: boolean | null
+          special_word?: string | null
+          turn_description?: string | null
           vote?: string | null
+          vote_multiplier?: number | null
         }
         Update: {
-          created_at?: string | null
           id?: string
           is_host?: boolean
+          is_protected?: boolean | null
+          is_ready?: boolean
+          last_active?: string | null
+          last_updated?: string | null
           name?: string
-          room_id?: string
+          role?: string | null
+          room_id?: string | null
+          special_ability_used?: boolean | null
+          special_word?: string | null
+          turn_description?: string | null
           vote?: string | null
+          vote_multiplier?: number | null
         }
         Relationships: [
           {
@@ -88,7 +193,36 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      create_game_room: {
+        Args:
+          | {
+              p_room_id: string
+              p_host_id: string
+              p_player_name: string
+              p_settings: Json
+            }
+          | {
+              p_room_id: string
+              p_player_id: string
+              p_player_name: string
+              p_settings: Json
+            }
+        Returns: string
+      }
+      join_game_room: {
+        Args:
+          | { p_room_id: string; p_player_id: string; p_player_name: string }
+          | { p_room_id: string; p_player_id: string; p_player_name: string }
+        Returns: boolean
+      }
+      start_game: {
+        Args: { room_id: string }
+        Returns: undefined
+      }
+      update_room_settings: {
+        Args: { room_id: string; new_settings: Json }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never

@@ -1,11 +1,11 @@
-import { useGame } from "@/contexts/GameContext";
+import { useGame } from "@/context/GameContext";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Clock, Lightbulb, Trophy, Gamepad2, Users, MessageSquare, Vote, CheckCircle, XCircle, Smile, ShieldCheck, Award, Shield, Search, Laugh } from "lucide-react";
+import { Clock, Lightbulb, Trophy, Gamepad2, Users, MessageSquare, Vote, CheckCircle, XCircle, Smile, ShieldCheck, Award, Shield, Search, Laugh, HelpCircle, AlertTriangle, Info, BookOpen } from "lucide-react";
 import { categories, WordCategory } from "@/lib/word-categories";
 import ChatSystem from "./ChatSystem";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useState, useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
@@ -20,6 +20,9 @@ import DevMode from '@/components/dev/DevMode';
 import DevModeSetup from '@/components/dev/DevModeSetup';
 import { getRoleTheme, getRoleDescription } from '@/lib/roleThemes';
 import { isImposter } from '@/lib/gameLogic';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { GameTutorial } from "./GameTutorial";
+import { getRoleTip } from '@/lib/game-helpers';
 
 const roleConfig: Record<PlayerRole, {
   bg: string;
@@ -114,11 +117,141 @@ const roleConfig: Record<PlayerRole, {
   }
 } as const;
 
+type PlayerRoleDisplayProps = {
+  player: Player & { is_investigated?: boolean };
+  isTurn: boolean;
+  onProtect?: () => void;
+  onInvestigate?: () => void;
+};
+
+const PlayerRoleDisplay = ({ player, isTurn, onProtect, onInvestigate }: PlayerRoleDisplayProps) => {
+  const { playerId } = useGame();
+  const isCurrentPlayer = player.id === playerId;
+  const config = roleConfig[player.role || PlayerRole.Regular];
+
+  return (
+    <Card 
+      className={cn(
+        "relative overflow-hidden transition-all duration-300",
+        isCurrentPlayer ? "ring-2 ring-primary" : "hover:ring-1 hover:ring-primary/50",
+        isTurn && "animate-pulse"
+      )}
+    >
+      <div className={cn(
+        "absolute inset-0 opacity-20",
+        config.bg
+      )} />
+      
+      <CardHeader className="relative z-10 p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className={cn(
+              "w-12 h-12 rounded-full flex items-center justify-center",
+              config.bg,
+              "shadow-lg"
+            )}>
+              {config.icon}
+            </div>
+            <div>
+              <CardTitle className={cn(
+                "text-lg font-bold flex items-center gap-2",
+                config.text
+              )}>
+                {player.name}
+                {isCurrentPlayer && (
+                  <Badge variant="secondary" className="text-xs">You</Badge>
+                )}
+              </CardTitle>
+              {isCurrentPlayer && (
+                <CardDescription className={config.text}>
+                  {getRoleDescription(player.role)}
+                </CardDescription>
+              )}
+            </div>
+          </div>
+          {isTurn && (
+            <Badge variant="secondary" className="animate-pulse">
+              Current Turn
+            </Badge>
+          )}
+        </div>
+      </CardHeader>
+
+      <CardContent className="relative z-10 p-4">
+        {isCurrentPlayer && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <span className={cn("text-sm font-medium", config.text)}>
+                {getRoleTip(player.role)}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {player.is_protected && (
+                <Badge variant="outline" className="bg-green-500/20 text-green-200 border-green-500/30">
+                  Protected
+                </Badge>
+              )}
+              {player.vote_multiplier && player.vote_multiplier !== 1 && (
+                <Badge variant="outline" className="bg-purple-500/20 text-purple-200 border-purple-500/30">
+                  Vote x{player.vote_multiplier}
+                </Badge>
+              )}
+            </div>
+          </div>
+        )}
+        
+        {player.turn_description && (
+          <div className="mt-3 p-2 rounded bg-black/20 border border-white/10">
+            <p className={cn(
+              "text-sm italic",
+              isCurrentPlayer ? config.text : "text-white/80"
+            )}>
+              "{player.turn_description}"
+            </p>
+          </div>
+        )}
+      </CardContent>
+
+      {isCurrentPlayer && (onProtect || onInvestigate) && (
+        <CardFooter className="relative z-10 p-4 flex gap-2">
+          {onProtect && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onProtect}
+              className={cn(
+                "bg-green-500/20 text-green-200 border-green-500/30",
+                "hover:bg-green-500/30 transition-colors"
+              )}
+            >
+              Protect
+            </Button>
+          )}
+          {onInvestigate && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onInvestigate}
+              className={cn(
+                "bg-blue-500/20 text-blue-200 border-blue-500/30",
+                "hover:bg-blue-500/30 transition-colors"
+              )}
+            >
+              Investigate
+            </Button>
+          )}
+        </CardFooter>
+      )}
+    </Card>
+  );
+};
+
 export default function GamePlay() {
   const { room, isPlayerChameleon, remainingTime, settings, playerId, setRoom, resetGame } = useGame();
   const [isTurnDialogOpen, setIsTurnDialogOpen] = useState(false);
   const [turnDescription, setTurnDescription] = useState('');
   const [isDevModeOpen, setIsDevModeOpen] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
   const isDevMode = import.meta.env.VITE_ENABLE_DEV_MODE === 'true';
   useGameSounds();
 
@@ -174,72 +307,6 @@ export default function GamePlay() {
           </Badge>
         )}
       </div>
-    );
-  };
-
-  const PlayerRoleDisplay = ({ player, isCurrentPlayer, isTurn, isProtected, isInvestigated, onProtect, onInvestigate }: {
-    player: Player;
-    isCurrentPlayer: boolean;
-    isTurn: boolean;
-    isProtected: boolean;
-    isInvestigated: boolean;
-    onProtect?: () => void;
-    onInvestigate?: () => void;
-  }) => {
-    const getRoleStyle = (role: PlayerRole) => {
-      if (!role) return roleConfig[PlayerRole.Regular];
-      return roleConfig[role];
-    };
-
-    const roleStyle = getRoleStyle(player.role || PlayerRole.Regular);
-    const roleDescription = getRoleDescription(player.role || PlayerRole.Regular);
-
-    return (
-      <Card className={`${roleStyle.bg} ${roleStyle.border} ${isCurrentPlayer ? 'ring-2 ring-white' : ''} ${isTurn ? 'ring-2 ring-yellow-500' : ''} ${isProtected ? 'ring-2 ring-green-500' : ''} ${isInvestigated ? 'ring-2 ring-purple-500' : ''} p-4 rounded-lg shadow-lg transition-all duration-300`}>
-        <CardContent className="flex flex-col items-center gap-2">
-          <div className="text-4xl mb-2">{roleStyle.icon}</div>
-          <div className={`${roleStyle.text} font-bold text-lg`}>{player.name}</div>
-          <div className={`${roleStyle.text} text-sm font-medium`}>{roleStyle.name}</div>
-          <div className="text-xs text-muted-foreground text-center mt-2">{roleDescription}</div>
-          {isTurn && (
-            <Badge variant="secondary" className="mt-2 animate-pulse">
-              Current Turn
-            </Badge>
-          )}
-          {isProtected && (
-            <Badge variant="outline" className="mt-2 border-green-500 text-green-500">
-              Protected
-            </Badge>
-          )}
-          {isInvestigated && (
-            <Badge variant="outline" className="mt-2 border-purple-500 text-purple-500">
-              Investigated
-            </Badge>
-          )}
-          {onProtect && (
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className="mt-2"
-              onClick={onProtect}
-            >
-              <Shield className="w-4 h-4 mr-2" />
-              Protect
-            </Button>
-          )}
-          {onInvestigate && (
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className="mt-2"
-              onClick={onInvestigate}
-            >
-              <Search className="w-4 h-4 mr-2" />
-              Investigate
-            </Button>
-          )}
-        </CardContent>
-      </Card>
     );
   };
 
@@ -331,6 +398,10 @@ export default function GamePlay() {
           <div className="flex items-center gap-3">
             <div className="relative">
               <Avatar className="h-12 w-12 sm:h-14 sm:w-14 ring-2 ring-primary/30">
+                <AvatarImage 
+                  src={`/avatars/${currentPlayer?.avatar_id || 1}.png`} 
+                  alt={currentPlayer?.name || "Player"} 
+                />
                 <AvatarFallback className="bg-gradient-to-br from-primary/20 to-primary/10">
                   {getPlayerRoleIcon(currentPlayer)}
                 </AvatarFallback>
@@ -400,10 +471,7 @@ export default function GamePlay() {
             <PlayerRoleDisplay
               key={player.id}
               player={player}
-              isCurrentPlayer={player.id === playerId}
               isTurn={room?.current_turn !== undefined && room?.turn_order?.[room.current_turn] === player.id}
-              isProtected={player.is_protected}
-              isInvestigated={player.investigated_player_id !== undefined}
               onProtect={() => handleRoleAbility(player.id)}
             />
           ))}
@@ -438,89 +506,285 @@ export default function GamePlay() {
     const getPhaseColor = (phase: GameState) => {
       switch (phase) {
         case GameState.Lobby:
-          return 'bg-blue-500/20 text-blue-500';
+          return {
+            bg: 'bg-gradient-to-br from-gray-900/60 to-gray-800/40',
+            border: 'border-gray-500/60',
+            text: 'text-gray-200',
+            accent: 'bg-gray-500/30'
+          };
         case GameState.Selecting:
-          return 'bg-yellow-500/20 text-yellow-500';
+          return {
+            bg: 'bg-gradient-to-br from-blue-900/60 to-blue-800/40',
+            border: 'border-blue-500/60',
+            text: 'text-blue-200',
+            accent: 'bg-blue-500/30'
+          };
         case GameState.Presenting:
-          return 'bg-green-500/20 text-green-500';
+          return {
+            bg: 'bg-gradient-to-br from-green-900/60 to-green-800/40',
+            border: 'border-green-500/60',
+            text: 'text-green-200',
+            accent: 'bg-green-500/30'
+          };
         case GameState.Discussion:
-          return 'bg-purple-500/20 text-purple-500';
+          return {
+            bg: 'bg-gradient-to-br from-yellow-900/60 to-yellow-800/40',
+            border: 'border-yellow-500/60',
+            text: 'text-yellow-200',
+            accent: 'bg-yellow-500/30'
+          };
         case GameState.Voting:
-          return 'bg-red-500/20 text-red-500';
+          return {
+            bg: 'bg-gradient-to-br from-red-900/60 to-red-800/40',
+            border: 'border-red-500/60',
+            text: 'text-red-200',
+            accent: 'bg-red-500/30'
+          };
         case GameState.Results:
-          return 'bg-indigo-500/20 text-indigo-500';
+          return {
+            bg: 'bg-gradient-to-br from-purple-900/60 to-purple-800/40',
+            border: 'border-purple-500/60',
+            text: 'text-purple-200',
+            accent: 'bg-purple-500/30'
+          };
         case GameState.Ended:
-          return 'bg-gray-500/20 text-gray-500';
+          return {
+            bg: 'bg-gradient-to-br from-gray-900/60 to-gray-800/40',
+            border: 'border-gray-500/60',
+            text: 'text-gray-200',
+            accent: 'bg-gray-500/30'
+          };
         default:
-          return 'bg-gray-500/20 text-gray-500';
-      }
-    };
-
-    const getPhaseDescription = (phase: GameState) => {
-      switch (phase) {
-        case GameState.Lobby:
-          return 'Waiting for players to join';
-        case GameState.Selecting:
-          return 'Selecting word and roles';
-        case GameState.Presenting:
-          return 'Players are presenting their words';
-        case GameState.Discussion:
-          return 'Discussing and finding the chameleon';
-        case GameState.Voting:
-          return 'Vote for the suspected chameleon';
-        case GameState.Results:
-          return 'Round results';
-        case GameState.Ended:
-          return 'Game has ended';
-        default:
-          return 'Unknown phase';
+          return {
+            bg: 'bg-gradient-to-br from-gray-900/60 to-gray-800/40',
+            border: 'border-gray-500/60',
+            text: 'text-gray-200',
+            accent: 'bg-gray-500/30'
+          };
       }
     };
 
     const getPhaseIcon = (phase: GameState) => {
       switch (phase) {
         case GameState.Lobby:
-          return <Users className="h-6 w-6" />;
+          return <Users className="w-8 h-8" />;
         case GameState.Selecting:
-          return <Lightbulb className="h-6 w-6" />;
+          return <Lightbulb className="w-8 h-8" />;
         case GameState.Presenting:
-          return <MessageSquare className="h-6 w-6" />;
+          return <MessageSquare className="w-8 h-8" />;
         case GameState.Discussion:
-          return <Gamepad2 className="h-6 w-6" />;
+          return <Gamepad2 className="w-8 h-8" />;
         case GameState.Voting:
-          return <Vote className="h-6 w-6" />;
+          return <Vote className="w-8 h-8" />;
         case GameState.Results:
-          return <Trophy className="h-6 w-6" />;
+          return <Trophy className="w-8 h-8" />;
         case GameState.Ended:
-          return <CheckCircle className="h-6 w-6" />;
+          return <CheckCircle className="w-8 h-8" />;
         default:
-          return <XCircle className="h-6 w-6" />;
+          return <XCircle className="w-8 h-8" />;
       }
     };
 
+    const getPhaseDescription = (phase: GameState) => {
+      switch (phase) {
+        case GameState.Lobby:
+          return "Players are gathering in the lobby, waiting for the host to start the game.";
+        case GameState.Selecting:
+          return "The host is selecting a category and secret word for this round.";
+        case GameState.Presenting:
+          return "Each player must provide a one-word clue that describes the secret word.";
+        case GameState.Discussion:
+          return "Discuss everyone's clues and try to identify who doesn't know the secret word!";
+        case GameState.Voting:
+          return "Cast your vote for who you believe is the Chameleon or other impostor role.";
+        case GameState.Results:
+          return "The votes are tallied! See if the group identified the correct player.";
+        case GameState.Ended:
+          return "The game has concluded. Check the final scores and see who won!";
+        default:
+          return "Unknown game phase";
+      }
+    };
+
+    const getPhaseInstructions = (phase: GameState) => {
+      let isPlayerTurn;
+      let voteStatus;
+      const voter = room.players.find(p => p.id === playerId);
+      
+      switch (phase) {
+        case GameState.Lobby:
+          return "Invite others to join using the room code or wait for the host to start.";
+        case GameState.Selecting:
+          return room.host_id === playerId 
+            ? "Choose a category and word for this round." 
+            : "Wait for the host to select a category and word.";
+        case GameState.Presenting:
+          isPlayerTurn = room.players[room.current_turn]?.id === playerId;
+          return isPlayerTurn 
+            ? "It's your turn! Enter a one-word clue that describes the secret word." 
+            : `Waiting for ${room.players[room.current_turn]?.name} to enter their clue.`;
+        case GameState.Discussion:
+          return "Use the clues to identify the Chameleon. Special roles: use your abilities!";
+        case GameState.Voting:
+          voteStatus = voter?.vote;
+          return voteStatus 
+            ? "You've cast your vote. Waiting for others to vote..." 
+            : "Select a player you think is the Chameleon or impostor.";
+        case GameState.Results:
+          return room.host_id === playerId 
+            ? "Review the results and click 'Next Round' when ready." 
+            : "Review the results. Waiting for the host to start the next round.";
+        case GameState.Ended:
+          return "Game over! Check the final scores and see who performed best.";
+        default:
+          return "";
+      }
+    };
+
+    // Get additional phase context
+    const getPhaseContext = (phase: GameState) => {
+      let votesCount;
+      
+      switch (phase) {
+        case GameState.Lobby:
+          return `${room.players.length}/${room.max_players} players`;
+        case GameState.Selecting:
+          return room.category ? `Category: ${room.category}` : 'No category selected yet';
+        case GameState.Presenting:
+          return `Player ${room.current_turn + 1}/${room.players.length}: ${room.players[room.current_turn]?.name}`;
+        case GameState.Discussion:
+          return `Round ${room.round}/${room.max_rounds}`;
+        case GameState.Voting:
+          votesCount = room.players.filter(p => p.vote).length;
+          return `${votesCount}/${room.players.length} votes cast`;
+        case GameState.Results:
+          return room.round_outcome || 'Results pending';
+        case GameState.Ended:
+          return 'Final scores';
+        default:
+          return '';
+      }
+    };
+
+    const calculateTimePercentage = () => {
+      if (remainingTime === null) return 0;
+      
+      let totalTime = 0;
+      switch(room.state) {
+        case GameState.Presenting:
+          totalTime = room.settings.time_per_round || 30;
+          break;
+        case GameState.Discussion:
+          totalTime = room.settings.discussion_time || 30;
+          break;
+        case GameState.Voting:
+          totalTime = room.settings.voting_time || 30;
+          break;
+        default:
+          return 0;
+      }
+      
+      const percentage = (remainingTime / totalTime) * 100;
+      return Math.max(0, Math.min(100, percentage));
+    };
+
+    const colors = getPhaseColor(room.state);
+    const timePercentage = calculateTimePercentage();
+    const isTimeCritical = remainingTime !== null && remainingTime <= 10;
+    const phaseContext = getPhaseContext(room.state);
+
     return (
-      <div className="flex items-center justify-between p-4 bg-card border rounded-lg">
-        <div className="flex items-center gap-4">
-          <div className={cn(
-            "w-10 h-10 rounded-full flex items-center justify-center text-xl",
-            getPhaseColor(room.state)
-          )}>
-            {getPhaseIcon(room.state)}
-          </div>
-          <div>
-            <h3 className="font-medium capitalize">{room.state || GameState.Lobby}</h3>
-            <p className="text-sm text-muted-foreground">
-              {getPhaseDescription(room.state)}
-            </p>
-          </div>
-        </div>
-        {typeof remainingTime === 'number' && remainingTime > 0 && (
-          <div className="flex items-center gap-2">
-            <Clock className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">{remainingTime}s</span>
-          </div>
-        )}
-      </div>
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+      >
+        <Card className={`${colors.bg} ${colors.border} border-2 rounded-lg shadow-xl overflow-hidden transition-all duration-300`}>
+          {remainingTime !== null && (
+            <div className="w-full h-2 bg-gray-800/70">
+              <motion.div 
+                className={`h-full ${isTimeCritical ? 'bg-red-500' : 'bg-green-500'}`} 
+                initial={{ width: '100%' }}
+                animate={{ width: `${timePercentage}%` }}
+                transition={{ duration: 1, ease: 'linear' }}
+              />
+            </div>
+          )}
+          <CardHeader className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${colors.accent} backdrop-blur-sm ${colors.text} shadow-inner border ${colors.border}`}>
+                  {getPhaseIcon(room.state)}
+                </div>
+                <div>
+                  <CardTitle className={`text-xl font-bold ${colors.text}`}>
+                    {room.state.charAt(0).toUpperCase() + room.state.slice(1)} Phase
+                  </CardTitle>
+                  <CardDescription className={`text-sm font-medium ${colors.text} opacity-90`}>
+                    {getPhaseDescription(room.state)}
+                  </CardDescription>
+                </div>
+              </div>
+              {remainingTime !== null && (
+                <div 
+                  className={`flex items-center gap-2 ${isTimeCritical ? 'animate-pulse' : ''} px-3 py-2 rounded-full ${colors.accent} backdrop-blur-sm`}
+                >
+                  <Clock className={`w-5 h-5 ${isTimeCritical ? 'text-red-300' : colors.text}`} />
+                  <span className={`text-lg font-bold ${isTimeCritical ? 'text-red-300' : colors.text}`}>
+                    {remainingTime}s
+                  </span>
+                </div>
+              )}
+            </div>
+          </CardHeader>
+          <div className={`w-full h-0.5 ${colors.accent}`}></div>
+          <CardContent className="p-4">
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <Badge variant="outline" className={`${colors.accent} ${colors.text} border-none`}>
+                  {phaseContext}
+                </Badge>
+                {room.category && room.state !== GameState.Lobby && (
+                  <Badge variant="outline" className={`${colors.accent} ${colors.text} border-none flex items-center gap-1.5`}>
+                    <BookOpen className="w-3.5 h-3.5" />
+                    <span>Category: {room.category}</span>
+                  </Badge>
+                )}
+              </div>
+              
+              <div className={`${colors.accent} rounded-lg p-3 text-sm ${colors.text}`}>
+                <div className="flex items-center gap-2 mb-1">
+                  <Info className="w-4 h-4" />
+                  <span className="font-medium">Instructions:</span>
+                </div>
+                <p>{getPhaseInstructions(room.state)}</p>
+              </div>
+
+              {room.state === GameState.Presenting && (
+                <div className="flex items-center gap-2 mt-1">
+                  <Avatar className="w-6 h-6">
+                    <AvatarFallback>{room.players[room.current_turn]?.name?.charAt(0) || '?'}</AvatarFallback>
+                  </Avatar>
+                  <p className={`text-sm ${colors.text}`}>
+                    Current player: <span className="font-semibold">{room.players[room.current_turn]?.name}</span>
+                  </p>
+                </div>
+              )}
+              
+              {room.state === GameState.Voting && voter?.vote && (
+                <div className="flex items-center gap-2 mt-1">
+                  <CheckCircle className="w-4 h-4 text-green-400" />
+                  <p className={`text-sm ${colors.text}`}>
+                    You voted for: <span className="font-semibold">
+                      {room.players.find(p => p.id === voter.vote)?.name || 'Unknown'}
+                    </span>
+                  </p>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
     );
   };
 
@@ -544,24 +808,40 @@ export default function GamePlay() {
 
     let title = "Round Over!";
     let description = "The votes are in!";
-    let icon = <CheckCircle className="h-10 w-10 text-yellow-500" />;
+    let icon = <CheckCircle className="h-12 w-12 text-yellow-500" />;
+    let bgGradient = "from-slate-800 to-slate-900";
+    let borderColor = "border-slate-700";
 
-    if (round_outcome === 'imposter_caught') {
-      title = "Imposter Caught!";
-      description = `${revealedPlayer?.name} (${revealed_role}) was the imposter! Good job, team!`;
-      icon = <CheckCircle className="h-10 w-10 text-green-500" />;
-    } else if (round_outcome === 'innocent_voted') {
+    if (round_outcome === 'imposter_caught' || round_outcome === 'chameleon_caught') {
+      title = "Chameleon Caught!";
+      description = `${revealedPlayer?.name} was the Chameleon! Good job, team!`;
+      icon = <CheckCircle className="h-12 w-12 text-green-500" />;
+      bgGradient = "from-green-900/70 to-green-800/50";
+      borderColor = "border-green-500/50";
+    } else if (round_outcome === 'innocent_voted' || round_outcome === 'wrong_vote') {
       title = "Oops! Wrong Person!";
-      description = `${revealedPlayer?.name} (${revealed_role}) was innocent! The imposter is still among us...`;
-      icon = <XCircle className="h-10 w-10 text-red-500" />;
+      description = `${revealedPlayer?.name} was innocent! The Chameleon is still among us...`;
+      icon = <AlertTriangle className="h-12 w-12 text-red-500" />;
+      bgGradient = "from-red-900/70 to-red-800/50";
+      borderColor = "border-red-500/50";
     } else if (round_outcome === 'jester_wins') {
       title = "Jester Wins!";
       description = `${revealedPlayer?.name} the Jester tricked you into voting for them!`;
-      icon = <Smile className="h-10 w-10 text-yellow-500" />;
+      icon = <Laugh className="h-12 w-12 text-yellow-500" />;
+      bgGradient = "from-yellow-900/70 to-yellow-800/50";
+      borderColor = "border-yellow-500/50";
     } else if (round_outcome === 'tie') {
       title = "It's a Tie!";
-      description = "No one was voted out. The imposter remains hidden!";
-      icon = <Users className="h-10 w-10 text-gray-500" />;
+      description = "No one was voted out. The Chameleon remains hidden!";
+      icon = <Users className="h-12 w-12 text-blue-500" />;
+      bgGradient = "from-blue-900/70 to-blue-800/50";
+      borderColor = "border-blue-500/50";
+    } else if (round_outcome === 'protected') {
+      title = "Player Protected!";
+      description = `${revealedPlayer?.name} was protected from being voted out!`;
+      icon = <ShieldCheck className="h-12 w-12 text-emerald-500" />;
+      bgGradient = "from-emerald-900/70 to-emerald-800/50";
+      borderColor = "border-emerald-500/50";
     }
     
     const isLastRound = room.round >= room.max_rounds;
@@ -573,65 +853,72 @@ export default function GamePlay() {
         transition={{ duration: 0.5 }}
         className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
       >
-        <Card className="w-full max-w-lg shadow-2xl border-primary/20">
-          <CardHeader className="text-center">
+        <Card className={`w-full max-w-lg shadow-2xl border-2 ${borderColor} bg-gradient-to-br ${bgGradient}`}>
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary/50 via-primary to-primary/50 animate-gradient"></div>
+          <CardHeader className="text-center pt-8">
             <div className="mx-auto mb-3">{icon}</div>
-            <CardTitle className="text-2xl font-bold">{title}</CardTitle>
-            <p className="text-muted-foreground mt-1">{description}</p>
+            <CardTitle className="text-2xl font-bold text-white">{title}</CardTitle>
+            <p className="text-white/70 mt-1">{description}</p>
           </CardHeader>
-          <CardContent className="space-y-3 divide-y divide-gray-200 dark:divide-gray-700">
+          <CardContent className="space-y-3 divide-y divide-gray-700">
             {votes_tally && Object.keys(votes_tally).length > 0 && (
               <div className="text-sm pt-3">
-                <h4 className="font-semibold mb-2 text-center">Votes Received:</h4>
-                <ul className="space-y-1 max-h-40 overflow-y-auto px-4">
-                    {Object.entries(votes_tally)
-                        .sort(([, aVotes], [, bVotes]) => bVotes - aVotes)
-                        .map(([votedId, count]) => {
-                            const p = room.players.find(pl => pl.id === votedId);
-                            return (
-                                <li key={votedId} className="flex justify-between items-center text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
-                                    <span>{p?.name || 'Unknown'}</span>
-                                    <Badge variant={p?.id === revealed_player_id ? "destructive" : "secondary"}>
-                                        {count} vote{count > 1 ? 's' : ''}
-                                    </Badge>
-                                </li>
-                            );
-                        })}
-                </ul>
+                <h4 className="font-semibold mb-2 text-center text-white">Votes Received:</h4>
+                <div className="max-h-40 overflow-y-auto px-4 space-y-1">
+                  {Object.entries(votes_tally || {})
+                    .sort(([, aVotes], [, bVotes]) => (bVotes as number) - (aVotes as number))
+                    .map(([votedId, count]) => {
+                      const p = room.players.find(pl => pl.id === votedId);
+                      const isRevealed = p?.id === revealed_player_id;
+                      const totalVotes = Object.values(votes_tally || {}).reduce((a, b) => (a as number) + (b as number), 0) as number;
+                      const percentage = Math.round(((count as number) / totalVotes) * 100);
+                      
+                      return (
+                        <div key={votedId} className="relative">
+                          <div className="flex items-center gap-1.5">
+                            <Badge variant={isRevealed ? "destructive" : "secondary"} className="text-[10px]">
+                              {count} vote{(count as number) > 1 ? 's' : ''} ({percentage}%)
+                            </Badge>
+                            {isRevealed && <span className="text-lg">👈</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
               </div>
             )}
             
             <div className="text-sm pt-3">
-                <h4 className="font-semibold mb-2 text-center">Voting Breakdown:</h4>
-                <ul className="space-y-1 max-h-48 overflow-y-auto px-2 sm:px-4">
-                    {voteDetails.map(vote => (
-                        <li key={vote.voterId} className="flex justify-between items-center text-xs bg-gray-100 dark:bg-gray-800/50 px-2 py-1.5 rounded">
-                            <span className="font-medium">{vote.voterName}</span>
-                            <div className="flex items-center gap-1 text-gray-600 dark:text-gray-400">
-                                <span>voted for</span>
-                                <Badge 
-                                    variant={vote.votedForId === revealed_player_id ? "destructive" : (vote.votedForId ? "secondary" : "outline")}
-                                    className="px-1.5 py-0.5 text-[10px]"
-                                >
-                                    {vote.votedForName}
-                                </Badge>
-                            </div>
-                        </li>
-                    ))}
-                </ul>
+              <h4 className="font-semibold mb-2 text-center text-white">Voting Breakdown:</h4>
+              <div className="max-h-48 overflow-y-auto px-2 sm:px-4 space-y-1.5">
+                {voteDetails.map(vote => (
+                  <div key={vote.voterId} className="flex justify-between items-center text-xs bg-gray-800/40 dark:bg-gray-800/50 px-2 py-1.5 rounded">
+                    <span className="font-medium text-white">{vote.voterName}</span>
+                    <div className="flex items-center gap-1 text-gray-400">
+                      <span>voted for</span>
+                      <Badge 
+                        variant={vote.votedForId === revealed_player_id ? "destructive" : (vote.votedForId ? "secondary" : "outline")}
+                        className="px-1.5 py-0.5 text-[10px]"
+                      >
+                        {vote.votedForName}
+                      </Badge>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
 
             {(isLastRound || room.host_id === playerId) && (
               <div className="pt-3">
-                  <Button 
-                    onClick={() => nextRound()} 
-                    className="w-full font-semibold"
-                    disabled={room.host_id !== playerId}
-                  >
-                    {isLastRound ? "View Final Scores" : "Start Next Round"} 
-                    {room.host_id !== playerId && " (Waiting for Host)"}
-                  </Button>
-             </div>
+                <Button 
+                  onClick={() => nextRound()} 
+                  className="w-full font-semibold bg-gradient-to-r from-blue-600 to-purple-600 shadow-lg text-white"
+                  disabled={room.host_id !== playerId}
+                >
+                  {isLastRound ? "View Final Scores" : "Start Next Round"} 
+                  {room.host_id !== playerId && " (Waiting for Host)"}
+                </Button>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -716,50 +1003,70 @@ export default function GamePlay() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white p-4">
+    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 text-white p-4">
       <AnimatePresence>
         {room?.state === 'results' && <ResultsDisplay />}
+        {showTutorial && <GameTutorial visible={showTutorial} onClose={() => setShowTutorial(false)} />}
       </AnimatePresence>
       
       <div className="max-w-7xl mx-auto space-y-6">
-        {/* Game Header */}
-        <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-700 shadow-lg">
+        {/* Game Header - make it neutral and distinct */}
+        <div className="bg-gray-800/70 backdrop-blur-sm rounded-xl p-4 border border-gray-700 shadow-lg">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
             <div className="flex items-center gap-4">
               <div className="bg-primary/20 p-3 rounded-lg">
                 <Gamepad2 className="h-6 w-6 text-primary" />
               </div>
               <div>
-                <h1 className="text-xl font-bold">Round {room?.round} of {room?.max_rounds}</h1>
-                <p className="text-slate-400">Category: {room?.category}</p>
+                <h1 className="text-xl font-bold flex items-center gap-2">
+                  <span className="text-primary">Chameleon X</span> 
+                  <span className="text-sm font-normal bg-gray-700/70 px-2 py-0.5 rounded-full">
+                    Round {room?.round} of {room?.max_rounds}
+                  </span>
+                </h1>
+                <p className="text-gray-400">Category: {room?.category}</p>
               </div>
             </div>
-            {!isPlayerChameleon && room?.secret_word && (
-              <div className="bg-emerald-500/20 p-3 rounded-lg border border-emerald-500/30">
-                <p className="text-emerald-400 font-medium">Secret Word: {room.secret_word}</p>
-              </div>
-            )}
+            <div className="flex items-center gap-4">
+              {!isPlayerChameleon && room?.secret_word && (
+                <div className="bg-emerald-500/20 p-3 rounded-lg border border-emerald-500/30">
+                  <p className="text-emerald-400 font-medium">Secret Word: {room.secret_word}</p>
+                </div>
+              )}
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="outline" size="icon" onClick={() => setShowTutorial(true)} className="bg-gray-700/50 border-gray-600">
+                      <HelpCircle className="h-5 w-5 text-gray-300" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Game Rules & Help</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* Left Column - Game Info */}
+          {/* Left Column - Game Info with neutral styling */}
           <div className="lg:col-span-1 space-y-6">
-            <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-700 shadow-lg">
+            <div className="bg-gray-800/70 backdrop-blur-sm rounded-xl p-4 border border-gray-700 shadow-lg">
               <h2 className="text-lg font-bold mb-4">Game Status</h2>
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Phase:</span>
+                  <span className="text-gray-400">Phase:</span>
                   <Badge variant="outline" className="bg-primary/20 text-primary">
                     {room?.state}
                   </Badge>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Time Left:</span>
+                  <span className="text-gray-400">Time Left:</span>
                   <span className="text-xl font-bold text-primary">{remainingTime}s</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Players:</span>
+                  <span className="text-gray-400">Players:</span>
                   <span className="text-xl font-bold">{room?.players.length}/{room?.max_players}</span>
                 </div>
               </div>

@@ -60,13 +60,44 @@ export default function GameSettings({ onClose }: GameSettingsProps) {
   });
 
   const handleSave = async () => {
-    await updateSettings(settings);
+    const updatedSettings = { ...settings };
+    
+    // Validate time settings
+    if (updatedSettings.discussion_time < updatedSettings.time_per_round) {
+      updatedSettings.discussion_time = updatedSettings.time_per_round;
+    }
+    
+    // Ensure minimum values
+    updatedSettings.max_players = Math.max(3, Math.min(20, updatedSettings.max_players));
+    updatedSettings.team_size = Math.max(2, Math.min(5, updatedSettings.team_size));
+    updatedSettings.discussion_time = Math.max(30, Math.min(300, updatedSettings.discussion_time));
+    updatedSettings.time_per_round = Math.max(30, Math.min(180, updatedSettings.time_per_round));
+    updatedSettings.voting_time = Math.max(10, Math.min(60, updatedSettings.voting_time));
+    updatedSettings.max_rounds = Math.max(1, Math.min(5, updatedSettings.max_rounds));
+    
+    Object.keys(updatedSettings.roles).forEach(mode => {
+      const roles = updatedSettings.roles[mode];
+      if (!roles.includes(PlayerRole.Chameleon)) {
+        updatedSettings.roles[mode] = [PlayerRole.Chameleon, ...roles];
+      }
+      
+      if (!roles.includes(PlayerRole.Regular)) {
+        updatedSettings.roles[mode].push(PlayerRole.Regular);
+      }
+    });
+    
+    await updateSettings(updatedSettings);
     onClose();
   };
 
   const handleRoleToggle = (role: PlayerRole) => {
     const currentMode = settings.game_mode;
     const currentRoles = settings.roles[currentMode] || [];
+    
+    if (role === PlayerRole.Chameleon) {
+      return;
+    }
+    
     const newRoles = currentRoles.includes(role)
       ? currentRoles.filter(r => r !== role)
       : [...currentRoles, role];

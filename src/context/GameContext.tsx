@@ -111,7 +111,7 @@ export type GameContextType = {
   nextRound: () => Promise<void>;
   leaveRoom: () => Promise<void>;
   resetGame: () => Promise<void>;
-  updateSettings: (settings: GameSettings) => Promise<void>;
+  updateSettings: (settings: Partial<GameSettings>) => Promise<void>;
   isPlayerChameleon: boolean;
   remainingTime: number | null;
   playerName: string;

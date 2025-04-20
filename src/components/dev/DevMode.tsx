@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useGame } from '@/contexts/GameContext';
+import { useGame } from '@/context/GameContext';
 import { PlayerRole, GameMode } from '@/lib/types';
 import { toast } from '@/components/ui/use-toast';
 import { Slider } from "@/components/ui/slider";

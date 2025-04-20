@@ -44,10 +44,11 @@ export interface Player {
   vote?: string;
   last_active: string;
   last_updated: string;
-  is_protected?: boolean;
-  vote_multiplier?: number;
-  special_word?: string;
-  special_ability_used?: boolean;
+  is_protected?: boolean | null;
+  vote_multiplier?: number | null;
+  special_word?: string | null;
+  special_ability_used?: boolean | null;
+  avatar_id?: number;
   timeout_at?: string;
   protected_player_id?: string;
   investigated_player_id?: string;

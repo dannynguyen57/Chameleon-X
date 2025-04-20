@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useGame } from '@/contexts/GameContext';
+import { useGame } from '@/context/GameContext';
 
 export const useGameSounds = () => {
   const { room } = useGame();

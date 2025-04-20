@@ -90,8 +90,13 @@ export default function LandingPage() {
     
     try {
       setContextPlayerName(playerName);
-      await createRoom(playerName);
-      navigate("/room");
+      const success = await createRoom(playerName);
+      
+      if (success) {
+        navigate("/room");
+      } else {
+        setError("Failed to create room. Please try again.");
+      }
     } catch (err) {
       console.error("Error creating room:", err);
       setError("Failed to create room. Please try again.");

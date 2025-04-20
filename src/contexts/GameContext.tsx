@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { 
@@ -29,7 +28,7 @@ type GameContextType = {
   room: GameRoom | null;
   settings: GameSettings;
   chatMessages: ChatMessage[];
-  createRoom: (playerName: string) => Promise<void>;
+  createRoom: (playerName: string) => Promise<boolean>;
   joinRoom: (roomId: string, playerName: string) => Promise<boolean>;
   sendChatMessage: (message: string, isHint?: boolean) => Promise<boolean>;
   togglePlayerReady: () => Promise<boolean>;
@@ -69,9 +68,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const remainingTime = useGameTimer(room?.id, room?.timer, room?.state);
   const gameActions = useGameActions(playerId, room, settings);
 
-  // Wrapper functions to match expected return types
-  const createRoomWrapper = async (playerName: string): Promise<void> => {
-    await gameActions.createRoom(playerName);
+  // Updated to return boolean value
+  const createRoomWrapper = async (playerName: string): Promise<boolean> => {
+    return await gameActions.createRoom(playerName);
   };
 
   const startGameWrapper = async (): Promise<void> => {

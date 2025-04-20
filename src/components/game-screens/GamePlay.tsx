@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 import { useGame } from "@/contexts/GameContextProvider";
 import { useGameActions } from "@/hooks/useGameActions";
+import { updatePlayer } from "@/lib/gameLogic";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
@@ -11,151 +12,97 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Check } from "lucide-react";
 
 import { Clock, Lightbulb, Trophy, Gamepad2, Users, MessageSquare, Vote, CheckCircle, XCircle, Smile, ShieldCheck, Award, Shield, Search, Laugh, Crown, Eye } from "lucide-react";
 
-import { PlayerRole, Player, GameState, GameRoom, GameResultType } from "@/lib/types";
+import { Player, PlayerRole, GameState, GameRoom, GameResultType } from "@/lib/types";
 import { Room } from '@/types/Room';
 import { cn } from "@/lib/utils";
 import { categories, WordCategory } from "@/lib/word-categories";
-import { getRoleTheme, getRoleDescription } from '@/lib/roleThemes';
+import { getRoleTheme } from '@/lib/roleThemes';
 import { isImposter } from '@/lib/gameLogic';
 import { roleConfig } from '@/lib/roleConfig';
+import { RoleTheme } from '@/lib/roleThemes';
+import { RoleConfig } from '@/lib/roleConfig';
 
 import ChatSystem from "./ChatSystem";
 import GameHeader from "./GameHeader";
 import DevMode from '@/components/dev/DevMode';
 import DevModeSetup from '@/components/dev/DevModeSetup';
 
+interface RoleStyle {
+  theme: RoleTheme;
+  config: RoleConfig;
+}
+
 export default function GamePlay() {
   const { room, isPlayerChameleon, remainingTime, settings, playerId, setRoom, resetGame } = useGame();
   const [isTurnDialogOpen, setIsTurnDialogOpen] = useState(false);
   const [turnDescription, setTurnDescription] = useState('');
   const [isDevModeOpen, setIsDevModeOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showWord, setShowWord] = useState(false);
   const isDevMode = import.meta.env.VITE_ENABLE_DEV_MODE === 'true';
 
   const { submitWord, nextRound, submitVote, startGame, handleRoleAbility } = useGameActions(playerId, room, settings, setRoom);
 
-  // Add debug logging
-  console.log('Dev Mode Environment Variable:', import.meta.env.VITE_ENABLE_DEV_MODE);
-  console.log('Is Dev Mode Enabled:', import.meta.env.VITE_ENABLE_DEV_MODE === 'true');
-  console.log('Is Dev Mode Open:', isDevModeOpen);
+  if (!room) return null;
+
+  const currentPlayer = room.players.find(p => p.id === playerId);
+  if (!currentPlayer) return null;
+
+  const currentTurnPlayer = room.players[room.current_turn || 0];
+  if (!currentTurnPlayer) return null;
 
   const getPlayerRoleIcon = (player: Player) => {
-    if (!player.role) return null;
-    
-    const roleStyle = roleConfig[player.role];
-    if (!roleStyle) return null;
+    const theme = getRoleTheme(player.role);
+    return theme.icon;
+  };
 
-    const isCurrentPlayer = player.id === playerId;
-    const isCurrentTurn = room?.current_turn !== undefined && 
-                         room.turn_order?.[room.current_turn] === player.id;
-    const hasTimedOut = player.timeout_at && new Date(player.timeout_at) < new Date();
-    const playerIsImposter = player.role === PlayerRole.Chameleon || player.role === PlayerRole.Mimic;
-    const isSpecial = player.role !== PlayerRole.Chameleon && player.role !== PlayerRole.Mimic;
+  const getRoleStyle = (role: PlayerRole | undefined): RoleStyle => {
+    const actualRole = role || PlayerRole.Regular;
+    return {
+      theme: getRoleTheme(actualRole),
+      config: roleConfig[actualRole]
+    };
+  };
 
+  const PlayerRoleDisplay = ({ player }: { player: Player }) => {
+    const { theme, config } = getRoleStyle(player.role);
     return (
-      <div className="flex items-center gap-2">
-        <div className={cn(
-          "p-2 rounded-lg flex items-center gap-2",
-          isCurrentPlayer ? "bg-primary/20" : "bg-muted",
-          isCurrentTurn && "ring-2 ring-primary"
-        )}>
-          <span className={cn(
-            "text-2xl",
-            roleStyle.text
-          )}>{roleStyle.icon}</span>
-          <span className="text-sm font-medium">
-            {isCurrentPlayer ? roleStyle.name : "Player"}
-          </span>
+      <div className={cn(
+        'p-4 rounded-lg border',
+        theme.bg,
+        theme.border,
+        theme.text,
+        theme.shadow,
+        theme.hover
+      )}>
+        <div className="flex items-center gap-2">
+          <span className="text-2xl">{theme.icon}</span>
+          <span className="font-semibold">{config.name}</span>
         </div>
-        {isCurrentTurn && (
-          <Badge variant="secondary" className="animate-pulse">
-            Current Turn
-          </Badge>
-        )}
-        {hasTimedOut && (
-          <Badge variant="destructive">Timed Out</Badge>
-        )}
-        {playerIsImposter && (
-          <Badge variant="outline" className={cn(
-            "border-red-500 text-red-500",
-            isSpecial && "border-green-500 text-green-500"
-          )}>
-            {isSpecial ? "Special" : "Imposter"}
-          </Badge>
+        <p className="mt-2 text-sm opacity-80">{config.description}</p>
+        {config.abilities && (
+          <div className="mt-4">
+            <h4 className="text-sm font-medium mb-2">Abilities:</h4>
+            <ul className="text-sm space-y-1">
+              {config.abilities.map((ability, index) => (
+                <li key={index} className="flex items-center gap-2">
+                  <span className="text-xs">•</span>
+                  {ability}
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
       </div>
     );
   };
 
-  const PlayerRoleDisplay = ({ player, isCurrentPlayer, isTurn, isProtected, isInvestigated, onProtect, onInvestigate }: {
-    player: Player;
-    isCurrentPlayer: boolean;
-    isTurn: boolean;
-    isProtected: boolean;
-    isInvestigated: boolean;
-    onProtect?: () => void;
-    onInvestigate?: () => void;
-  }) => {
-    const getRoleStyle = (role: PlayerRole) => {
-      if (!role) return roleConfig[PlayerRole.Regular];
-      return roleConfig[role];
-    };
-
-    const roleStyle = getRoleStyle(player.role || PlayerRole.Regular);
-    const roleDescription = getRoleDescription(player.role || PlayerRole.Regular);
-
-    return (
-      <Card className={`${roleStyle.bg} ${roleStyle.border} ${isCurrentPlayer ? 'ring-2 ring-white' : ''} ${isTurn ? 'ring-2 ring-yellow-500' : ''} ${isProtected ? 'ring-2 ring-green-500' : ''} ${isInvestigated ? 'ring-2 ring-purple-500' : ''} p-4 rounded-lg shadow-lg transition-all duration-300`}>
-        <CardContent className="flex flex-col items-center gap-2">
-          <div className="text-4xl mb-2">{roleStyle.icon}</div>
-          <div className={`${roleStyle.text} font-bold text-lg`}>{player.name}</div>
-          <div className={`${roleStyle.text} text-sm font-medium`}>{roleStyle.name}</div>
-          <div className="text-xs text-muted-foreground text-center mt-2">{roleDescription}</div>
-          {isTurn && (
-            <Badge variant="secondary" className="mt-2 animate-pulse">
-              Current Turn
-            </Badge>
-          )}
-          {isProtected && (
-            <Badge variant="outline" className="mt-2 border-green-500 text-green-500">
-              Protected
-            </Badge>
-          )}
-          {isInvestigated && (
-            <Badge variant="outline" className="mt-2 border-purple-500 text-purple-500">
-              Investigated
-            </Badge>
-          )}
-          {onProtect && (
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className="mt-2"
-              onClick={onProtect}
-            >
-              <Shield className="w-4 h-4 mr-2" />
-              Protect
-            </Button>
-          )}
-          {onInvestigate && (
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className="mt-2"
-              onClick={onInvestigate}
-            >
-              <Search className="w-4 h-4 mr-2" />
-              Investigate
-            </Button>
-          )}
-        </CardContent>
-      </Card>
-    );
-  };
-
-  // Add helper function for role-specific tips
   const getRoleTips = (role?: PlayerRole): string => {
     switch (role) {
       case PlayerRole.Chameleon:
@@ -190,12 +137,13 @@ export default function GamePlay() {
     category: WordCategory; 
   }) => {
     const playerRole = room.players.find(p => p.id === playerId)?.role;
-    const roleTheme = getRoleTheme(playerRole);
+    const { theme } = getRoleStyle(playerRole);
     
     return (
       <Card className={cn(
-        "border-2 shadow-lg overflow-hidden bg-gradient-to-r",
-        roleTheme.gradient
+        "border-2 shadow-lg overflow-hidden",
+        theme.bg,
+        theme.border
       )}>
         <CardHeader className="p-3">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
@@ -205,7 +153,7 @@ export default function GamePlay() {
                 <div className="flex items-center gap-1.5 px-2 py-1 bg-white dark:bg-gray-900 bg-opacity-50 dark:bg-opacity-50 rounded-md">
                   <span className="text-xs sm:text-sm font-medium">Category:</span>
                   <Badge variant="outline" className="text-xs sm:text-sm bg-white/80 dark:bg-gray-800/80">
-                    {category?.emoji} {room.category}
+                    {category.emoji} {category.name}
                   </Badge>
                 </div>
                 
@@ -225,194 +173,113 @@ export default function GamePlay() {
     );
   };
 
-  const CurrentTurnCard = ({ currentPlayer }: { currentPlayer: Player }) => {
+  const CurrentTurnCard = ({ currentPlayer, isSubmitting, setIsSubmitting, showWord, setShowWord }: { 
+    currentPlayer: Player;
+    isSubmitting: boolean;
+    setIsSubmitting: (value: boolean) => void;
+    showWord: boolean;
+    setShowWord: (value: boolean) => void;
+  }) => {
+    const { room, playerId } = useGame();
+    const [description, setDescription] = useState("");
+    const roleStyle = getRoleStyle(currentPlayer.role);
+    const isCurrentPlayer = currentPlayer.id === playerId;
+    const isImposterPlayer = isImposter(currentPlayer.role);
+    const isHost = playerId === room?.host_id;
+
     if (!room) return null;
-    const isCurrentPlayer = currentPlayer?.id === playerId;
-    const playerRole = room.players.find(p => p.id === playerId)?.role;
-    const roleTheme = getRoleTheme(playerRole);
-    
+
+    const handleSubmitTurn = async () => {
+      if (!description.trim()) return;
+      setIsSubmitting(true);
+      try {
+        await submitWord(description);
+        setDescription("");
+      } catch (error) {
+        console.error("Error submitting turn:", error);
+      } finally {
+        setIsSubmitting(false);
+      }
+    };
+
     return (
       <Card className={cn(
-        "border shadow-sm overflow-hidden",
-        isCurrentPlayer && "ring-2 ring-primary/50"
+        "border-2 shadow-lg transition-all duration-200",
+        roleStyle.theme.border,
+        roleStyle.theme.bg
       )}>
-        <div className={cn(
-          "h-1.5 w-full",
-          roleTheme.button
-        )}></div>
-        <CardContent className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <Avatar className="h-12 w-12 sm:h-14 sm:w-14 ring-2 ring-primary/30">
-                <AvatarFallback className="bg-gradient-to-br from-primary/20 to-primary/10">
-                  {getPlayerRoleIcon(currentPlayer)}
-                </AvatarFallback>
-              </Avatar>
-              <div className="absolute -bottom-1 -right-1 bg-primary text-white rounded-full p-1 shadow-md">
-                <span className="text-xs font-bold">!</span>
-              </div>
-            </div>
-            
-            <div className="flex-1 min-w-0">
-              <h3 className="text-base sm:text-lg font-semibold flex items-center">
-                {isCurrentPlayer ? (
-                  <>
-                    <span className="bg-gradient-to-r from-primary to-primary-600 bg-clip-text text-transparent">
-                      Your Turn
-                    </span>
-                    <span className="ml-2 inline-block animate-bounce">👈</span>
-                  </>
-                ) : (
-                  `${currentPlayer?.name}'s Turn`
-                )}
-              </h3>
-              
-              <p className="text-sm text-muted-foreground mt-1">
-                {isCurrentPlayer 
-                  ? (isPlayerChameleon 
-                    ? "You are the Chameleon! Try to blend in with a convincing description..."
-                    : `Describe the word "${room.secret_word}" without saying it directly.`)
-                  : "Waiting for their description..."}
-              </p>
-              
-              {currentPlayer?.turn_description ? (
-                <div className="mt-2 p-2 bg-gray-100 dark:bg-gray-800 rounded-md">
-                  <p className="text-sm italic">
-                    "{currentPlayer.turn_description}"
-                  </p>
-                </div>
-              ) : isCurrentPlayer ? (
-                <Button 
-                  onClick={() => setIsTurnDialogOpen(true)}
+        <CardHeader>
+          <CardTitle className={cn("flex items-center gap-2", roleStyle.theme.text)}>
+            <span className={cn("text-2xl", roleStyle.theme.icon)}>
+              {getPlayerRoleIcon(currentPlayer)}
+            </span>
+            {currentPlayer.name}'s Turn
+          </CardTitle>
+          <CardDescription className={cn(roleStyle.theme.text)}>
+            {isCurrentPlayer ? "It's your turn to describe the word!" : "Waiting for description..."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {isCurrentPlayer && (
+            <>
+              <div className="space-y-2">
+                <Label className={cn(roleStyle.theme.text)}>Your Description</Label>
+                <Textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Describe the word without saying it directly..."
                   className={cn(
-                    "mt-3 text-sm w-full sm:w-auto",
-                    roleTheme.button
+                    "min-h-[100px]",
+                    roleStyle.theme.border,
+                    roleStyle.theme.bg
+                  )}
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleSubmitTurn}
+                  disabled={isSubmitting || !description.trim()}
+                  className={cn(
+                    "flex-1",
+                    roleStyle.theme.button,
+                    roleStyle.theme.text
                   )}
                 >
-                  Describe Word
+                  {isSubmitting ? "Submitting..." : "Submit Description"}
                 </Button>
-              ) : (
-                <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
-                  <div className="h-2 w-2 rounded-full bg-yellow-500 animate-pulse"></div>
-                  <span>Waiting for their input...</span>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowWord(!showWord)}
+                  className={cn(
+                    roleStyle.theme.border,
+                    roleStyle.theme.text
+                  )}
+                >
+                  {showWord ? "Hide Word" : "Show Word"}
+                </Button>
+              </div>
+              {showWord && (
+                <div className={cn(
+                  "p-4 rounded-lg text-center font-bold",
+                  roleStyle.theme.border,
+                  roleStyle.theme.bg
+                )}>
+                  <p className={cn(roleStyle.theme.text)}>
+                    {isImposterPlayer ? "You are the imposter!" : `Word: ${room.secret_word}`}
+                  </p>
                 </div>
               )}
+            </>
+          )}
+          {!isCurrentPlayer && (
+            <div className="text-center">
+              <p className={cn("text-muted-foreground", roleStyle.theme.text)}>
+                Waiting for {currentPlayer.name} to describe the word...
+              </p>
             </div>
-          </div>
+          )}
         </CardContent>
       </Card>
-    );
-  };
-
-  const getPlayerById = (id: string): Player | undefined => {
-    return room?.players.find(p => p.id === id);
-  };
-
-  const RoleAbilityFeedback = ({ player, room }: { player: Player; room: GameRoom }) => {
-    const getAbilityFeedback = () => {
-      if (player.role === PlayerRole.Guardian && player.protected_player_id) {
-        const protectedPlayer = getPlayerById(player.protected_player_id);
-        return protectedPlayer ? `Protected ${protectedPlayer.name}` : null;
-      }
-      if (player.role === PlayerRole.Oracle && player.investigated_player_id) {
-        const investigatedPlayer = getPlayerById(player.investigated_player_id);
-        return investigatedPlayer ? `Investigated ${investigatedPlayer.name}` : null;
-      }
-      return null;
-    };
-
-    return getAbilityFeedback() ? (
-      <div className="text-sm text-muted-foreground">{getAbilityFeedback()}</div>
-    ) : null;
-  };
-
-  const GamePhaseIndicator = ({ room, remainingTime }: { room: GameRoom; remainingTime: number | null }) => {
-    const getPhaseColor = (phase: GameState) => {
-      switch (phase) {
-        case GameState.Lobby:
-          return 'bg-blue-500/20 text-blue-500';
-        case GameState.Selecting:
-          return 'bg-yellow-500/20 text-yellow-500';
-        case GameState.Presenting:
-          return 'bg-green-500/20 text-green-500';
-        case GameState.Discussion:
-          return 'bg-purple-500/20 text-purple-500';
-        case GameState.Voting:
-          return 'bg-red-500/20 text-red-500';
-        case GameState.Results:
-          return 'bg-indigo-500/20 text-indigo-500';
-        case GameState.Ended:
-          return 'bg-gray-500/20 text-gray-500';
-        default:
-          return 'bg-gray-500/20 text-gray-500';
-      }
-    };
-
-    const getPhaseDescription = (phase: GameState) => {
-      switch (phase) {
-        case GameState.Lobby:
-          return 'Waiting for players to join';
-        case GameState.Selecting:
-          return 'Selecting word and roles';
-        case GameState.Presenting:
-          return 'Players are presenting their words';
-        case GameState.Discussion:
-          return 'Discussing and finding the chameleon';
-        case GameState.Voting:
-          return 'Vote for the suspected chameleon';
-        case GameState.Results:
-          return 'Round results';
-        case GameState.Ended:
-          return 'Game has ended';
-        default:
-          return 'Unknown phase';
-      }
-    };
-
-    const getPhaseIcon = (phase: GameState) => {
-      switch (phase) {
-        case GameState.Lobby:
-          return <Users className="h-6 w-6" />;
-        case GameState.Selecting:
-          return <Lightbulb className="h-6 w-6" />;
-        case GameState.Presenting:
-          return <MessageSquare className="h-6 w-6" />;
-        case GameState.Discussion:
-          return <Gamepad2 className="h-6 w-6" />;
-        case GameState.Voting:
-          return <Vote className="h-6 w-6" />;
-        case GameState.Results:
-          return <Trophy className="h-6 w-6" />;
-        case GameState.Ended:
-          return <CheckCircle className="h-6 w-6" />;
-        default:
-          return <XCircle className="h-6 w-6" />;
-      }
-    };
-
-    return (
-      <div className="flex items-center justify-between p-4 bg-card border rounded-lg">
-        <div className="flex items-center gap-4">
-          <div className={cn(
-            "w-10 h-10 rounded-full flex items-center justify-center text-xl",
-            getPhaseColor(room.state)
-          )}>
-            {getPhaseIcon(room.state)}
-          </div>
-          <div>
-            <h3 className="font-medium capitalize">{room.state || GameState.Lobby}</h3>
-            <p className="text-sm text-muted-foreground">
-              {getPhaseDescription(room.state)}
-            </p>
-          </div>
-        </div>
-        {typeof remainingTime === 'number' && remainingTime > 0 && (
-          <div className="flex items-center gap-2">
-            <Clock className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">{remainingTime}s</span>
-          </div>
-        )}
-      </div>
     );
   };
 
@@ -517,11 +384,17 @@ export default function GamePlay() {
     );
   };
 
-  const currentCategory = useMemo(() => {
-    if (!room?.category) return categories[0];
-    const matchingCategory = categories.find(c => c.name === room.category);
-    return matchingCategory || categories[0];
-  }, [room?.category]);
+  const handleVote = async (votedPlayerId: string) => {
+    if (!room || !playerId) return;
+    
+    try {
+      await updatePlayer(playerId, room.id, {
+        vote: votedPlayerId
+      });
+    } catch (error) {
+      console.error('Error submitting vote:', error);
+    }
+  };
 
   if (!room) return (
     <div className="flex items-center justify-center min-h-[50vh]">
@@ -532,7 +405,7 @@ export default function GamePlay() {
     </div>
   );
 
-  if (!currentCategory && room.state === 'lobby') {
+  if (!currentPlayer && room.state === 'lobby') {
       return (
          <div className="container mx-auto p-3 sm:p-4 space-y-4">
              <div className="text-center p-6 bg-gray-100 dark:bg-gray-800 rounded-lg">
@@ -546,42 +419,14 @@ export default function GamePlay() {
       );
   }
   
-  if (!currentCategory && room.state !== 'lobby') return (
+  if (!currentPlayer && room.state !== 'lobby') return (
       <div className="flex items-center justify-center min-h-[50vh]">
         <p className="mt-4 text-destructive">Error loading category data.</p>
       </div>
   );
 
-  const currentPlayer = room?.players.find(p => p.id === room?.turn_order?.[room?.current_turn ?? 0]);
-
-  const isCurrentPlayer = currentPlayer?.id === playerId;
   const playerRole = room?.players.find(p => p.id === playerId)?.role;
-  const roleTheme = getRoleTheme(playerRole);
-  const voter = room?.players.find(p => p.id === playerId);
-
-  const handleSubmitTurn = async () => {
-    if (!room || !playerId || !turnDescription.trim() || !isCurrentPlayer) return;
-
-    try {
-      const success = await submitWord(turnDescription.trim());
-      if (success) {
-        setIsTurnDialogOpen(false);
-        setTurnDescription('');
-        
-        toast({
-          title: "Description submitted!",
-          description: "Waiting for other players to submit their descriptions.",
-        });
-      }
-    } catch (error) {
-      console.error('Error submitting turn:', error);
-      toast({
-        variant: "destructive",
-        title: "Error submitting turn",
-        description: "Failed to submit your turn. Please try again."
-      });
-    }
-  };
+  const roleTheme = getRoleTheme(playerRole || PlayerRole.Regular);
 
   // If in dev mode and no room is available, show the dev mode setup
   if (isDevMode && !room) {
@@ -593,385 +438,161 @@ export default function GamePlay() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white p-4">
-      <AnimatePresence>
-        {room?.state === 'results' && <ResultsDisplay />}
-      </AnimatePresence>
-      
-      <div className="max-w-7xl mx-auto space-y-6">
-        <GameHeader 
-          room={room} 
-          category={currentCategory} 
-        />
-        <GamePhaseIndicator room={room} remainingTime={room.timer as number | null} />
+    <div className="space-y-6">
+      {room.category && <GameHeader room={room} category={room.category} />}
+      <div className="min-h-screen bg-background p-4">
+        <div className="max-w-7xl mx-auto grid grid-cols-12 gap-4">
+          {/* Left Column - Game Status & Player Role */}
+          <div className="col-span-12 lg:col-span-3 space-y-4">
+            <Card className="border shadow-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Trophy className="w-5 h-5" />
+                  Game Status
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Round</span>
+                    <Badge variant="secondary">{room.round} / {room.max_rounds}</Badge>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Phase</span>
+                    <Badge>{room.state}</Badge>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Time Left</span>
+                    <Badge variant="outline">{remainingTime}s</Badge>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* Left Column - Game Info */}
-          <div className="lg:col-span-1 space-y-6">
-            <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-700 shadow-lg">
-              <h2 className="text-lg font-bold mb-4">Game Status</h2>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Phase:</span>
-                  <Badge variant="outline" className="bg-primary/20 text-primary">
-                    {room?.state}
-                  </Badge>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Time Left:</span>
-                  <span className="text-xl font-bold text-primary">{remainingTime}s</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Players:</span>
-                  <span className="text-xl font-bold">{room?.players.length}/{room?.max_players}</span>
-                </div>
-              </div>
-            </div>
+            <Card className="border shadow-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Crown className="w-5 h-5" />
+                  Your Role
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <PlayerRoleDisplay player={currentPlayer} />
+                <p className="mt-4 text-sm text-muted-foreground">
+                  {getRoleTips(currentPlayer.role)}
+                </p>
+              </CardContent>
+            </Card>
           </div>
 
-          {/* Center Column - Game Content */}
-          <div className="lg:col-span-2 space-y-6">
-            {room?.state === 'presenting' && (
-              <div className="space-y-6">
-                <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-6 border border-slate-700 shadow-lg">
-                  <div className="flex items-center gap-4 mb-6">
-                    <div className="bg-primary/20 p-3 rounded-full">
-                      <Users className="h-6 w-6 text-primary" />
-                    </div>
-                    <div>
-                      <h2 className="text-xl font-bold">Current Turn</h2>
-                      <p className="text-slate-400">{currentPlayer?.name}'s turn to describe</p>
-                    </div>
-                  </div>
-                  
-                  {currentPlayer?.id === playerId ? (
-                    <div className="space-y-4">
-                      <div className={cn(
-                        "p-4 rounded-lg border",
-                        isPlayerChameleon 
-                          ? "bg-red-500/10 border-red-500/20" 
-                          : "bg-primary/10 border-primary/20"
-                      )}>
-                        <p className="text-lg">
-                          {isPlayerChameleon 
-                            ? "You are the chameleon! Try to blend in by giving a vague description that sounds convincing."
-                            : `Describe the word "${room.secret_word}" without saying it directly.`}
-                        </p>
-                      </div>
-                      <Textarea
-                        value={turnDescription}
-                        onChange={(e) => setTurnDescription(e.target.value)}
-                        placeholder="Type your description..."
-                        className="min-h-[150px] text-lg bg-slate-800/50 border-slate-700 focus:border-primary"
-                      />
-                      <Button 
-                        onClick={handleSubmitTurn}
-                        className="w-full bg-primary hover:bg-primary/90 text-white"
-                        disabled={!turnDescription.trim()}
-                      >
-                        Submit Description
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="text-center py-8">
-                      <p className="text-slate-400">Waiting for {currentPlayer?.name} to describe...</p>
-                    </div>
-                  )}
-                </div>
+          {/* Center Column - Main Game Area */}
+          <div className="col-span-12 lg:col-span-6 space-y-4">
+            <Card className="border shadow-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Gamepad2 className="w-5 h-5" />
+                  Current Turn
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <CurrentTurnCard 
+                  currentPlayer={currentTurnPlayer}
+                  isSubmitting={isSubmitting}
+                  setIsSubmitting={setIsSubmitting}
+                  showWord={showWord}
+                  setShowWord={setShowWord}
+                />
+              </CardContent>
+            </Card>
 
-                <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-6 border border-slate-700 shadow-lg">
-                  <h2 className="text-xl font-bold mb-4">Player Descriptions</h2>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {room.players.map((player) => {
-                      const roleColor = roleConfig[player.role || PlayerRole.Regular];
-                      return (
-                        <div 
-                          key={player.id}
-                          className={cn(
-                            "p-4 rounded-lg border",
-                            player.id === playerId ? "border-primary" : roleColor.border,
-                            player.id === playerId ? "bg-primary/10" : roleColor.bg
-                          )}
-                        >
-                          <div className="flex items-center gap-3 mb-2">
-                            <div className={cn("text-2xl", roleColor.icon)}>{getPlayerRoleIcon(player)}</div>
-                            <div>
-                              <p className={cn("font-medium", roleColor.text)}>{player.name}</p>
-                              {player.id === playerId && (
-                                <span className="text-xs text-primary">(You)</span>
-                              )}
-                            </div>
-                          </div>
-                          {player.turn_description ? (
-                            <p className="text-slate-300 italic">"{player.turn_description}"</p>
-                          ) : (
-                            <p className="text-slate-500">Waiting for description...</p>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {room?.state === 'discussion' && (
-              <div className="space-y-6">
-                <div className="bg-amber-500/10 backdrop-blur-sm rounded-xl p-6 border border-amber-500/20 shadow-lg">
-                  <div className="flex items-center gap-4 mb-4">
-                    <div className="bg-amber-500/20 p-3 rounded-full">
-                      <MessageSquare className="h-6 w-6 text-amber-500" />
-                    </div>
-                    <div>
-                      <h2 className="text-xl font-bold text-amber-500">Discussion Time!</h2>
-                      <p className="text-amber-400">Discuss who you think is the imposter!</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-6 border border-slate-700 shadow-lg">
-                  <h2 className="text-xl font-bold mb-4">Player Descriptions</h2>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {room.players.map((player) => {
-                      const roleColor = roleConfig[player.role || PlayerRole.Regular];
-                      return (
-                        <div 
-                          key={player.id}
-                          className={cn(
-                            "p-4 rounded-lg border",
-                            player.id === playerId ? "border-primary" : roleColor.border,
-                            player.id === playerId ? "bg-primary/10" : roleColor.bg
-                          )}
-                        >
-                          <div className="flex items-center gap-3 mb-2">
-                            <div className={cn("text-2xl", roleColor.icon)}>{getPlayerRoleIcon(player)}</div>
-                            <div>
-                              <p className={cn("font-medium", roleColor.text)}>{player.name}</p>
-                              {player.id === playerId && (
-                                <span className="text-xs text-primary">(You)</span>
-                              )}
-                            </div>
-                          </div>
-                          <p className="text-slate-300 italic">"{player.turn_description}"</p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {room?.state === 'voting' && (
-              <div className="space-y-6">
-                <div className="bg-rose-500/10 backdrop-blur-sm rounded-xl p-6 border border-rose-500/20 shadow-lg">
-                  <div className="flex items-center gap-4 mb-4">
-                    <div className="bg-rose-500/20 p-3 rounded-full">
-                      <Vote className="h-6 w-6 text-rose-500" />
-                    </div>
-                    <div>
-                      <h2 className="text-xl font-bold text-rose-500">Voting Time!</h2>
-                      <p className="text-rose-400">Vote for who you think is the imposter!</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                  {room.players.map(p => {
-                    const roleColor = roleConfig[p.role || PlayerRole.Regular];
-                    const playerHasVoted = !!room.players.find(voter => voter.id === p.id)?.vote;
-                    return (
+            {room.state === GameState.Voting && (
+              <Card className="border shadow-sm">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Vote className="w-5 h-5" />
+                    Vote for the Chameleon
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {room.players.map(player => (
                       <Button
-                        key={p.id}
-                        variant={voter?.vote === p.id ? "default" : "outline"}
-                        onClick={() => submitVote(p.id)}
-                        disabled={p.id === playerId || !!voter?.vote || p.is_protected}
-                        className={cn(
-                          "relative flex flex-col items-center justify-center h-40 p-4 text-center transition-all duration-200",
-                          p.id === playerId && "opacity-50 cursor-not-allowed",
-                          voter?.vote === p.id && "bg-primary hover:bg-primary/90",
-                          p.is_protected && "opacity-60 cursor-not-allowed bg-emerald-500/10",
-                          !voter?.vote && !p.is_protected && roleColor.bg
-                        )}
+                        key={player.id}
+                        variant={room.votes?.[playerId] === player.id ? "secondary" : "outline"}
+                        className="w-full"
+                        onClick={() => handleVote(player.id)}
+                        disabled={player.id === playerId || Boolean(room.votes?.[playerId])}
                       >
-                        {playerHasVoted && voter?.id !== p.id && (
-                          <Badge 
-                            variant="secondary" 
-                            className="absolute top-2 left-2 text-xs px-2 h-6 bg-slate-700 text-slate-300"
-                          >
-                            Voted
-                          </Badge>
-                        )}
-                        <div className={cn("text-5xl mb-3", roleColor.icon)}>{getPlayerRoleIcon(p)}</div>
-                        <span className={cn("text-lg font-medium", roleColor.text)}>{p.name}</span>
-                        {voter?.vote === p.id && (
-                          <span className="text-sm text-primary mt-2">Your Vote</span>
-                        )}
-                        {p.id === playerId && (
-                          <span className="text-sm text-slate-400 mt-2">(You)</span>
-                        )}
-                        {p.is_protected && (
-                          <ShieldCheck className="h-5 w-5 absolute top-2 right-2 text-emerald-500" />
+                        {player.name}
+                        {room.votes?.[playerId] === player.id && (
+                          <Check className="ml-2 w-4 h-4" />
                         )}
                       </Button>
-                    );
-                  })}
-                </div>
-              </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {room.state === GameState.Results && (
+              <ResultsDisplay />
             )}
           </div>
 
-          {/* Right Column - Chat */}
-          {room?.state !== 'lobby' && room?.state !== 'ended' && (
-            <div className="lg:col-span-1">
-              <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-700 shadow-lg h-[calc(100vh-200px)]">
-                <div className="h-1.5 w-full bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 rounded-t-xl"></div>
-                <div className="p-4 h-full">
-                  <ChatSystem />
+          {/* Right Column - Players & Chat */}
+          <div className="col-span-12 lg:col-span-3 space-y-4">
+            <Card className="border shadow-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="w-5 h-5" />
+                  Players
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {room.players.map(player => (
+                    <div
+                      key={player.id}
+                      className={cn(
+                        "p-2 rounded-lg",
+                        player.id === playerId ? "bg-primary/10" : "bg-muted",
+                        player.id === room.turn_order?.[room.current_turn || 0] && "ring-2 ring-primary"
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Avatar className="w-8 h-8">
+                          <AvatarFallback>{player.name[0]}</AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="text-sm font-medium">{player.name}</p>
+                          {player.turn_description && (
+                            <p className="text-xs text-muted-foreground truncate">
+                              "{player.turn_description}"
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
-            </div>
-          )}
+              </CardContent>
+            </Card>
+
+            <Card className="border shadow-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <MessageSquare className="w-5 h-5" />
+                  Chat
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <ChatSystem />
+              </CardContent>
+            </Card>
+          </div>
         </div>
       </div>
-
-      {/* Dev Mode Button */}
-      {isDevMode && (
-        <div className="fixed bottom-4 right-4 z-50">
-          <Button
-            variant="default"
-            size="lg"
-            onClick={() => setIsDevModeOpen(!isDevModeOpen)}
-            className="bg-gradient-to-r from-primary to-primary-600 text-white shadow-lg hover:shadow-xl transition-all duration-200"
-          >
-            {isDevModeOpen ? 'Close Dev Mode' : 'Open Dev Mode'}
-          </Button>
-          {isDevModeOpen && <DevMode />}
-        </div>
-      )}
     </div>
   );
 }
-const GameStatus = ({ room, playerId }: { room: Room | null; playerId: string }) => {
-  const currentPhase = room?.state;
-  const currentPlayer = room?.players.find(p => p.id === playerId);
-  const isCurrentTurn = room?.current_turn === room?.players.findIndex(p => p.id === playerId);
-  const remainingTime = room?.timer || 0;
-  const playerCount = room?.players.length || 0;
-  const maxPlayers = room?.max_players || 0;
-  const round = room?.round || 0;
-  const totalRounds = room?.max_rounds || 0;
-  const category = room?.category || '';
-  const secretWord = room?.secret_word || '';
-  const isChameleon = currentPlayer?.role === PlayerRole.Chameleon;
-
-  const getPhaseColor = (phase: string) => {
-    switch (phase) {
-      case 'selecting': return 'bg-blue-500/20 text-blue-500';
-      case 'presenting': return 'bg-purple-500/20 text-purple-500';
-      case 'discussion': return 'bg-yellow-500/20 text-yellow-500';
-      case 'voting': return 'bg-red-500/20 text-red-500';
-      case 'results': return 'bg-green-500/20 text-green-500';
-      default: return 'bg-gray-500/20 text-gray-500';
-    }
-  };
-
-  const getPhaseDescription = (phase: string) => {
-    switch (phase) {
-      case 'selecting': return 'Selecting category and assigning roles...';
-      case 'presenting': return 'Players are describing the word';
-      case 'discussion': return 'Discuss and find the Chameleon!';
-      case 'voting': return 'Vote for who you think is the Chameleon';
-      case 'results': return 'Round results';
-      default: return 'Waiting for game to start...';
-    }
-  };
-
-  const getPhaseIcon = (phase: string) => {
-    switch (phase) {
-      case 'selecting': return '🎲';
-      case 'presenting': return '🎤';
-      case 'discussion': return '💬';
-      case 'voting': return '🗳️';
-      case 'results': return '';
-      default: return '⌛';
-    }
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Card className="bg-gradient-to-br from-gray-900 to-gray-800 border-gray-700">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className={cn(
-                  "p-2 rounded-full",
-                  getPhaseColor(currentPhase || '')
-                )}>
-                  {getPhaseIcon(currentPhase || '')}
-                </div>
-                <div>
-                  <h3 className="text-sm font-medium text-gray-400">Current Phase</h3>
-                  <p className="text-lg font-bold text-white capitalize">
-                    {currentPhase?.replace('_', ' ')}
-                  </p>
-                </div>
-              </div>
-              {isCurrentTurn && (
-                <div className="flex items-center gap-2">
-                  <Clock className="h-5 w-5 text-yellow-400" />
-                  <span className="text-2xl font-bold text-yellow-400">
-                    {remainingTime}s
-                  </span>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-gray-900 to-gray-800 border-gray-700">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-medium text-gray-400">Round</h3>
-                <p className="text-lg font-bold text-white">
-                  {round} / {totalRounds}
-                </p>
-              </div>
-              <div>
-                <h3 className="text-sm font-medium text-gray-400">Players</h3>
-                <p className="text-lg font-bold text-white">
-                  {playerCount} / {maxPlayers}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card className="bg-gradient-to-br from-gray-900 to-gray-800 border-gray-700">
-        <CardContent className="p-4">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium text-gray-400">Category</h3>
-              <p className="text-lg font-bold text-white">{category}</p>
-            </div>
-            {!isChameleon && (
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium text-gray-400">Secret Word</h3>
-                <p className="text-lg font-bold text-white">{secretWord}</p>
-              </div>
-            )}
-            {isChameleon && (
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium text-gray-400">Your Role</h3>
-                <p className="text-lg font-bold text-red-400">Chameleon</p>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-};
 

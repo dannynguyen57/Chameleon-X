@@ -7,47 +7,68 @@ import { useGame } from '@/contexts/GameContextProvider';
 import { useNavigate } from 'react-router-dom';
 import PublicRooms from '@/components/PublicRooms';
 import { PlayerRole, GameMode } from '@/lib/types';
+import { GameContextType } from '@/contexts/gameTypes';
 import { Gamepad2, PlusCircle, Search, Crown, Users, Clock, Trophy } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { DEFAULT_SETTINGS } from '@/lib/constants';
 import { nanoid } from 'nanoid';
+import { toast } from '@/components/ui/use-toast';
 
 export default function Home() {
   console.log('Rendering Home component');
   
   const [playerName, setPlayerName] = useState('');
   const [roomId, setRoomId] = useState('');
-  const { createRoom, joinRoom } = useGame();
+  const [error, setError] = useState<Error | null>(null);
   const navigate = useNavigate();
+  
+  // Always call useGame unconditionally
+  const gameContext = useGame();
 
   useEffect(() => {
-    console.log('Home component mounted');
-  }, []);
+    if (error) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to initialize game. Please refresh the page."
+      });
+    }
+  }, [error]);
 
   const handleCreateRoom = async () => {
     console.log('Creating room with player name:', playerName);
-    if (!playerName) return;
+    if (!playerName || !gameContext?.createRoom) return;
     
     try {
-      const newRoomId = await createRoom(playerName, DEFAULT_SETTINGS);
+      const newRoomId = await gameContext.createRoom(playerName, DEFAULT_SETTINGS);
       console.log('Room created with ID:', newRoomId);
       if (newRoomId && typeof newRoomId === 'string') {
         navigate(`/room/${newRoomId}`);
       }
     } catch (error) {
       console.error('Error creating room:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to create room. Please try again."
+      });
     }
   };
 
   const handleJoinRoom = async () => {
     console.log('Joining room:', roomId, 'with player name:', playerName);
-    if (!playerName || !roomId) return;
+    if (!playerName || !roomId || !gameContext?.joinRoom) return;
     
     try {
-      await joinRoom(roomId, playerName);
+      await gameContext.joinRoom(roomId, playerName);
       navigate(`/room/${roomId}`);
     } catch (error) {
       console.error('Error joining room:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to join room. Please check the room code and try again."
+      });
     }
   };
 

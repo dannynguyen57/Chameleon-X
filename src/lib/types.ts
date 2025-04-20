@@ -1,3 +1,5 @@
+import { WordCategory } from './word-categories';
+
 export enum PlayerRole {
   Regular = 'regular',
   Chameleon = 'chameleon',
@@ -18,17 +20,23 @@ export enum PlayerRole {
   Illusionist = 'illusionist'
 }
 
-export type Player = {
+export interface Player {
   id: string;
   name: string;
   role: PlayerRole;
+  isProtected: boolean;
+  isInvestigated: boolean;
+  isCurrentPlayer: boolean;
+  isTurn: boolean;
+  turn_description?: string;
+  protected_player_id?: string;
+  investigated_player_id?: string;
   score: number;
   is_host: boolean;
   is_ready: boolean;
   word?: string;
   is_protected?: boolean;
   has_voted?: boolean;
-  turn_description?: string;
   vote?: string;
   last_active: string;
   last_updated: string;
@@ -36,15 +44,13 @@ export type Player = {
   special_word?: string;
   special_ability_used?: boolean;
   timeout_at?: string;
-  protected_player_id?: string;
-  investigated_player_id?: string;
   revealed_role?: PlayerRole;
   team?: number;
   is_illusionist?: boolean;
   can_see_word?: boolean;
   room_id: string;
   created_at: string;
-};
+}
 
 export enum GameState {
   Lobby = 'lobby',
@@ -61,13 +67,6 @@ export enum GameMode {
   Teams = 'teams',
   Chaos = 'chaos',
   Timed = 'timed'
-}
-
-export enum WordCategory {
-  Animals = 'animals',
-  Food = 'food',
-  Places = 'places',
-  Objects = 'objects'
 }
 
 export interface GameSettings {

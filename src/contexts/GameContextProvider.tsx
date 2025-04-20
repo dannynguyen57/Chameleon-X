@@ -1,71 +1,15 @@
-import React, { useState, useCallback, useMemo, useRef, useEffect, useContext, createContext } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect, useContext } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { Player, GameRoom, GameState, GameSettings, GameMode, PlayerRole, GameResultType } from '../lib/types';
-import { useGameRealtime } from '../hooks/useGameRealtime';
-import { mapRoomData } from '../hooks/useGameRealtime';
+import { Player, GameRoom, GameState, GameSettings, PlayerRole, GameResultType, GameMode } from '../lib/types';
+import { mapRoomData, DatabaseRoom } from '../hooks/useGameRealtime';
 import { useGameTimer } from '../hooks/useGameTimer';
 import { useGameActions } from '../hooks/useGameActions';
 import { supabase } from '../integrations/supabase/client';
 import { toast } from '../components/ui/use-toast';
 import { nanoid } from 'nanoid';
 import { DEFAULT_SETTINGS } from '../lib/constants';
+import { GameContext } from './gameContext';
 import { GameContextType } from './gameTypes';
-
-export const GameContext = createContext<GameContextType | null>(null);
-
-
-interface DatabasePlayer {
-  id: string;
-  name: string;
-  role: PlayerRole;
-  score: number;
-  is_host: boolean;
-  is_ready: boolean;
-  is_protected: boolean;
-  has_voted: boolean;
-  word?: string;
-  turn_description?: string;
-  vote?: string;
-  last_active: string;
-  last_updated: string;
-  vote_multiplier: number;
-  special_word?: string;
-  special_ability_used: boolean;
-  timeout_at?: string;
-  protected_player_id?: string;
-  investigated_player_id?: string;
-  revealed_role?: PlayerRole;
-  team?: string;
-  is_illusionist: boolean;
-  can_see_word: boolean;
-  created_at: string;
-  room_id: string;
-}
-
-interface DatabaseRoom {
-  id: string;
-  state: GameState;
-  settings: GameSettings;
-  players: DatabasePlayer[];
-  category?: string;
-  secret_word?: string;
-  chameleon_id?: string;
-  timer?: number;
-  current_turn?: number;
-  current_word?: string;
-  created_at: string;
-  updated_at: string;
-  round?: number;
-  round_outcome?: GameResultType | null;
-  votes_tally?: Record<string, number> | null;
-  votes?: Record<string, string>;
-  results?: GameResultType[];
-  revealed_player_id?: string | null;
-  revealed_role?: PlayerRole | null;
-  last_updated?: string;
-  max_rounds?: number;
-  host_id?: string;
-}
 
 export const useGame = () => {
   const context = useContext(GameContext);
@@ -81,7 +25,6 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
   const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS);
   const [playerName, setPlayerName] = useState<string>('');
   const [isConnected, setIsConnected] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
   const roomRef = useRef<GameRoom | null>(null);
@@ -105,6 +48,29 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     setRoom
   );
   const remainingTime = useGameTimer(room?.id, room?.timer ?? undefined, room?.state, settings);
+
+  const handleGameStateTransition = useCallback(async (newState: GameState) => {
+    if (!room) return;
+
+    const updates = {
+      state: newState,
+      timer: newState === 'selecting' ? 30 : undefined,
+      current_turn: newState === 'selecting' ? 0 : undefined,
+      secret_word: newState === 'selecting' ? undefined : room.secret_word,
+      chameleon_id: newState === 'selecting' ? undefined : room.chameleon_id,
+      last_updated: new Date().toISOString()
+    };
+
+    const { error } = await supabase
+      .from('game_rooms')
+      .update(updates)
+      .eq('id', room.id);
+
+    if (error) {
+      console.error('Error transitioning game state:', error);
+      throw error;
+    }
+  }, [room]);
 
   const fetchRoom = useCallback(async () => {
     if (!room?.id) return;
@@ -215,18 +181,118 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
   }, [room?.id, fetchRoom]);
 
   const createRoom = useCallback(async (playerName: string, settings: GameSettings): Promise<string> => {
-    const roomId = playerId.substring(0, 6).toUpperCase();
-    await createRoomAction(playerName, settings, roomId);
-    await fetchRoom();
-    return roomId;
-  }, [createRoomAction, fetchRoom, playerId]);
+    try {
+      // Generate a room ID using only alphanumeric characters
+      const roomId = nanoid(6).replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+      console.log('Starting room creation process for:', roomId);
+      
+      const createdRoomId = await createRoomAction(playerName, settings, roomId);
+      
+      if (!createdRoomId) {
+        throw new Error('Failed to create room');
+      }
+      
+      console.log('Room created, fetching initial data for room:', roomId);
+      
+      // Fetch the new room data
+      const { data: roomData, error: roomError } = await supabase
+        .from('game_rooms')
+        .select(`
+          *,
+          players:players_room_id_fkey (*)
+        `)
+        .eq('id', roomId)
+        .single();
+        
+      if (roomError) {
+        console.error('Error fetching new room:', roomError);
+        throw new Error(`Failed to fetch room data: ${roomError.message}`);
+      }
+        
+      // Set the room data
+      if (roomData) {
+        const mappedRoom = mapRoomData(roomData as unknown as DatabaseRoom);
+        setRoom(mappedRoom as unknown as GameRoom);
+        console.log('Room data set successfully:', mappedRoom);
+      }
+      
+      return roomId;
+    } catch (error) {
+      console.error('Error in createRoom wrapper:', error);
+      toast({
+        variant: "destructive",
+        title: "Error Creating Room",
+        description: error instanceof Error ? error.message : "Unknown error occurred"
+      });
+      throw error;
+    }
+  }, [createRoomAction, setRoom]);
 
   const joinRoom = useCallback(async (roomId: string, playerName: string) => {
-    const success = await joinRoomAction(roomId, playerName, setPlayerId);
-    if (success) {
-      await fetchRoom();
+    try {
+      // Check if we're already in this room
+      if (room?.id === roomId) {
+        console.log('Already in room:', roomId);
+        return;
+      }
+
+      // Sanitize the room ID to ensure it only contains valid characters
+      const cleanRoomId = roomId.replace(/[^a-zA-Z0-9-]/g, '');
+      
+      // If the room ID changed after sanitizing, log a warning
+      if (cleanRoomId !== roomId) {
+        console.warn(`Room ID was sanitized from ${roomId} to ${cleanRoomId}`);
+        roomId = cleanRoomId; // Use the sanitized ID for all operations
+      }
+      
+      console.log(`Attempting to join room: ${roomId} with player name: ${playerName}`);
+      const success = await joinRoomAction(roomId, playerName, setPlayerId);
+      
+      if (success) {
+        console.log(`Successfully joined room ${roomId}, fetching room data`);
+        
+        // Direct fetch of room data to ensure we have the latest
+        const { data: roomData, error: roomError } = await supabase
+          .from('game_rooms')
+          .select(`
+            *,
+            players:players_room_id_fkey (*)
+          `)
+          .eq('id', roomId)
+          .single();
+          
+        if (roomError) {
+          console.error('Error fetching room after join:', roomError);
+          toast({
+            variant: "destructive",
+            title: "Error",
+            description: "Joined room but couldn't fetch room data. Please refresh."
+          });
+          return;
+        }
+        
+        if (roomData) {
+          const mappedRoom = mapRoomData(roomData as unknown as DatabaseRoom);
+          setRoom(mappedRoom as unknown as GameRoom);
+          console.log(`Room data loaded successfully after joining: ${roomId}`);
+        }
+      } else {
+        console.error(`Failed to join room: ${roomId}`);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to join room. Please try again or choose another room."
+        });
+      }
+    } catch (error) {
+      console.error('Error in joinRoom wrapper:', error);
+      toast({
+        variant: "destructive",
+        title: "Error Joining Room",
+        description: error instanceof Error ? error.message : "An unexpected error occurred"
+      });
     }
-  }, [joinRoomAction, fetchRoom, setPlayerId]);
+  }, [joinRoomAction, setPlayerId, setRoom, room?.id]);
 
   const leaveRoom = useCallback(async () => {
     if (!room?.id) return;
@@ -248,15 +314,15 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     resetGame,
     handleRoleAbility,
     setPlayerRole,
+    handleGameStateTransition,
     getPublicRooms: async (): Promise<GameRoom[]> => {
       try {
         const { data: rooms, error } = await supabase
           .from('game_rooms')
           .select(`
             *,
-            players!players_room_id_fkey (*)
+            players:players_room_id_fkey (*)
           `)
-          .eq('settings->is_public', true)
           .eq('state', 'lobby');
 
         if (error) {
@@ -283,31 +349,8 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     error: null
   }), [
     playerId, room, settings, createRoom, joinRoom, startGame, selectCategory, submitVote, nextRound, leaveRoom, resetGame, handleRoleAbility, setPlayerRole,
-    isPlayerChameleon, remainingTime, playerName, setSettings, setRoom, fetchRoom
+    isPlayerChameleon, remainingTime, playerName, setSettings, setRoom, fetchRoom, handleGameStateTransition
   ]);
-
-  const handleGameStateTransition = useCallback(async (newState: GameState) => {
-    if (!room) return;
-
-    const updates = {
-      state: newState,
-      timer: newState === 'selecting' ? 30 : undefined,
-      current_turn: newState === 'selecting' ? 0 : undefined,
-      secret_word: newState === 'selecting' ? undefined : room.secret_word,
-      chameleon_id: newState === 'selecting' ? undefined : room.chameleon_id,
-      last_updated: new Date().toISOString()
-    };
-
-    const { error } = await supabase
-      .from('game_rooms')
-      .update(updates)
-      .eq('id', room.id);
-
-    if (error) {
-      console.error('Error transitioning game state:', error);
-      throw error;
-    }
-  }, [room]);
 
   return (
     <GameContext.Provider value={value}>

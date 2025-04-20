@@ -1,6 +1,31 @@
-import { GameRoom, GameSettings } from '@/lib/types';
+import { GameRoom, GameSettings, PlayerRole, GameState, GameResultType } from '@/lib/types';
 
-export type GameContextType = {
+export interface DatabaseRoom {
+  id: string;
+  state: GameState;
+  settings: GameSettings;
+  players: { id: string; name: string; role?: PlayerRole }[];
+  category?: string;
+  secret_word?: string;
+  chameleon_id?: string;
+  timer?: number;
+  current_turn?: number;
+  current_word?: string;
+  created_at: string;
+  updated_at: string;
+  round?: number;
+  round_outcome?: GameResultType | null;
+  votes_tally?: Record<string, number> | null;
+  votes?: Record<string, string>;
+  results?: GameResultType[];
+  revealed_player_id?: string | null;
+  revealed_role?: PlayerRole | null;
+  last_updated?: string;
+  max_rounds?: number;
+  host_id?: string;
+}
+
+export interface GameContextType {
   playerId: string;
   room: GameRoom | null;
   settings: GameSettings;
@@ -8,11 +33,15 @@ export type GameContextType = {
   joinRoom: (roomId: string, playerName: string) => Promise<void>;
   startGame: () => Promise<void>;
   selectCategory: (category: string) => Promise<void>;
-  submitVote: (targetPlayerId: string) => Promise<void>;
+  submitVote: (votedPlayerId: string) => Promise<void>;
   nextRound: () => Promise<void>;
   leaveRoom: () => Promise<void>;
   resetGame: () => Promise<void>;
-  updateSettings: (settings: GameSettings) => Promise<void>;
+  handleRoleAbility: (targetPlayerId: string | null) => Promise<void>;
+  setPlayerRole: (playerId: string, role: PlayerRole) => Promise<boolean>;
+  handleGameStateTransition: (newState: GameState) => Promise<void>;
+  getPublicRooms: () => Promise<GameRoom[]>;
+  updateSettings: (newSettings: GameSettings) => Promise<void>;
   isPlayerChameleon: boolean;
   remainingTime: number | null;
   playerName: string;
@@ -20,5 +49,4 @@ export type GameContextType = {
   setRoom: (room: GameRoom | null) => void;
   loading: boolean;
   error: Error | null;
-  getPublicRooms: () => Promise<GameRoom[]>;
-}; 
+} 

@@ -94,7 +94,6 @@ export const fetchRoom = async (roomId: string): Promise<GameRoom | null> => {
 };
 
 export const assignRoles = async (roomId: string, players: Player[]) => {
-   // ... implementation ...
     const playerCount = players.length;
     if (playerCount === 0) return;
     
@@ -129,6 +128,21 @@ export const assignRoles = async (roomId: string, players: Player[]) => {
       console.error('Error assigning roles (DB Upsert Failed):', error);
       throw error;
     }
+
+    // Find the first chameleon player and update the room's chameleon_id
+    const chameleonPlayer = updates.find(p => p.role === PlayerRole.Chameleon);
+    if (chameleonPlayer) {
+      const { error: roomError } = await supabase
+        .from('game_rooms')
+        .update({ chameleon_id: chameleonPlayer.id })
+        .eq('id', roomId);
+
+      if (roomError) {
+        console.error('Error updating room chameleon_id:', roomError);
+        throw roomError;
+      }
+    }
+
     console.log('Roles successfully assigned in DB:', updates.map(u => `${players.find(p=>p.id===u.id)?.name}: ${u.role}`));
 };
 

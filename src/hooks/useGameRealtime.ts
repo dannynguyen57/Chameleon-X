@@ -102,7 +102,11 @@ export const mapRoomData = (room: DatabaseRoom): GameRoom => {
     is_illusionist: player.is_illusionist || false,
     can_see_word: player.can_see_word || false,
     created_at: player.created_at || new Date().toISOString(),
-    room_id: room.id
+    room_id: room.id,
+    isProtected: player.is_protected || false,
+    isInvestigated: false,
+    isCurrentPlayer: false,
+    isTurn: false
   }));
 
   return {

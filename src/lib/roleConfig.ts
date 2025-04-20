@@ -1,129 +1,267 @@
 import { PlayerRole } from './types';
 
-export const roleConfig: Record<PlayerRole, {
-  bg: string;
-  border: string;
-  text: string;
-  icon: string;
+export interface RoleConfig {
   name: string;
-}> = {
+  description: string;
+  abilities: string[];
+  tips: string[];
+  winCondition: string;
+}
+
+export const roleConfig: Record<PlayerRole, RoleConfig> = {
   [PlayerRole.Regular]: {
-    bg: 'bg-gradient-to-br from-blue-900/50 to-blue-800/30',
-    border: 'border-blue-500/50',
-    text: 'text-blue-200',
-    icon: '👤',
-    name: 'Regular'
+    name: "Regular Player",
+    description: "A standard player who knows the secret word and must help identify the Chameleon.",
+    abilities: [
+      "Knows the secret word",
+      "Can vote to identify the Chameleon",
+      "Can use special abilities if enabled"
+    ],
+    tips: [
+      "Give clear but subtle hints about the word",
+      "Watch for players who seem uncertain",
+      "Coordinate with other regular players"
+    ],
+    winCondition: "Successfully identify and vote out the Chameleon"
   },
   [PlayerRole.Chameleon]: {
-    bg: 'bg-gradient-to-br from-green-900/50 to-green-800/30',
-    border: 'border-green-500/50',
-    text: 'text-green-200',
-    icon: '🦎',
-    name: 'Chameleon'
+    name: "Chameleon",
+    description: "The imposter who doesn't know the secret word and must blend in with regular players.",
+    abilities: [
+      "Can see other players' roles",
+      "Can use special abilities if enabled",
+      "Wins if not voted out"
+    ],
+    tips: [
+      "Listen carefully to other players' descriptions",
+      "Give vague but plausible hints",
+      "Don't be too obvious or too quiet"
+    ],
+    winCondition: "Survive the voting phase without being caught"
   },
   [PlayerRole.Mimic]: {
-    bg: 'bg-gradient-to-br from-orange-900/50 to-orange-800/30',
-    border: 'border-orange-500/50',
-    text: 'text-orange-200',
-    icon: '🎭',
-    name: 'Mimic'
+    name: "Mimic",
+    description: "A player who knows a similar word to the secret word and must use this to their advantage.",
+    abilities: [
+      "Knows a similar word to the secret word",
+      "Can use special abilities if enabled",
+      "Can help or hinder the Chameleon"
+    ],
+    tips: [
+      "Use your knowledge of the similar word to blend in",
+      "Help identify the Chameleon while maintaining your cover",
+      "Be careful not to reveal your role"
+    ],
+    winCondition: "Help identify the Chameleon while maintaining your cover"
   },
   [PlayerRole.Oracle]: {
-    bg: 'bg-gradient-to-br from-purple-900/50 to-purple-800/30',
-    border: 'border-purple-500/50',
-    text: 'text-purple-200',
-    icon: '🔮',
-    name: 'Oracle'
+    name: "Oracle",
+    description: "A player with special insight who can see who the Chameleon is.",
+    abilities: [
+      "Can see who the Chameleon is",
+      "Can use special abilities if enabled",
+      "Must help others identify the Chameleon"
+    ],
+    tips: [
+      "Guide the discussion subtly",
+      "Protect yourself from being voted out",
+      "Help regular players without revealing your role"
+    ],
+    winCondition: "Help identify the Chameleon while maintaining your cover"
   },
   [PlayerRole.Jester]: {
-    bg: 'bg-gradient-to-br from-yellow-900/50 to-yellow-800/30',
-    border: 'border-yellow-500/50',
-    text: 'text-yellow-200',
-    icon: '🤡',
-    name: 'Jester'
+    name: "Jester",
+    description: "A mischievous player who wins by getting voted out as the Chameleon.",
+    abilities: [
+      "Can use special abilities if enabled",
+      "Must act suspiciously but not too obviously",
+      "Wins if voted out as the Chameleon"
+    ],
+    tips: [
+      "Give vague or misleading hints",
+      "Act suspicious but not too obviously",
+      "Try to get voted out as the Chameleon"
+    ],
+    winCondition: "Get voted out as the Chameleon"
   },
   [PlayerRole.Spy]: {
-    bg: 'bg-gradient-to-br from-gray-900/50 to-gray-800/30',
-    border: 'border-gray-500/50',
-    text: 'text-gray-200',
-    icon: '🕵️',
-    name: 'Spy'
+    name: "Spy",
+    description: "A player who knows the Chameleon's identity but must help them win.",
+    abilities: [
+      "Knows who the Chameleon is",
+      "Can use special abilities if enabled",
+      "Must help the Chameleon survive"
+    ],
+    tips: [
+      "Protect the Chameleon subtly",
+      "Distract other players from the real Chameleon",
+      "Don't reveal your role"
+    ],
+    winCondition: "Help the Chameleon survive the voting phase"
   },
   [PlayerRole.Mirror]: {
-    bg: 'bg-gradient-to-br from-cyan-900/50 to-cyan-800/30',
-    border: 'border-cyan-500/50',
-    text: 'text-cyan-200',
-    icon: '🪞',
-    name: 'Mirror'
+    name: "Mirror",
+    description: "A player who can see one other player's role.",
+    abilities: [
+      "Can see one other player's role",
+      "Can use special abilities if enabled",
+      "Must use this information wisely"
+    ],
+    tips: [
+      "Use your knowledge strategically",
+      "Help identify the Chameleon or protect yourself",
+      "Don't reveal your role too early"
+    ],
+    winCondition: "Help identify the Chameleon while maintaining your cover"
   },
   [PlayerRole.Whisperer]: {
-    bg: 'bg-gradient-to-br from-pink-900/50 to-pink-800/30',
-    border: 'border-pink-500/50',
-    text: 'text-pink-200',
-    icon: '🗣️',
-    name: 'Whisperer'
+    name: "Whisperer",
+    description: "A player who can send one secret message to another player.",
+    abilities: [
+      "Can send one secret message",
+      "Can use special abilities if enabled",
+      "Must use this ability strategically"
+    ],
+    tips: [
+      "Use your message to help or hinder others",
+      "Choose your message recipient carefully",
+      "Don't waste your message"
+    ],
+    winCondition: "Help identify the Chameleon while maintaining your cover"
   },
   [PlayerRole.Timekeeper]: {
-    bg: 'bg-gradient-to-br from-amber-900/50 to-amber-800/30',
-    border: 'border-amber-500/50',
-    text: 'text-amber-200',
-    icon: '⏱️',
-    name: 'Timekeeper'
+    name: "Timekeeper",
+    description: "A player who can control the game's timing.",
+    abilities: [
+      "Can add or subtract time from phases",
+      "Can use special abilities if enabled",
+      "Must use timing strategically"
+    ],
+    tips: [
+      "Use timing to help your team",
+      "Watch for opportunities to use your ability",
+      "Don't reveal your role too early"
+    ],
+    winCondition: "Help identify the Chameleon while maintaining your cover"
   },
   [PlayerRole.Illusionist]: {
-    bg: 'bg-gradient-to-br from-indigo-900/50 to-indigo-800/30',
-    border: 'border-indigo-500/50',
-    text: 'text-indigo-200',
-    icon: '🎪',
-    name: 'Illusionist'
+    name: "Illusionist",
+    description: "A player who can make one player's vote count double.",
+    abilities: [
+      "Can double one player's vote",
+      "Can use special abilities if enabled",
+      "Must use this power strategically"
+    ],
+    tips: [
+      "Use your ability to help your team",
+      "Choose your target carefully",
+      "Don't reveal your role too early"
+    ],
+    winCondition: "Help identify the Chameleon while maintaining your cover"
   },
   [PlayerRole.Detective]: {
-    bg: 'bg-gradient-to-br from-red-900/50 to-red-800/30',
-    border: 'border-red-500/50',
-    text: 'text-red-200',
-    icon: '🔍',
-    name: 'Detective'
+    name: "Detective",
+    description: "A player who can investigate one player's role.",
+    abilities: [
+      "Can investigate one player's role",
+      "Can use special abilities if enabled",
+      "Must use this information wisely"
+    ],
+    tips: [
+      "Use your investigation strategically",
+      "Help identify the Chameleon",
+      "Don't reveal your role too early"
+    ],
+    winCondition: "Help identify the Chameleon while maintaining your cover"
   },
   [PlayerRole.Guardian]: {
-    bg: 'bg-gradient-to-br from-emerald-900/50 to-emerald-800/30',
-    border: 'border-emerald-500/50',
-    text: 'text-emerald-200',
-    icon: '🛡️',
-    name: 'Guardian'
+    name: "Guardian",
+    description: "A player who can protect one player from being voted out.",
+    abilities: [
+      "Can protect one player from votes",
+      "Can use special abilities if enabled",
+      "Must use this protection wisely"
+    ],
+    tips: [
+      "Use your protection strategically",
+      "Protect key players or yourself",
+      "Don't reveal your role too early"
+    ],
+    winCondition: "Help identify the Chameleon while maintaining your cover"
   },
   [PlayerRole.Trickster]: {
-    bg: 'bg-gradient-to-br from-violet-900/50 to-violet-800/30',
-    border: 'border-violet-500/50',
-    text: 'text-violet-200',
-    icon: '🎭',
-    name: 'Trickster'
+    name: "Trickster",
+    description: "A player who can swap two players' votes.",
+    abilities: [
+      "Can swap two players' votes",
+      "Can use special abilities if enabled",
+      "Must use this power strategically"
+    ],
+    tips: [
+      "Use your ability to help your team",
+      "Choose your targets carefully",
+      "Don't reveal your role too early"
+    ],
+    winCondition: "Help identify the Chameleon while maintaining your cover"
   },
   [PlayerRole.Saboteur]: {
-    bg: 'bg-gradient-to-br from-rose-900/50 to-rose-800/30',
-    border: 'border-rose-500/50',
-    text: 'text-rose-200',
-    icon: '💣',
-    name: 'Saboteur'
+    name: "Saboteur",
+    description: "A player who can disrupt the game in various ways.",
+    abilities: [
+      "Can disrupt the game in various ways",
+      "Can use special abilities if enabled",
+      "Must use this power strategically"
+    ],
+    tips: [
+      "Use your abilities to create chaos",
+      "Help the Chameleon or your own team",
+      "Don't reveal your role too early"
+    ],
+    winCondition: "Help identify the Chameleon while maintaining your cover"
   },
   [PlayerRole.Host]: {
-    bg: 'bg-gradient-to-br from-sky-900/50 to-sky-800/30',
-    border: 'border-sky-500/50',
-    text: 'text-sky-200',
-    icon: '👑',
-    name: 'Host'
+    name: "Host",
+    description: "The game host who controls the game settings and flow.",
+    abilities: [
+      "Controls game settings",
+      "Can start and end rounds",
+      "Can manage players"
+    ],
+    tips: [
+      "Set up the game fairly",
+      "Keep the game moving smoothly",
+      "Help players understand the rules"
+    ],
+    winCondition: "Ensure a fair and enjoyable game for all players"
   },
   [PlayerRole.Player]: {
-    bg: 'bg-gradient-to-br from-slate-900/50 to-slate-800/30',
-    border: 'border-slate-500/50',
-    text: 'text-slate-200',
-    icon: '👤',
-    name: 'Player'
+    name: "Player",
+    description: "A standard player in the game.",
+    abilities: [
+      "Can participate in the game",
+      "Can vote and use abilities",
+      "Must follow the game rules"
+    ],
+    tips: [
+      "Pay attention to the game",
+      "Follow the rules",
+      "Have fun!"
+    ],
+    winCondition: "Help your team win the game"
   },
   [PlayerRole.Spectator]: {
-    bg: 'bg-gradient-to-br from-zinc-900/50 to-zinc-800/30',
-    border: 'border-zinc-500/50',
-    text: 'text-zinc-200',
-    icon: '👀',
-    name: 'Spectator'
+    name: "Spectator",
+    description: "A player who watches the game but doesn't participate.",
+    abilities: [
+      "Can watch the game",
+      "Can chat with other spectators",
+      "Cannot vote or use abilities"
+    ],
+    tips: [
+      "Enjoy watching the game",
+      "Don't interfere with the game",
+      "Learn from other players"
+    ],
+    winCondition: "Enjoy watching the game"
   }
 }; 

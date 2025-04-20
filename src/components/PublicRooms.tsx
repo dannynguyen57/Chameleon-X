@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -8,34 +8,111 @@ import { useNavigate } from 'react-router-dom';
 import { Clock, Users, Gamepad2, Settings2 } from 'lucide-react';
 import { toast } from '@/components/ui/use-toast';
 import { mapRoomData } from '@/hooks/useGameRealtime';
+import { Input } from '@/components/ui/input';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 
 export default function PublicRooms() {
   const [rooms, setRooms] = useState<GameRoom[]>([]);
   const [loading, setLoading] = useState(true);
-  const { getPublicRooms, joinRoom } = useGame();
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  const [isJoinDialogOpen, setIsJoinDialogOpen] = useState(false);
+  const [playerName, setPlayerName] = useState('');
+  const { getPublicRooms, joinRoom, playerName: contextPlayerName } = useGame();
   const navigate = useNavigate();
 
+  // Load player name from context or localStorage when component mounts
   useEffect(() => {
-    const fetchRooms = async () => {
-      try {
-        const data = await getPublicRooms();
-        setRooms(data);
-      } catch (error) {
-        console.error('Error fetching rooms:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+    const savedName = localStorage.getItem('playerName') || contextPlayerName || '';
+    setPlayerName(savedName);
+  }, [contextPlayerName]);
 
-    fetchRooms();
+  // Define fetchRooms function with useCallback to prevent infinite loops
+  const fetchRooms = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await getPublicRooms();
+      setRooms(data);
+    } catch (error) {
+      console.error('Error fetching rooms:', error);
+    } finally {
+      setLoading(false);
+    }
   }, [getPublicRooms]);
 
-  const handleJoinRoom = async (roomId: string) => {
+  useEffect(() => {
+    fetchRooms();
+    
+    // Set up periodic refresh
+    const intervalId = setInterval(fetchRooms, 5000);
+    
+    return () => clearInterval(intervalId);
+  }, [fetchRooms]);
+
+  const openJoinDialog = (roomId: string) => {
+    setSelectedRoomId(roomId);
+    setIsJoinDialogOpen(true);
+  };
+
+  const handleJoinRoom = async () => {
+    if (!selectedRoomId || !playerName.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please enter your name to join the room."
+      });
+      return;
+    }
+
     try {
-      await joinRoom(roomId, 'Player');
-      navigate(`/room/${roomId}`);
+      // Save the player name to localStorage for future use
+      localStorage.setItem('playerName', playerName);
+      
+      // Sanitize the room ID to ensure it only contains valid characters
+      const cleanRoomId = selectedRoomId.replace(/[^a-zA-Z0-9-]/g, '');
+      
+      // If the room ID changed after sanitizing, show a warning
+      if (cleanRoomId !== selectedRoomId) {
+        console.warn(`Room ID was sanitized from ${selectedRoomId} to ${cleanRoomId}`);
+      }
+      
+      // Check if the room still exists and is not full before joining
+      const roomsData = await getPublicRooms();
+      const roomToJoin = roomsData.find(room => room.id === cleanRoomId);
+      
+      if (!roomToJoin) {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "This room no longer exists."
+        });
+        // Refresh the rooms list
+        fetchRooms();
+        setIsJoinDialogOpen(false);
+        return;
+      }
+      
+      if (roomToJoin.players.length >= roomToJoin.settings.max_players) {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "This room is now full. Please choose another room."
+        });
+        // Refresh the rooms list
+        fetchRooms();
+        setIsJoinDialogOpen(false);
+        return;
+      }
+      
+      await joinRoom(cleanRoomId, playerName);
+      setIsJoinDialogOpen(false);
+      navigate(`/room/${cleanRoomId}`);
     } catch (error) {
       console.error('Error joining room:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to join the room. Please try again."
+      });
     }
   };
 
@@ -46,6 +123,8 @@ export default function PublicRooms() {
       </div>
     );
   }
+
+  const selectedRoom = selectedRoomId ? rooms.find(room => room.id === selectedRoomId) : null;
 
   return (
     <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-6">
@@ -88,7 +167,7 @@ export default function PublicRooms() {
                 </div>
                 <Button
                   className="w-full mt-2 text-xs sm:text-sm h-8 sm:h-9"
-                  onClick={() => handleJoinRoom(room.id)}
+                  onClick={() => openJoinDialog(room.id)}
                   disabled={room.players.length >= room.settings.max_players}
                 >
                   {room.players.length >= room.settings.max_players ? 'Room Full' : 'Join Room'}
@@ -103,6 +182,40 @@ export default function PublicRooms() {
           </div>
         )}
       </div>
+
+      {/* Join Room Dialog */}
+      <Dialog open={isJoinDialogOpen} onOpenChange={setIsJoinDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Join Room</DialogTitle>
+            <DialogDescription>
+              Enter your name to join {selectedRoom?.id ? `Room ${selectedRoom.id}` : 'the room'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Input
+              placeholder="Enter your name"
+              value={playerName}
+              onChange={(e) => setPlayerName(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setIsJoinDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleJoinRoom}
+              disabled={!playerName.trim()}
+            >
+              Join Room
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 } 

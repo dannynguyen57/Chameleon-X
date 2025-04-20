@@ -13,6 +13,7 @@ import { roleDescriptions } from "@/lib/game-data";
 export default function GamePlay() {
   const { 
     room, 
+    playerId, // Use playerId from the context instead
     isPlayerChameleon, 
     isCurrentPlayerTurn,
     remainingTime, 
@@ -187,19 +188,19 @@ export default function GamePlay() {
               </div>
               
               {/* Special abilities */}
-              {room.players.find(p => p.id === room.playerId)?.role !== 'standard' && 
-               room.players.find(p => p.id === room.playerId)?.role !== 'chameleon' &&
-               !room.players.find(p => p.id === room.playerId)?.specialAbilityUsed && (
+              {room.players.find(p => p.id === playerId)?.role !== 'standard' && 
+               room.players.find(p => p.id === playerId)?.role !== 'chameleon' &&
+               !room.players.find(p => p.id === playerId)?.specialAbilityUsed && (
                 <div className="bg-accent/20 p-4 rounded-lg">
                   <h3 className="text-lg font-medium text-center mb-2">Special Ability</h3>
                   
-                  {room.players.find(p => p.id === room.playerId)?.role === 'detective' && (
+                  {room.players.find(p => p.id === playerId)?.role === 'detective' && (
                     <div className="space-y-3">
                       <p className="text-center text-sm">
                         As a Detective, you can investigate one player to see if they are the Chameleon.
                       </p>
                       <div className="grid gap-2 mt-2">
-                        {room.players.filter(p => p.id !== room.playerId).map((player) => (
+                        {room.players.filter(p => p.id !== playerId).map((player) => (
                           <Button 
                             key={player.id} 
                             variant="outline" 
@@ -214,13 +215,13 @@ export default function GamePlay() {
                     </div>
                   )}
                   
-                  {room.players.find(p => p.id === room.playerId)?.role === 'protector' && (
+                  {room.players.find(p => p.id === playerId)?.role === 'protector' && (
                     <div className="space-y-3">
                       <p className="text-center text-sm">
                         As a Protector, you can shield one player from being voted out.
                       </p>
                       <div className="grid gap-2 mt-2">
-                        {room.players.filter(p => p.id !== room.playerId).map((player) => (
+                        {room.players.filter(p => p.id !== playerId).map((player) => (
                           <Button 
                             key={player.id} 
                             variant="outline" 
@@ -235,7 +236,7 @@ export default function GamePlay() {
                     </div>
                   )}
                   
-                  {room.players.find(p => p.id === room.playerId)?.role === 'deceiver' && (
+                  {room.players.find(p => p.id === playerId)?.role === 'deceiver' && (
                     <div className="text-center">
                       <p className="text-sm mb-3">
                         As a Deceiver, you can make your vote count twice in the voting phase.

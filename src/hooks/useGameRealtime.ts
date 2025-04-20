@@ -1,7 +1,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from "@/integrations/supabase/client";
-import { GameRoom, Player, GameState, ChatMessage } from '@/lib/types';
+import { GameRoom, Player, GameState, ChatMessage, GameMode, GameSettings } from '@/lib/types';
 import { useToast } from '@/components/ui/use-toast';
 
 export const useGameRealtime = (
@@ -53,20 +53,21 @@ export const useGameRealtime = (
             timer: roomData.timer || undefined,
             round: roomData.round || 0,
             maxRounds: roomData.max_rounds,
-            gameMode: roomData.game_mode,
+            gameMode: roomData.game_mode as GameMode,
             teamSize: roomData.team_size,
             chaosMode: roomData.chaos_mode,
             maxPlayers: roomData.max_players,
             discussionTime: roomData.discussion_time,
             timePerRound: roomData.time_per_round,
             votingTime: roomData.voting_time,
-            settings: roomData.settings,
+            settings: roomData.settings as GameSettings,
             currentTurn: roomData.current_turn,
             turnOrder: roomData.turn_order,
             revealedPlayerId: roomData.revealed_player_id,
             revealedRole: roomData.revealed_role,
             roundOutcome: roomData.round_outcome,
-            votesTally: roomData.votes_tally
+            votesTally: roomData.votes_tally as Record<string, number>,
+            playerId: playerId // Add the current player ID to the room object
           };
 
           setRoom(mappedRoom);
@@ -105,7 +106,7 @@ export const useGameRealtime = (
     };
 
     fetchInitialData();
-  }, [roomId, setRoom, toast]);
+  }, [roomId, setRoom, toast, playerId]);
 
   // Set up real-time listeners
   useEffect(() => {
@@ -158,20 +159,21 @@ export const useGameRealtime = (
                 timer: updatedRoom.timer || undefined,
                 round: updatedRoom.round || 0,
                 maxRounds: updatedRoom.max_rounds,
-                gameMode: updatedRoom.game_mode,
+                gameMode: updatedRoom.game_mode as GameMode,
                 teamSize: updatedRoom.team_size,
                 chaosMode: updatedRoom.chaos_mode,
                 maxPlayers: updatedRoom.max_players,
                 discussionTime: updatedRoom.discussion_time,
                 timePerRound: updatedRoom.time_per_round,
                 votingTime: updatedRoom.voting_time,
-                settings: updatedRoom.settings,
+                settings: updatedRoom.settings as GameSettings,
                 currentTurn: updatedRoom.current_turn,
                 turnOrder: updatedRoom.turn_order,
                 revealedPlayerId: updatedRoom.revealed_player_id,
                 revealedRole: updatedRoom.revealed_role,
                 roundOutcome: updatedRoom.round_outcome,
-                votesTally: updatedRoom.votes_tally
+                votesTally: updatedRoom.votes_tally as Record<string, number>,
+                playerId: playerId // Add the current player ID to the room object
               };
 
               setRoom(mappedRoom);
@@ -225,20 +227,21 @@ export const useGameRealtime = (
               timer: updatedRoom.timer || undefined,
               round: updatedRoom.round || 0,
               maxRounds: updatedRoom.max_rounds,
-              gameMode: updatedRoom.game_mode,
+              gameMode: updatedRoom.game_mode as GameMode,
               teamSize: updatedRoom.team_size,
               chaosMode: updatedRoom.chaos_mode,
               maxPlayers: updatedRoom.max_players,
               discussionTime: updatedRoom.discussion_time,
               timePerRound: updatedRoom.time_per_round,
               votingTime: updatedRoom.voting_time,
-              settings: updatedRoom.settings,
+              settings: updatedRoom.settings as GameSettings,
               currentTurn: updatedRoom.current_turn,
               turnOrder: updatedRoom.turn_order,
               revealedPlayerId: updatedRoom.revealed_player_id,
               revealedRole: updatedRoom.revealed_role,
               roundOutcome: updatedRoom.round_outcome,
-              votesTally: updatedRoom.votes_tally
+              votesTally: updatedRoom.votes_tally as Record<string, number>,
+              playerId: playerId // Add the current player ID to the room object
             };
 
             setRoom(mappedRoom);

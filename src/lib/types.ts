@@ -30,6 +30,7 @@ export type ChatMessage = {
 export type GameRoom = {
   id: string;
   hostId: string;
+  playerId?: string; // Add this field to fix the errors in GamePlay.tsx
   players: Player[];
   state: GameState;
   category?: string;

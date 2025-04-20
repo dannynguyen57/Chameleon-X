@@ -4,6 +4,7 @@ import { useGame } from "@/contexts/GameContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { User, Crown, ThumbsUp, ThumbsDown, Award, Trophy, Medal } from "lucide-react";
 
@@ -59,8 +60,7 @@ export default function ResultsScreen() {
   // Check if round can proceed                        
   const canProceed = (isHost || (isPlayerChameleon && hasGuessed) || 
                      (!isPlayerChameleon && (room.roundOutcome !== 'chameleon_caught' || 
-                                          room.roundOutcome === 'chameleon_wrong_guess' || 
-                                          room.roundOutcome === 'chameleon_correct_guess')));
+                                          ['chameleon_wrong_guess', 'chameleon_correct_guess'].includes(room.roundOutcome || ''))));
   
   return (
     <div className="space-y-6">

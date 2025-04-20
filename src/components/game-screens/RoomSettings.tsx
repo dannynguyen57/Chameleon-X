@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useGame } from "@/contexts/GameContext";
+import { useGame } from "@/contexts/GameContextProvider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { GameMode } from "@/lib/types";
+import { PlayerRole } from "@/lib/types";
 
 export default function RoomSettings() {
   const { room, updateSettings } = useGame();
@@ -14,15 +15,33 @@ export default function RoomSettings() {
     max_players: room?.settings.max_players || 10,
     discussion_time: room?.settings.discussion_time || 120,
     max_rounds: room?.settings.max_rounds || 3,
-    game_mode: room?.settings.game_mode || 'classic',
+    game_mode: room?.settings.game_mode || GameMode.Classic,
     team_size: room?.settings.team_size || 2,
     chaos_mode: room?.settings.chaos_mode || false,
     time_per_round: room?.settings.time_per_round || 60,
-    voting_time: room?.settings.voting_time || 30
+    voting_time: room?.settings.voting_time || 30,
+    special_abilities: room?.settings.special_abilities || false,
+    roles: room?.settings.roles || {
+      classic: [PlayerRole.Regular, PlayerRole.Chameleon],
+      teams: [PlayerRole.Regular, PlayerRole.Chameleon],
+      chaos: [PlayerRole.Regular, PlayerRole.Chameleon],
+      timed: [PlayerRole.Regular, PlayerRole.Chameleon]
+    }
   });
 
   const handleSave = async () => {
     await updateSettings(settings);
+  };
+
+  const handleGameModeChange = (mode: GameMode) => {
+    setSettings(prev => ({
+      ...prev,
+      game_mode: mode,
+      roles: {
+        ...prev.roles,
+        [mode]: prev.roles[mode] || [PlayerRole.Regular, PlayerRole.Chameleon]
+      }
+    }));
   };
 
   return (
@@ -39,17 +58,16 @@ export default function RoomSettings() {
             <Label>Game Mode</Label>
             <Select
               value={settings.game_mode}
-              onValueChange={(value: GameMode) => setSettings({ ...settings, game_mode: value })}
+              onValueChange={(value: GameMode) => handleGameModeChange(value)}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Select game mode" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="classic">Classic Mode</SelectItem>
-                <SelectItem value="creative">Creative Mode</SelectItem>
-                <SelectItem value="timed">Timed Mode</SelectItem>
-                <SelectItem value="chaos">Chaos Mode</SelectItem>
-                <SelectItem value="team">Team Mode</SelectItem>
+                <SelectItem value={GameMode.Classic}>Classic</SelectItem>
+                <SelectItem value={GameMode.Teams}>Teams</SelectItem>
+                <SelectItem value={GameMode.Chaos}>Chaos</SelectItem>
+                <SelectItem value={GameMode.Timed}>Timed</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -87,7 +105,7 @@ export default function RoomSettings() {
             />
           </div>
 
-          {settings.game_mode === 'team' && (
+          {settings.game_mode === GameMode.Teams && (
             <div className="space-y-2">
               <Label>Team Size</Label>
               <Input
@@ -100,7 +118,7 @@ export default function RoomSettings() {
             </div>
           )}
 
-          {settings.game_mode === 'timed' && (
+          {settings.game_mode === GameMode.Timed && (
             <div className="space-y-2">
               <Label>Time per Round (seconds)</Label>
               <Input

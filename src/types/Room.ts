@@ -1,5 +1,4 @@
-import { GameState, GameMode, GameSettings, PlayerRole } from '@/lib/types';
-import { Player } from './Player';
+import { GameState, GameMode, GameSettings, PlayerRole, WordCategory, GameResultType, Player } from '@/lib/types';
 
 export interface Room {
   id: string;
@@ -18,15 +17,18 @@ export interface Room {
   updated_at: string;
   last_updated: string;
   players: Player[];
-  category?: string | null;
-  secret_word?: string | null;
-  chameleon_id?: string | null;
-  timer?: number | null;
-  current_turn?: number;
+  category: WordCategory | undefined;
+  secret_word: string | undefined;
+  chameleon_id: string | undefined;
+  timer: number | undefined;
+  current_turn: number | undefined;
+  current_word: string | undefined;
   turn_order?: string[];
-  round_outcome?: string | null;
-  votes_tally?: { [playerId: string]: number } | null;
-  revealed_player_id?: string | null;
-  revealed_role?: PlayerRole | null;
-  round?: number;
+  round: number;
+  round_outcome: GameResultType | null;
+  votes_tally: Record<string, number> | null;
+  votes: Record<string, string>;
+  results: GameResultType[];
+  revealed_player_id: string | null;
+  revealed_role: PlayerRole | null;
 } 

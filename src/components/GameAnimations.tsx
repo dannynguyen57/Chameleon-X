@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, useState } from "react";
-import { useGame } from "@/contexts/GameContext";
+import { useGame } from "@/contexts/GameContextProvider";
 
 export const GameAnimations = () => {
   const { room } = useGame();

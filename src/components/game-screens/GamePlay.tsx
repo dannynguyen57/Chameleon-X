@@ -1,118 +1,31 @@
-import { useGame } from "@/contexts/GameContext";
+import { useState, useMemo, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+
+import { useGame } from "@/contexts/GameContextProvider";
+import { useGameActions } from "@/hooks/useGameActions";
+
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Clock, Lightbulb, Trophy, Gamepad2, Users, MessageSquare, Vote, CheckCircle, XCircle, Smile, ShieldCheck, Award, Shield, Search, Laugh } from "lucide-react";
-import { categories, WordCategory } from "@/lib/word-categories";
-import ChatSystem from "./ChatSystem";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useState, useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { useGameSounds } from "@/hooks/useGameSounds";
-import { motion, AnimatePresence } from "framer-motion";
-import { cn } from "@/lib/utils";
-import { PlayerRole, Player, GameState } from "@/lib/types";
-import { useGameActions } from "@/hooks/useGameActions";
 import { toast } from "@/components/ui/use-toast";
+
+import { Clock, Lightbulb, Trophy, Gamepad2, Users, MessageSquare, Vote, CheckCircle, XCircle, Smile, ShieldCheck, Award, Shield, Search, Laugh, Crown, Eye } from "lucide-react";
+
+import { PlayerRole, Player, GameState, GameRoom, GameResultType } from "@/lib/types";
 import { Room } from '@/types/Room';
-import DevMode from '@/components/dev/DevMode';
-import DevModeSetup from '@/components/dev/DevModeSetup';
+import { cn } from "@/lib/utils";
+import { categories, WordCategory } from "@/lib/word-categories";
 import { getRoleTheme, getRoleDescription } from '@/lib/roleThemes';
 import { isImposter } from '@/lib/gameLogic';
+import { roleConfig } from '@/lib/roleConfig';
 
-const roleConfig: Record<PlayerRole, {
-  bg: string;
-  border: string;
-  text: string;
-  icon: string;
-  name: string;
-}> = {
-  [PlayerRole.Regular]: {
-    bg: 'bg-gradient-to-br from-blue-900/50 to-blue-800/30',
-    border: 'border-blue-500/50',
-    text: 'text-blue-200',
-    icon: '👤',
-    name: 'Regular'
-  },
-  [PlayerRole.Chameleon]: {
-    bg: 'bg-gradient-to-br from-red-900/50 to-red-800/30',
-    border: 'border-red-500/50',
-    text: 'text-red-200',
-    icon: '🦎',
-    name: 'Chameleon'
-  },
-  [PlayerRole.Mimic]: {
-    bg: 'bg-gradient-to-br from-orange-900/50 to-orange-800/30',
-    border: 'border-orange-500/50',
-    text: 'text-orange-200',
-    icon: '🎭',
-    name: 'Mimic'
-  },
-  [PlayerRole.Oracle]: {
-    bg: 'bg-gradient-to-br from-purple-900/50 to-purple-800/30',
-    border: 'border-purple-500/50',
-    text: 'text-purple-200',
-    icon: '🔮',
-    name: 'Oracle'
-  },
-  [PlayerRole.Jester]: {
-    bg: 'bg-gradient-to-br from-yellow-900/50 to-yellow-800/30',
-    border: 'border-yellow-500/50',
-    text: 'text-yellow-200',
-    icon: '🤡',
-    name: 'Jester'
-  },
-  [PlayerRole.Spy]: {
-    bg: 'bg-gradient-to-br from-gray-900/50 to-gray-800/30',
-    border: 'border-gray-500/50',
-    text: 'text-gray-200',
-    icon: '🕵️',
-    name: 'Spy'
-  },
-  [PlayerRole.Mirror]: {
-    bg: 'bg-gradient-to-br from-cyan-900/50 to-cyan-800/30',
-    border: 'border-cyan-500/50',
-    text: 'text-cyan-200',
-    icon: '🪞',
-    name: 'Mirror'
-  },
-  [PlayerRole.Whisperer]: {
-    bg: 'bg-gradient-to-br from-pink-900/50 to-pink-800/30',
-    border: 'border-pink-500/50',
-    text: 'text-pink-200',
-    icon: '🤫',
-    name: 'Whisperer'
-  },
-  [PlayerRole.Timekeeper]: {
-    bg: 'bg-gradient-to-br from-amber-900/50 to-amber-800/30',
-    border: 'border-amber-500/50',
-    text: 'text-amber-200',
-    icon: '⌛',
-    name: 'Timekeeper'
-  },
-  [PlayerRole.Illusionist]: {
-    bg: 'bg-gradient-to-br from-indigo-900/50 to-indigo-800/30',
-    border: 'border-indigo-500/50',
-    text: 'text-indigo-200',
-    icon: '🎩',
-    name: 'Illusionist'
-  },
-  [PlayerRole.Guardian]: {
-    bg: 'bg-gradient-to-br from-green-900/50 to-green-800/30',
-    border: 'border-green-500/50',
-    text: 'text-green-200',
-    icon: '🛡️',
-    name: 'Guardian'
-  },
-  [PlayerRole.Trickster]: {
-    bg: 'bg-gradient-to-br from-rose-900/50 to-rose-800/30',
-    border: 'border-rose-500/50',
-    text: 'text-rose-200',
-    icon: '🃏',
-    name: 'Trickster'
-  }
-} as const;
+import ChatSystem from "./ChatSystem";
+import GameHeader from "./GameHeader";
+import DevMode from '@/components/dev/DevMode';
+import DevModeSetup from '@/components/dev/DevModeSetup';
 
 export default function GamePlay() {
   const { room, isPlayerChameleon, remainingTime, settings, playerId, setRoom, resetGame } = useGame();
@@ -120,7 +33,6 @@ export default function GamePlay() {
   const [turnDescription, setTurnDescription] = useState('');
   const [isDevModeOpen, setIsDevModeOpen] = useState(false);
   const isDevMode = import.meta.env.VITE_ENABLE_DEV_MODE === 'true';
-  useGameSounds();
 
   const { submitWord, nextRound, submitVote, startGame, handleRoleAbility } = useGameActions(playerId, room, settings, setRoom);
 
@@ -274,7 +186,7 @@ export default function GamePlay() {
   };
 
   const GameHeader = ({ room, category }: { 
-    room: Room; 
+    room: GameRoom; 
     category: WordCategory; 
   }) => {
     const playerRole = room.players.find(p => p.id === playerId)?.role;
@@ -314,6 +226,7 @@ export default function GamePlay() {
   };
 
   const CurrentTurnCard = ({ currentPlayer }: { currentPlayer: Player }) => {
+    if (!room) return null;
     const isCurrentPlayer = currentPlayer?.id === playerId;
     const playerRole = room.players.find(p => p.id === playerId)?.role;
     const roleTheme = getRoleTheme(playerRole);
@@ -391,32 +304,11 @@ export default function GamePlay() {
     );
   };
 
-  const PlayerDescriptionsSection = ({ players }: { players: Player[] }) => {
-    return (
-      <div className="space-y-4">
-        <h2 className="text-xl font-bold">Player Descriptions</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {players.map(player => (
-            <PlayerRoleDisplay
-              key={player.id}
-              player={player}
-              isCurrentPlayer={player.id === playerId}
-              isTurn={room?.current_turn !== undefined && room?.turn_order?.[room.current_turn] === player.id}
-              isProtected={player.is_protected}
-              isInvestigated={player.investigated_player_id !== undefined}
-              onProtect={() => handleRoleAbility(player.id)}
-            />
-          ))}
-        </div>
-      </div>
-    );
-  };
-
   const getPlayerById = (id: string): Player | undefined => {
     return room?.players.find(p => p.id === id);
   };
 
-  const RoleAbilityFeedback = ({ player, room }: { player: Player; room: Room }) => {
+  const RoleAbilityFeedback = ({ player, room }: { player: Player; room: GameRoom }) => {
     const getAbilityFeedback = () => {
       if (player.role === PlayerRole.Guardian && player.protected_player_id) {
         const protectedPlayer = getPlayerById(player.protected_player_id);
@@ -434,7 +326,7 @@ export default function GamePlay() {
     ) : null;
   };
 
-  const GamePhaseIndicator = ({ room, remainingTime }: { room: Room; remainingTime: number | null }) => {
+  const GamePhaseIndicator = ({ room, remainingTime }: { room: GameRoom; remainingTime: number | null }) => {
     const getPhaseColor = (phase: GameState) => {
       switch (phase) {
         case GameState.Lobby:
@@ -525,40 +417,27 @@ export default function GamePlay() {
   };
 
   const ResultsDisplay = () => {
-    if (!room || room.state !== 'results') return null;
-
-    const { round_outcome, revealed_player_id, revealed_role, votes_tally } = room;
-    const revealedPlayer = room.players.find(p => p.id === revealed_player_id);
-
-    const voteDetails = room.players
-        .map(voter => {
-            const votedForPlayer = room.players.find(p => p.id === voter.vote);
-            return {
-                voterId: voter.id,
-                voterName: voter.name,
-                votedForId: votedForPlayer?.id || null,
-                votedForName: votedForPlayer ? votedForPlayer.name : "-",
-            };
-        })
-        .sort((a, b) => a.voterName.localeCompare(b.voterName));
-
-    let title = "Round Over!";
-    let description = "The votes are in!";
+    if (!room) return null;
+    const { round_outcome, revealed_player_id, revealed_role } = room;
+    const revealedPlayer = revealed_player_id ? room.players.find(p => p.id === revealed_player_id) : null;
+    
+    let title = "Round Complete";
+    let description = "The round has ended.";
     let icon = <CheckCircle className="h-10 w-10 text-yellow-500" />;
 
-    if (round_outcome === 'imposter_caught') {
+    if (round_outcome === GameResultType.ImposterCaught) {
       title = "Imposter Caught!";
       description = `${revealedPlayer?.name} (${revealed_role}) was the imposter! Good job, team!`;
       icon = <CheckCircle className="h-10 w-10 text-green-500" />;
-    } else if (round_outcome === 'innocent_voted') {
+    } else if (round_outcome === GameResultType.InnocentVoted) {
       title = "Oops! Wrong Person!";
       description = `${revealedPlayer?.name} (${revealed_role}) was innocent! The imposter is still among us...`;
       icon = <XCircle className="h-10 w-10 text-red-500" />;
-    } else if (round_outcome === 'jester_wins') {
+    } else if (round_outcome === GameResultType.JesterWins) {
       title = "Jester Wins!";
       description = `${revealedPlayer?.name} the Jester tricked you into voting for them!`;
       icon = <Smile className="h-10 w-10 text-yellow-500" />;
-    } else if (round_outcome === 'tie') {
+    } else if (round_outcome === GameResultType.Tie) {
       title = "It's a Tie!";
       description = "No one was voted out. The imposter remains hidden!";
       icon = <Users className="h-10 w-10 text-gray-500" />;
@@ -580,11 +459,11 @@ export default function GamePlay() {
             <p className="text-muted-foreground mt-1">{description}</p>
           </CardHeader>
           <CardContent className="space-y-3 divide-y divide-gray-200 dark:divide-gray-700">
-            {votes_tally && Object.keys(votes_tally).length > 0 && (
+            {room.votes_tally && Object.keys(room.votes_tally).length > 0 && (
               <div className="text-sm pt-3">
                 <h4 className="font-semibold mb-2 text-center">Votes Received:</h4>
                 <ul className="space-y-1 max-h-40 overflow-y-auto px-4">
-                    {Object.entries(votes_tally)
+                    {Object.entries(room.votes_tally)
                         .sort(([, aVotes], [, bVotes]) => bVotes - aVotes)
                         .map(([votedId, count]) => {
                             const p = room.players.find(pl => pl.id === votedId);
@@ -604,20 +483,19 @@ export default function GamePlay() {
             <div className="text-sm pt-3">
                 <h4 className="font-semibold mb-2 text-center">Voting Breakdown:</h4>
                 <ul className="space-y-1 max-h-48 overflow-y-auto px-2 sm:px-4">
-                    {voteDetails.map(vote => (
-                        <li key={vote.voterId} className="flex justify-between items-center text-xs bg-gray-100 dark:bg-gray-800/50 px-2 py-1.5 rounded">
-                            <span className="font-medium">{vote.voterName}</span>
-                            <div className="flex items-center gap-1 text-gray-600 dark:text-gray-400">
-                                <span>voted for</span>
-                                <Badge 
-                                    variant={vote.votedForId === revealed_player_id ? "destructive" : (vote.votedForId ? "secondary" : "outline")}
-                                    className="px-1.5 py-0.5 text-[10px]"
-                                >
-                                    {vote.votedForName}
-                                </Badge>
-                            </div>
-                        </li>
-                    ))}
+                    {Object.entries(room.votes || {}).map(([voterId, votedId]) => {
+                        const voter = room.players.find(p => p.id === voterId);
+                        const voted = room.players.find(p => p.id === votedId);
+                        return (
+                            <li key={voterId} className="flex justify-between items-center text-xs bg-gray-100 dark:bg-gray-800/50 px-2 py-1.5 rounded">
+                                <span className="font-medium">{voter?.name || 'Unknown'}</span>
+                                <div className="flex items-center gap-1 text-gray-600 dark:text-gray-400">
+                                    <span>voted for</span>
+                                    <span className="font-medium">{voted?.name || 'Unknown'}</span>
+                                </div>
+                            </li>
+                        );
+                    })}
                 </ul>
             </div>
 
@@ -639,9 +517,10 @@ export default function GamePlay() {
     );
   };
 
-  const category = useMemo(() => {
-      if (!room?.category) return null;
-      return categories.find(c => c.name === room.category) || null;
+  const currentCategory = useMemo(() => {
+    if (!room?.category) return categories[0];
+    const matchingCategory = categories.find(c => c.name === room.category);
+    return matchingCategory || categories[0];
   }, [room?.category]);
 
   if (!room) return (
@@ -653,7 +532,7 @@ export default function GamePlay() {
     </div>
   );
 
-  if (!category && room.state === 'lobby') {
+  if (!currentCategory && room.state === 'lobby') {
       return (
          <div className="container mx-auto p-3 sm:p-4 space-y-4">
              <div className="text-center p-6 bg-gray-100 dark:bg-gray-800 rounded-lg">
@@ -667,15 +546,13 @@ export default function GamePlay() {
       );
   }
   
-  if (!category && room.state !== 'lobby') return (
+  if (!currentCategory && room.state !== 'lobby') return (
       <div className="flex items-center justify-center min-h-[50vh]">
         <p className="mt-4 text-destructive">Error loading category data.</p>
       </div>
   );
 
-  const currentPlayer = room?.turn_order && room.current_turn !== undefined 
-    ? room.players.find(p => p.id === room.turn_order[room.current_turn])
-    : undefined;
+  const currentPlayer = room?.players.find(p => p.id === room?.turn_order?.[room?.current_turn ?? 0]);
 
   const isCurrentPlayer = currentPlayer?.id === playerId;
   const playerRole = room?.players.find(p => p.id === playerId)?.role;
@@ -722,25 +599,11 @@ export default function GamePlay() {
       </AnimatePresence>
       
       <div className="max-w-7xl mx-auto space-y-6">
-        {/* Game Header */}
-        <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-700 shadow-lg">
-          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-            <div className="flex items-center gap-4">
-              <div className="bg-primary/20 p-3 rounded-lg">
-                <Gamepad2 className="h-6 w-6 text-primary" />
-              </div>
-              <div>
-                <h1 className="text-xl font-bold">Round {room?.round} of {room?.max_rounds}</h1>
-                <p className="text-slate-400">Category: {room?.category}</p>
-              </div>
-            </div>
-            {!isPlayerChameleon && room?.secret_word && (
-              <div className="bg-emerald-500/20 p-3 rounded-lg border border-emerald-500/30">
-                <p className="text-emerald-400 font-medium">Secret Word: {room.secret_word}</p>
-              </div>
-            )}
-          </div>
-        </div>
+        <GameHeader 
+          room={room} 
+          category={currentCategory} 
+        />
+        <GamePhaseIndicator room={room} remainingTime={room.timer as number | null} />
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Left Column - Game Info */}
@@ -988,7 +851,6 @@ export default function GamePlay() {
     </div>
   );
 }
-
 const GameStatus = ({ room, playerId }: { room: Room | null; playerId: string }) => {
   const currentPhase = room?.state;
   const currentPlayer = room?.players.find(p => p.id === playerId);
@@ -1112,3 +974,4 @@ const GameStatus = ({ room, playerId }: { room: Room | null; playerId: string })
     </div>
   );
 };
+

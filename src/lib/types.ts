@@ -1,50 +1,37 @@
-export type GameMode = 'classic' | 'timed' | 'chaos' | 'team' | 'creative';
-
-export type GameSettings = {
-  max_players: number;
-  discussion_time: number;
-  max_rounds: number;
-  game_mode: GameMode;
-  team_size?: number;
-  chaos_mode?: boolean;
-  time_per_round?: number;
-  voting_time?: number;
-  roles?: {
-    classic?: PlayerRole[];      // Default: [Regular, Chameleon]
-    creative?: PlayerRole[];     // All roles available
-    team?: PlayerRole[];         // Team-based roles
-    chaos?: PlayerRole[];        // Random roles each round
-  };
-  special_abilities?: boolean;    // Enable/disable special abilities
-};
-
 export enum PlayerRole {
-  Regular = 'regular',           // Knows the exact word
-  Chameleon = 'chameleon',       // Doesn't know the word
-  Mimic = 'mimic',              // Knows a similar word but not the exact one
-  Oracle = 'oracle',            // Knows the word and can see who the chameleon is
-  Jester = 'jester',            // Wins if they get voted as the chameleon
-  Spy = 'spy',                  // Knows the word but must pretend they don't
-  Mirror = 'mirror',            // Must repeat what the previous player said
-  Whisperer = 'whisperer',      // Can secretly communicate with one other player
-  Timekeeper = 'timekeeper',    // Can extend or reduce the timer once
-  Illusionist = 'illusionist',  // Can make one player's vote count double
-  Guardian = 'guardian',        // Can protect one player from being voted
-  Trickster = 'trickster'       // Can swap roles with another player once
+  Regular = 'regular',
+  Chameleon = 'chameleon',
+  Detective = 'detective',
+  Guardian = 'guardian',
+  Trickster = 'trickster',
+  Saboteur = 'saboteur',
+  Host = 'host',
+  Player = 'player',
+  Spectator = 'spectator',
+  Mimic = 'mimic',
+  Oracle = 'oracle',
+  Jester = 'jester',
+  Spy = 'spy',
+  Mirror = 'mirror',
+  Whisperer = 'whisperer',
+  Timekeeper = 'timekeeper',
+  Illusionist = 'illusionist'
 }
 
-export interface Player {
+export type Player = {
   id: string;
   name: string;
-  room_id: string;
-  role?: PlayerRole;
+  role: PlayerRole;
+  score: number;
   is_host: boolean;
   is_ready: boolean;
+  word?: string;
+  is_protected?: boolean;
+  has_voted?: boolean;
   turn_description?: string;
   vote?: string;
   last_active: string;
   last_updated: string;
-  is_protected?: boolean;
   vote_multiplier?: number;
   special_word?: string;
   special_ability_used?: boolean;
@@ -55,7 +42,9 @@ export interface Player {
   team?: number;
   is_illusionist?: boolean;
   can_see_word?: boolean;
-}
+  room_id: string;
+  created_at: string;
+};
 
 export enum GameState {
   Lobby = 'lobby',
@@ -67,11 +56,21 @@ export enum GameState {
   Ended = 'ended'
 }
 
-export interface GameRoom {
-  id: string;
-  host_id: string;
-  state: GameState;
-  settings: GameSettings;
+export enum GameMode {
+  Classic = 'classic',
+  Teams = 'teams',
+  Chaos = 'chaos',
+  Timed = 'timed'
+}
+
+export enum WordCategory {
+  Animals = 'animals',
+  Food = 'food',
+  Places = 'places',
+  Objects = 'objects'
+}
+
+export interface GameSettings {
   max_players: number;
   discussion_time: number;
   max_rounds: number;
@@ -80,21 +79,113 @@ export interface GameRoom {
   chaos_mode: boolean;
   time_per_round: number;
   voting_time: number;
+  roles: {
+    [GameMode.Classic]: PlayerRole[];
+    [GameMode.Teams]: PlayerRole[];
+    [GameMode.Chaos]: PlayerRole[];
+    [GameMode.Timed]: PlayerRole[];
+  };
+  special_abilities: boolean;
+}
+
+export enum GameResultType {
+  ImposterCaught = 'imposter_caught',
+  InnocentVoted = 'innocent_voted',
+  JesterWins = 'jester_wins',
+  Tie = 'tie'
+}
+
+export type GameResult = {
+  winner: string | null;
+  imposter: string | null;
+  votes: Record<string, string>;
+  special_abilities: boolean;
+}
+
+export type DatabasePlayer = {
+  id: string;
+  name: string;
+  role: PlayerRole;
+  score: number;
+  is_host: boolean;
+  is_ready: boolean;
+  is_protected: boolean;
+  has_voted: boolean;
+  word?: string;
+  turn_description?: string;
+  vote?: string;
+  last_active: string;
+  last_updated: string;
+  vote_multiplier: number;
+  special_word?: string;
+  special_ability_used: boolean;
+  timeout_at?: string;
+  protected_player_id?: string;
+  investigated_player_id?: string;
+  revealed_role?: PlayerRole;
+  team?: number;
+  is_illusionist: boolean;
+  can_see_word: boolean;
+  created_at: string;
+  room_id: string;
+};
+
+export type DatabaseRoom = {
+  id: string;
+  state: GameState;
+  settings: GameSettings;
+  players: DatabasePlayer[];
+  category?: string;
+  secret_word?: string;
+  chameleon_id?: string;
+  timer?: number;
+  current_turn?: number;
+  current_word?: string;
   created_at: string;
   updated_at: string;
-  last_updated: string;
-  players: Player[];
-  category?: string | null;
-  secret_word?: string | null;
-  chameleon_id?: string | null;
-  timer?: number | null;
-  current_turn?: number;
-  turn_order?: string[];
-  round_outcome?: string | null;
-  votes_tally?: { [playerId: string]: number } | null;
+  round?: number;
+  round_outcome?: GameResultType | null;
+  votes_tally?: Record<string, number> | null;
+  votes?: Record<string, string>;
+  results?: GameResultType[];
   revealed_player_id?: string | null;
   revealed_role?: PlayerRole | null;
-  round?: number;
+  last_updated?: string;
+  max_rounds?: number;
+  host_id?: string;
+};
+
+export interface GameRoom {
+  id: string;
+  state: GameState;
+  settings: GameSettings;
+  players: Player[];
+  category: WordCategory | undefined;
+  secret_word: string | undefined;
+  chameleon_id: string | undefined;
+  timer: number | undefined;
+  current_turn: number | undefined;
+  current_word: string | undefined;
+  created_at: string;
+  updated_at: string;
+  turn_order?: string[];
+  round: number;
+  round_outcome: GameResultType | null;
+  votes_tally: Record<string, number> | null;
+  votes: Record<string, string>;
+  results: GameResultType[];
+  revealed_player_id: string | null;
+  revealed_role: PlayerRole | null;
+  last_updated: string;
+  max_rounds: number;
+  host_id: string;
+  max_players: number;
+  discussion_time: number;
+  game_mode: GameMode;
+  team_size: number;
+  chaos_mode: boolean;
+  time_per_round: number;
+  voting_time: number;
 }
 
 export interface ChatMessage {
@@ -200,3 +291,10 @@ export interface Database {
     };
   };
 }
+
+export const DEFAULT_ROLES: Record<GameMode, PlayerRole[]> = {
+  [GameMode.Classic]: [PlayerRole.Regular, PlayerRole.Chameleon],
+  [GameMode.Teams]: [PlayerRole.Regular, PlayerRole.Chameleon, PlayerRole.Detective, PlayerRole.Guardian],
+  [GameMode.Chaos]: [],
+  [GameMode.Timed]: []
+};

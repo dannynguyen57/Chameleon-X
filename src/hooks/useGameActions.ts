@@ -14,6 +14,7 @@ import {
 } from '@/lib/gameLogic';
 import { toast } from 'sonner';
 import { mapRoomData, DatabaseRoom } from '@/hooks/useGameRealtime';
+import { v4 as uuidv4 } from 'uuid';
 
 // Helper functions are now in gameLogic.ts
 // const calculateImposterCount = ...
@@ -124,8 +125,32 @@ export const useGameActions = (
     }
   };
 
-  const createRoom = async (playerName: string, settings: GameSettings, roomId: string) => {
+  const createRoom = async (playerName: string, settings: GameSettings, roomId: string): Promise<string | null> => {
     try {
+      // Check if room already exists and is full
+      const { data: existingRoom, error: fetchError } = await supabase
+        .from('game_rooms')
+        .select('*')
+        .eq('id', roomId)
+        .single();
+
+      if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116 is "not found" error
+        console.error('Error checking room:', fetchError);
+        throw new Error(`Failed to check room: ${fetchError.message}`);
+      }
+
+      if (existingRoom) {
+        const { count: playerCount } = await supabase
+          .from('players')
+          .select('*', { count: 'exact', head: true })
+          .eq('room_id', roomId);
+
+        if (playerCount && playerCount >= settings.max_players) {
+          toast.error("Room is full");
+          return null;
+        }
+      }
+
       // Create the host player first
       const { error: playerError } = await supabase
         .from('players')
@@ -144,7 +169,7 @@ export const useGameActions = (
       }
 
       // Then create the room
-      const { data: roomData, error } = await supabase
+      const { error } = await supabase
         .from('game_rooms')
         .insert({
           id: roomId,
@@ -162,9 +187,7 @@ export const useGameActions = (
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           last_updated: new Date().toISOString()
-        })
-        .select()
-        .single();
+        });
 
       if (error) {
         console.error('Error creating room:', error);
@@ -182,100 +205,71 @@ export const useGameActions = (
         throw new Error(`Failed to update player: ${updateError.message}`);
       }
 
-      const mappedRoom = await fetchRoom(roomId);
-      if (mappedRoom) {
-        setRoom(mappedRoom);
-        return mappedRoom;
-      }
-      
-      throw new Error('Failed to fetch created room');
+      // Return the room ID
+      return roomId;
     } catch (error) {
       console.error('Error in createRoom:', error);
-      toast.error("Failed to create room. Please try again.");
-      throw error;
+      return null;
     }
   };
 
-  const joinRoom = async (roomId: string, playerName: string): Promise<boolean> => {
+  const joinRoom = async (
+    roomId: string, 
+    playerName: string,
+    setPlayerId: (id: string) => void
+  ): Promise<boolean> => {
     try {
-      // First check if the room exists and is in lobby state
-      const { data: roomData, error: roomError } = await supabase
+      // Check if room exists and is full
+      const { data: room, error: roomError } = await supabase
         .from('game_rooms')
-        .select('*')
+        .select('settings')
         .eq('id', roomId)
-        .eq('state', 'lobby')
         .single();
 
       if (roomError) {
         console.error('Error checking room:', roomError);
-        toast.error("Room not found or game has already started");
+        toast.error("Room not found");
         return false;
       }
 
-      if (!roomData) {
-        toast.error("Room not found or game has already started");
-        return false;
-      }
-
-      // Check if room is full
-      const { data: playersData, error: playersError } = await supabase
+      const { count: playerCount } = await supabase
         .from('players')
-        .select('id')
+        .select('*', { count: 'exact', head: true })
         .eq('room_id', roomId);
 
-      if (playersError) {
-        console.error('Error checking room capacity:', playersError);
-        toast.error("Error checking room capacity");
-        return false;
-      }
-
-      if (playersData && playersData.length >= roomData.max_players) {
+      if (playerCount && playerCount >= room.settings.max_players) {
         toast.error("Room is full");
         return false;
       }
+
+      // Generate a new player ID
+      const newPlayerId = uuidv4();
 
       // Create the player
       const { error: playerError } = await supabase
         .from('players')
         .insert({
-          id: playerId,
+          id: newPlayerId,
           name: playerName,
+          room_id: roomId,
           is_host: false,
           is_ready: false,
-          room_id: roomId,
           last_active: new Date().toISOString(),
           last_updated: new Date().toISOString()
         });
 
       if (playerError) {
-        console.error('Error creating player:', playerError);
-        toast.error("Failed to join room");
+        toast.error("Error joining room");
         return false;
       }
 
-      // Fetch the updated room data
-      const { data: updatedRoom, error: fetchError } = await supabase
-        .from('game_rooms')
-        .select('*, players!players_room_id_fkey (*)')
-        .eq('id', roomId)
-        .single();
+      // Update the context with the new player ID
+      setPlayerId(newPlayerId);
 
-      if (fetchError) {
-        console.error('Error fetching room after join:', fetchError);
-        toast.error("Could not load room data after joining");
-        return false;
-      }
-
-      if (updatedRoom) {
-        const mappedRoom = mapRoomData(updatedRoom as DatabaseRoom);
-        setRoom(mappedRoom);
-        return true;
-      }
-
-      return false;
+      return true;
     } catch (error) {
-      console.error('Error joining room:', error);
-      toast.error("An unexpected error occurred while joining the room");
+      console.error('Error in joinRoom:', error);
+      toast.error("An error occurred while joining the room");
       return false;
     }
   };

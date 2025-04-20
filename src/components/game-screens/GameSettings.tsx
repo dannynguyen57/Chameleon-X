@@ -7,7 +7,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { GameMode, PlayerRole, GameSettings as GameSettingsType } from '@/lib/types';
 import { X } from 'lucide-react';
-import { useGame } from '@/hooks/useGame';
+import { useGame } from '@/contexts/GameContextProvider';
 import { Badge } from '@/components/ui/badge';
 
 interface GameSettingsProps {
@@ -20,42 +20,17 @@ export default function GameSettings({ onClose }: GameSettingsProps) {
     max_players: room?.settings.max_players || 10,
     discussion_time: room?.settings.discussion_time || 120,
     max_rounds: room?.settings.max_rounds || 3,
-    game_mode: room?.settings.game_mode || 'classic',
+    game_mode: room?.settings.game_mode || GameMode.Classic,
     team_size: room?.settings.team_size || 2,
     chaos_mode: room?.settings.chaos_mode || false,
     time_per_round: room?.settings.time_per_round || 60,
     voting_time: room?.settings.voting_time || 30,
     special_abilities: room?.settings.special_abilities || false,
     roles: room?.settings.roles || {
-      classic: [PlayerRole.Regular, PlayerRole.Chameleon],
-      creative: [
-        PlayerRole.Regular,
-        PlayerRole.Chameleon,
-        PlayerRole.Mimic,
-        PlayerRole.Oracle,
-        PlayerRole.Jester,
-        PlayerRole.Spy,
-        PlayerRole.Mirror,
-        PlayerRole.Whisperer,
-        PlayerRole.Timekeeper,
-        PlayerRole.Illusionist,
-        PlayerRole.Guardian,
-        PlayerRole.Trickster
-      ],
-      team: [
-        PlayerRole.Regular,
-        PlayerRole.Chameleon,
-        PlayerRole.Mimic,
-        PlayerRole.Guardian
-      ],
-      chaos: [
-        PlayerRole.Regular,
-        PlayerRole.Chameleon,
-        PlayerRole.Mimic,
-        PlayerRole.Jester,
-        PlayerRole.Spy,
-        PlayerRole.Mirror
-      ]
+      [GameMode.Classic]: [PlayerRole.Regular, PlayerRole.Chameleon],
+      [GameMode.Teams]: [PlayerRole.Regular, PlayerRole.Chameleon],
+      [GameMode.Chaos]: [PlayerRole.Regular, PlayerRole.Chameleon],
+      [GameMode.Timed]: [PlayerRole.Regular, PlayerRole.Chameleon]
     }
   });
 

@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useGame } from '@/contexts/GameContext';
+import { useGame } from '@/contexts/GameContextProvider';
 import { PlayerRole, GameMode } from '@/lib/types';
 import { toast } from '@/components/ui/use-toast';
 import { Slider } from "@/components/ui/slider";
@@ -19,7 +19,14 @@ export default function DevMode() {
     team_size: 2,
     chaos_mode: false,
     time_per_round: 30,
-    voting_time: 30
+    voting_time: 30,
+    roles: {
+      [GameMode.Classic]: [PlayerRole.Regular, PlayerRole.Chameleon],
+      [GameMode.Teams]: [PlayerRole.Regular, PlayerRole.Chameleon],
+      [GameMode.Chaos]: [PlayerRole.Regular, PlayerRole.Chameleon],
+      [GameMode.Timed]: [PlayerRole.Regular, PlayerRole.Chameleon]
+    },
+    special_abilities: false
   };
   const { setPlayerRole } = useGameActions(playerId, room, room?.settings || defaultSettings, setRoom);
   const [devSettings, setDevSettings] = useState({

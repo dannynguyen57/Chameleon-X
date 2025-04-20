@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import { GameRoom, GameSettings, GameState, PlayerRole, Player } from '@/lib/types';
+import { GameRoom, GameSettings, GameState, PlayerRole, Player, WordCategory, GameResultType } from '@/lib/types';
 import { mapRoomData, DatabaseRoom as MappedDatabaseRoom } from '@/hooks/useGameRealtime';
 
 // --- Exported Helper Functions & Types ---
@@ -164,7 +164,9 @@ export const handleGameStateTransition = async (
          current_turn: 0,
          turn_order: room.players.map(p => p.id).sort(() => Math.random() - 0.5),
          round_outcome: null,
-         votes_tally: null
+         votes_tally: null,
+         votes: {},
+         results: []
        };
        break;
      }
@@ -178,7 +180,8 @@ export const handleGameStateTransition = async (
          current_turn: 0,
          turn_order: room.players.map(p => p.id).sort(() => Math.random() - 0.5),
          round_outcome: null, 
-         votes_tally: null, 
+         votes_tally: null,
+         votes: {},
          revealed_player_id: null,
          revealed_role: null
        };
@@ -217,7 +220,8 @@ export const handleGameStateTransition = async (
          state: nextStateConst,
          timer: settings.voting_time,
          current_turn: 0,
-         votes_tally: null 
+         votes_tally: null,
+         votes: {}
        };
        await supabase.from('players').update({ vote: null }).eq('room_id', roomId);
        break;
@@ -227,7 +231,7 @@ export const handleGameStateTransition = async (
        const nextStateConst = GameState.Results;
        determinedNextState = nextStateConst;
        
-       const votes: { [playerId: string]: number } = {};
+       const votes: Record<string, number> = {};
        room.players.forEach(player => {
          if (player.vote) {
            const targetPlayer = room.players.find(p => p.id === player.vote);
@@ -270,7 +274,10 @@ export const handleGameStateTransition = async (
        updateData = { 
          state: nextStateConst,
          timer: 30,
-         round_outcome: finalOutcome,
+         round_outcome: finalOutcome === 'imposter_caught' ? GameResultType.ImposterCaught : 
+                      finalOutcome === 'jester_wins' ? GameResultType.JesterWins : 
+                      finalOutcome === 'innocent_voted' ? GameResultType.InnocentVoted : 
+                      GameResultType.Tie,
          votes_tally: votes,
          revealed_player_id: finalMostVotedId,
          revealed_role: finalRevealedRole
@@ -282,7 +289,7 @@ export const handleGameStateTransition = async (
        if (room.round >= room.max_rounds) {
          const nextStateConst = GameState.Ended;
          determinedNextState = nextStateConst;
-         updateData = { state: nextStateConst, timer: null };
+         updateData = { state: nextStateConst, timer: undefined };
        } else {
          const nextStateConst = GameState.Selecting;
          determinedNextState = nextStateConst;
@@ -307,7 +314,8 @@ export const handleGameStateTransition = async (
            round_outcome: null,
            votes_tally: null,
            revealed_player_id: null,
-           revealed_role: null
+           revealed_role: null,
+           votes: {}
          };
        }
        break;

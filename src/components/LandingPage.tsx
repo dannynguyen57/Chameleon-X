@@ -4,9 +4,10 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
-import { useGame } from "@/contexts/GameContext";
+import { useGame } from "@/contexts/GameContextProvider";
 import { useNavigate } from "react-router-dom";
 import { Users, UserPlus2, Share2 } from "lucide-react";
+import { PlayerRole, GameMode } from "@/lib/types";
 
 export default function LandingPage() {
   const { createRoom, joinRoom } = useGame();
@@ -24,13 +25,20 @@ export default function LandingPage() {
     
     const success = await createRoom(playerName, {
       max_players: 10,
-      discussion_time: 120,
+      discussion_time: 40,
       max_rounds: 3,
-      game_mode: 'classic',
+      game_mode: GameMode.Classic,
       team_size: 2,
       chaos_mode: false,
       time_per_round: 60,
-      voting_time: 30
+      voting_time: 30,
+      roles: {
+        [GameMode.Classic]: [PlayerRole.Regular, PlayerRole.Chameleon],
+        [GameMode.Teams]: [PlayerRole.Regular, PlayerRole.Chameleon],
+        [GameMode.Chaos]: [PlayerRole.Regular, PlayerRole.Chameleon],
+        [GameMode.Timed]: [PlayerRole.Regular, PlayerRole.Chameleon]
+      },
+      special_abilities: false
     });
     if (success) {
       navigate("/room");
@@ -52,14 +60,10 @@ export default function LandingPage() {
     }
     
     try {
-      const success = await joinRoom(roomId.toUpperCase(), playerName);
-      if (success) {
-        navigate("/room");
-      } else {
-        setError("Failed to join room. Please check the room code.");
-      }
+      await joinRoom(roomId.toUpperCase(), playerName);
+      navigate("/room");
     } catch (err) {
-      setError("An error occurred while joining the room. Please try again.");
+      setError("Failed to join room. Please check the room code.");
     }
   };
 

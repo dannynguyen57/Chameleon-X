@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useGame } from "@/contexts/GameContext";
+import { useGame } from "@/contexts/GameContextProvider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -43,7 +43,7 @@ export default function ResultsScreen() {
   };
   
   const handleNextRound = () => {
-    if (room.round >= room.max_rounds) {
+    if (!room.round || room.round >= room.max_rounds) {
       resetGame();
     } else {
       nextRound();
@@ -167,7 +167,7 @@ export default function ResultsScreen() {
               onClick={handleNextRound} 
               className="w-full"
             >
-              {room.round >= room.max_rounds ? "End Game" : "Next Round"}
+              {!room.round || room.round >= room.max_rounds ? "End Game" : "Next Round"}
             </Button>
           </CardFooter>
         )}

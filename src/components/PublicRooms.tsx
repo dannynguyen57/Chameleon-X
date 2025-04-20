@@ -2,139 +2,40 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { supabase } from '@/integrations/supabase/client';
+import { useGame } from '@/contexts/GameContextProvider';
 import { GameRoom } from '@/lib/types';
 import { useNavigate } from 'react-router-dom';
-import { useGame } from '@/hooks/useGame';
 import { Clock, Users, Gamepad2, Settings2 } from 'lucide-react';
 import { toast } from '@/components/ui/use-toast';
+import { mapRoomData } from '@/hooks/useGameRealtime';
 
 export default function PublicRooms() {
   const [rooms, setRooms] = useState<GameRoom[]>([]);
   const [loading, setLoading] = useState(true);
+  const { getPublicRooms, joinRoom } = useGame();
   const navigate = useNavigate();
-  const { joinRoom } = useGame();
 
   useEffect(() => {
-    const loadRooms = async () => {
-      const { data, error } = await supabase
-        .from('game_rooms')
-        .select(`
-          id,
-          host_id,
-          state,
-          settings,
-          max_players,
-          discussion_time,
-          max_rounds,
-          game_mode,
-          team_size,
-          chaos_mode,
-          time_per_round,
-          voting_time,
-          created_at,
-          updated_at,
-          last_updated,
-          players!players_room_id_fkey (
-            id,
-            name,
-            room_id,
-            is_host,
-            is_ready
-          )
-        `)
-        .eq('state', 'lobby')
-        .order('created_at', { ascending: false })
-        .limit(10);
-
-      if (error) {
-        console.error('Error loading rooms:', error);
-        toast({
-          variant: "destructive",
-          title: "Error loading rooms",
-          description: error.message
-        });
-        return;
+    const fetchRooms = async () => {
+      try {
+        const data = await getPublicRooms();
+        setRooms(data);
+      } catch (error) {
+        console.error('Error fetching rooms:', error);
+      } finally {
+        setLoading(false);
       }
-
-      if (data) {
-        const mappedRooms = data.map(room => ({
-          id: room.id,
-          host_id: room.host_id,
-          state: room.state,
-          settings: room.settings,
-          max_players: room.max_players,
-          discussion_time: room.discussion_time,
-          max_rounds: room.max_rounds,
-          game_mode: room.game_mode,
-          team_size: room.team_size,
-          chaos_mode: room.chaos_mode,
-          time_per_round: room.time_per_round,
-          voting_time: room.voting_time,
-          created_at: room.created_at,
-          updated_at: room.updated_at,
-          last_updated: room.last_updated,
-          players: (room.players || []).map(player => ({
-            id: player.id,
-            name: player.name,
-            room_id: player.room_id,
-            is_host: player.is_host,
-            is_ready: player.is_ready || false,
-            vote: null,
-            last_active: new Date().toISOString(),
-            last_updated: new Date().toISOString()
-          }))
-        }));
-        setRooms(mappedRooms);
-      }
-      setLoading(false);
     };
 
-    loadRooms();
+    fetchRooms();
+  }, [getPublicRooms]);
 
-    // Subscribe to room changes
-    const channel = supabase
-      .channel('public_rooms')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'game_rooms'
-        },
-        () => {
-          loadRooms();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      channel.unsubscribe();
-    };
-  }, []);
-
-  const handleJoinRoom = async (room: GameRoom) => {
-    if (room.players.length >= room.settings.max_players) {
-      toast({
-        title: "Room is full",
-        description: "This room has reached its maximum number of players.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const playerName = prompt("Enter your name:");
-    if (!playerName) return;
-
-    const success = await joinRoom(room.id, playerName);
-    if (success) {
-      toast({
-        title: "Successfully joined room!",
-        description: "You have joined the game room.",
-      });
-      setTimeout(() => {
-        navigate(`/room/${room.id}`);
-      }, 500);
+  const handleJoinRoom = async (roomId: string) => {
+    try {
+      await joinRoom(roomId, 'Player');
+      navigate(`/room/${roomId}`);
+    } catch (error) {
+      console.error('Error joining room:', error);
     }
   };
 
@@ -187,7 +88,7 @@ export default function PublicRooms() {
                 </div>
                 <Button
                   className="w-full mt-2 text-xs sm:text-sm h-8 sm:h-9"
-                  onClick={() => handleJoinRoom(room)}
+                  onClick={() => handleJoinRoom(room.id)}
                   disabled={room.players.length >= room.settings.max_players}
                 >
                   {room.players.length >= room.settings.max_players ? 'Room Full' : 'Join Room'}

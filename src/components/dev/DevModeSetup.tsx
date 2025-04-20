@@ -2,9 +2,9 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { useGame } from '@/contexts/GameContext';
+import { useGame } from '@/contexts/GameContextProvider';
 import { useToast } from '@/components/ui/use-toast';
-import { PlayerRole } from '@/lib/types';
+import { PlayerRole, GameMode } from '@/lib/types';
 
 export default function DevModeSetup() {
   const [playerName, setPlayerName] = useState('');
@@ -29,11 +29,14 @@ export default function DevModeSetup() {
         time_per_round: 60,
         voting_time: 30,
         max_rounds: 3,
-        game_mode: 'classic',
+        game_mode: GameMode.Classic,
         team_size: 2,
         chaos_mode: false,
         roles: {
-          classic: [PlayerRole.Regular, PlayerRole.Chameleon, PlayerRole.Mimic, PlayerRole.Oracle]
+          [GameMode.Classic]: [PlayerRole.Regular, PlayerRole.Chameleon, PlayerRole.Mimic, PlayerRole.Oracle],
+          [GameMode.Teams]: [PlayerRole.Regular, PlayerRole.Chameleon],
+          [GameMode.Chaos]: [PlayerRole.Regular, PlayerRole.Chameleon],
+          [GameMode.Timed]: [PlayerRole.Regular, PlayerRole.Chameleon]
         },
         special_abilities: true
       });
@@ -64,13 +67,11 @@ export default function DevModeSetup() {
     }
 
     try {
-      const success = await joinRoom(roomId, playerName);
-      if (success) {
-        toast({
-          title: 'Success',
-          description: 'Joined test room successfully',
-        });
-      }
+      await joinRoom(roomId, playerName);
+      toast({
+        title: 'Success',
+        description: 'Joined test room successfully',
+      });
     } catch (error) {
       toast({
         title: 'Error',

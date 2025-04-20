@@ -1,8 +1,9 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { GameProvider } from '@/context/GameContext.tsx';
-import Home from './Home';
-import Room from './Room';
-import NotFound from './NotFound';
+import Home from '@/pages/Home';
+import Room from '@/pages/Room';
+import NotFound from '@/pages/NotFound';
+import './App.css';
 
 export default function App() {
   return (

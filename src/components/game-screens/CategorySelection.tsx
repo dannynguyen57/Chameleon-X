@@ -1,6 +1,5 @@
-
 import { useState } from "react";
-import { useGame } from "@/contexts/GameContext";
+import { useGame } from "@/hooks/useGame.ts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { categories } from "@/lib/word-categories";

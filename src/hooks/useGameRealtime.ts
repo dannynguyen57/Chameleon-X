@@ -77,37 +77,43 @@ const DEFAULT_SETTINGS_REALTIME: GameSettings = {
 };
 
 export const mapRoomData = (room: DatabaseRoom): GameRoom => {
-  const mappedPlayers = room.players.map((player: DatabasePlayer) => ({
-    id: player.id,
-    name: player.name,
-    role: player.role,
-    score: player.score || 0,
-    is_host: player.is_host,
-    is_ready: player.is_ready,
-    is_protected: player.is_protected || false,
-    has_voted: player.has_voted || false,
-    word: player.word,
-    turn_description: player.turn_description,
-    vote: player.vote,
-    last_active: player.last_active,
-    last_updated: player.last_updated,
-    vote_multiplier: player.vote_multiplier || 1,
-    special_word: player.special_word,
-    special_ability_used: player.special_ability_used || false,
-    timeout_at: player.timeout_at,
-    protected_player_id: player.protected_player_id,
-    investigated_player_id: player.investigated_player_id,
-    revealed_role: player.revealed_role,
-    team: player.team ? parseInt(player.team) : undefined,
-    is_illusionist: player.is_illusionist || false,
-    can_see_word: player.can_see_word || false,
-    created_at: player.created_at || new Date().toISOString(),
-    room_id: room.id,
-    isProtected: player.is_protected || false,
-    isInvestigated: false,
-    isCurrentPlayer: false,
-    isTurn: false
-  }));
+  const mappedPlayers = room.players.map((player: DatabasePlayer) => {
+    if (room.state !== 'lobby' && !player.role) {
+      console.error('Player role is missing:', player.id);
+      throw new Error('Player role is required');
+    }
+    return {
+      id: player.id,
+      name: player.name,
+      role: player.role || PlayerRole.Regular,
+      score: player.score || 0,
+      is_host: player.is_host,
+      is_ready: player.is_ready,
+      is_protected: player.is_protected || false,
+      has_voted: player.has_voted || false,
+      word: player.word,
+      turn_description: player.turn_description,
+      vote: player.vote,
+      last_active: player.last_active,
+      last_updated: player.last_updated,
+      vote_multiplier: player.vote_multiplier || 1,
+      special_word: player.special_word,
+      special_ability_used: player.special_ability_used || false,
+      timeout_at: player.timeout_at,
+      protected_player_id: player.protected_player_id,
+      investigated_player_id: player.investigated_player_id,
+      revealed_role: player.revealed_role,
+      team: player.team ? parseInt(player.team) : undefined,
+      is_illusionist: player.is_illusionist || false,
+      can_see_word: player.can_see_word || false,
+      created_at: player.created_at || new Date().toISOString(),
+      room_id: room.id,
+      isProtected: player.is_protected || false,
+      isInvestigated: false,
+      isCurrentPlayer: false,
+      isTurn: false
+    };
+  });
 
   return {
     id: room.id,

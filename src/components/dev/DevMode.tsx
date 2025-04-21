@@ -3,8 +3,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useGame } from '@/contexts/GameContextProvider';
-import { PlayerRole, GameMode } from '@/lib/types';
+import { useGame } from '@/hooks/useGame';
+import { PlayerRole, GameMode, Player } from '@/lib/types';
 import { toast } from '@/components/ui/use-toast';
 import { Slider } from "@/components/ui/slider";
 import { useGameActions } from '@/hooks/useGameActions';
@@ -52,7 +52,7 @@ export default function DevMode() {
   const handleAutoFill = async () => {
     if (!room.players) return;
 
-    const updatedPlayers = room.players.map(player => {
+    const updatedPlayers = room.players.map((player: Player) => {
       if (!player.turn_description) {
         return {
           ...player,
@@ -72,9 +72,9 @@ export default function DevMode() {
   const handleAutoVote = async () => {
     if (!room.players) return;
 
-    const updatedPlayers = room.players.map(player => {
+    const updatedPlayers = room.players.map((player: Player) => {
       if (!player.vote) {
-        const otherPlayers = room.players.filter(p => p.id !== player.id);
+        const otherPlayers = room.players.filter((p: Player) => p.id !== player.id);
         const randomPlayer = otherPlayers[Math.floor(Math.random() * otherPlayers.length)];
         return {
           ...player,

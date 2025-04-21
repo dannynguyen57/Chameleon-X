@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useGame } from '@/contexts/GameContextProvider';
+import { useGame } from '@/hooks/useGame';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { supabase } from '@/integrations/supabase/client';
-import { ChatMessage, GameState } from '@/lib/types';
+import { ChatMessage, GameState, Player } from '@/lib/types';
 
 export default function ChatSystem() {
   const { room, playerId } = useGame();
@@ -93,7 +93,7 @@ export default function ChatSystem() {
       .insert({
         room_id: room.id,
         player_id: playerId,
-        player_name: room.players.find(p => p.id === playerId)?.name || 'Unknown',
+        player_name: room.players.find((p: Player) => p.id === playerId)?.name || 'Unknown',
         content: newMessage,
         is_hint: isHint,
         created_at: new Date().toISOString()

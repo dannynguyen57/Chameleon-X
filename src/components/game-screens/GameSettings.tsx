@@ -7,8 +7,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { GameMode, PlayerRole, GameSettings as GameSettingsType } from '@/lib/types';
 import { X } from 'lucide-react';
-import { useGame } from '@/contexts/GameContextProvider';
-import { Badge } from '@/components/ui/badge';
+import { useGame } from '@/hooks/useGame';
 
 interface GameSettingsProps {
   onClose: () => void;

@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { useGame } from "@/contexts/GameContextProvider";
+import { useGame } from "@/hooks/useGame";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ShieldCheck, UserCircle2, Settings, Copy, Users } from "lucide-react";
 import GameSettings from './GameSettings';
 import { toast } from '@/components/ui/use-toast';
+import { Player } from '@/lib/types';
 
 export default function LobbyScreen() {
   const { room, startGame, playerId } = useGame();
@@ -57,7 +58,7 @@ export default function LobbyScreen() {
           <div>
             <h3 className="font-medium mb-2">Players ({room.players.length}/{room.settings.max_players || 10})</h3>
             <div className="grid gap-2">
-              {room.players.map((player) => (
+              {room.players.map((player: Player) => (
                 <div 
                   key={player.id} 
                   className={`flex items-center justify-between p-3 rounded-md ${

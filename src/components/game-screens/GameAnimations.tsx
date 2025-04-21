@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { useGame } from "@/contexts/GameContextProvider";
+import { useGame } from "@/hooks/useGame";
 
 export const GameAnimations = () => {
   const { room } = useGame();

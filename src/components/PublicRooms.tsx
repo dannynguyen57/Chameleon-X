@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { useGame } from '@/contexts/GameContextProvider';
+import { useGame } from '@/hooks/useGame';
 import { GameRoom } from '@/lib/types';
 import { useNavigate } from 'react-router-dom';
 import { Clock, Users, Gamepad2, Settings2 } from 'lucide-react';
@@ -77,7 +77,7 @@ export default function PublicRooms() {
       
       // Check if the room still exists and is not full before joining
       const roomsData = await getPublicRooms();
-      const roomToJoin = roomsData.find(room => room.id === cleanRoomId);
+      const roomToJoin = roomsData.find((room: GameRoom) => room.id === cleanRoomId);
       
       if (!roomToJoin) {
         toast({

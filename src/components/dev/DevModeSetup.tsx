@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { useGame } from '@/contexts/GameContextProvider';
+import { useGame } from '@/hooks/useGame';  
 import { useToast } from '@/components/ui/use-toast';
 import { PlayerRole, GameMode } from '@/lib/types';
 

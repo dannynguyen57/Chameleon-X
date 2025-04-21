@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useGame } from '@/contexts/GameContextProvider';
+import { useGame } from '@/hooks/useGame';
 import { useNavigate } from 'react-router-dom';
 import PublicRooms from '@/components/PublicRooms';
 import { PlayerRole, GameMode } from '@/lib/types';

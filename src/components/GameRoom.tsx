@@ -1,15 +1,14 @@
 import { useEffect, useState } from "react";
-import { useGame } from "@/contexts/GameContextProvider";
+import { useGame } from "@/hooks/useGame";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { categories } from "@/lib/word-categories";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Copy, LogOut, Settings } from "lucide-react";
 import LobbyScreen from "./game-screens/LobbyScreen";
 import CategorySelection from "./game-screens/CategorySelection";
 import GamePlay from "./game-screens/GamePlay";
-import VotingScreen from "./game-screens/VotingScreen";
-import ResultsScreen from "./game-screens/ResultsScreen";
 import { toast } from "@/components/ui/use-toast";
+import { cn } from "@/lib/utils";
 
 export default function GameRoom() {
   const { room, leaveRoom } = useGame();
@@ -36,8 +35,8 @@ export default function GameRoom() {
 
   if (!room) {
     return (
-      <div className="flex justify-center items-center h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+      <div className="flex justify-center items-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
       </div>
     );
   }
@@ -57,34 +56,61 @@ export default function GameRoom() {
     navigate("/");
   };
 
-  return (
-    <div className="container mx-auto p-4">
-      <Card className="mb-4">
-        <CardHeader>
-          <div className="flex justify-between items-center">
-            <div>
-              <CardTitle>Room {room.id}</CardTitle>
-              <CardDescription>
-                {room.players.length} player{room.players.length !== 1 ? 's' : ''} in the room
-              </CardDescription>
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={copyRoomId}>
-                {copied ? 'Copied!' : 'Copy Room Code'}
-              </Button>
-              <Button variant="destructive" onClick={handleLeaveRoom}>
-                Leave Room
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
-      </Card>
+  const isHost = room.host_id === room.players.find(p => p.id === room.host_id)?.id;
 
-      {room.state === 'lobby' && <LobbyScreen />}
-      {room.state === 'selecting' && <CategorySelection />}
-      {room.state === 'presenting' && <GamePlay />}
-      {room.state === 'voting' && <VotingScreen />}
-      {room.state === 'results' && <ResultsScreen />}
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-background to-background/80">
+      {/* Room Header */}
+      <div className="sticky top-0 z-50 bg-background/80 backdrop-blur-sm border-b">
+        <div className="container mx-auto p-4">
+          <Card className="border-0 shadow-none bg-transparent">
+            <CardHeader className="p-0">
+              <div className="flex justify-between items-center">
+                <div>
+                  <CardTitle className="text-xl">Room {room.id}</CardTitle>
+                  <CardDescription>
+                    {room.players.length} player{room.players.length !== 1 ? 's' : ''} in the room
+                  </CardDescription>
+                </div>
+                <div className="flex gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="icon"
+                    onClick={copyRoomId}
+                    className={cn(
+                      "transition-all duration-200",
+                      copied && "bg-primary/10 text-primary"
+                    )}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                  {isHost && (
+                    <Button variant="outline" size="icon">
+                      <Settings className="h-4 w-4" />
+                    </Button>
+                  )}
+                  <Button 
+                    variant="destructive" 
+                    size="icon"
+                    onClick={handleLeaveRoom}
+                  >
+                    <LogOut className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+          </Card>
+        </div>
+      </div>
+
+      {/* Game Content */}
+      <div className="container mx-auto p-4">
+        {room.state === 'lobby' && <LobbyScreen />}
+        {room.state === 'selecting' && <CategorySelection />}
+        {(room.state === 'presenting' || room.state === 'discussion' || room.state === 'voting' || room.state === 'results') && (
+          <GamePlay />
+        )}
+      </div>
     </div>
   );
 }

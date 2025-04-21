@@ -1,5 +1,7 @@
 import { WordCategory } from './word-categories';
 
+export type { WordCategory };
+
 export enum PlayerRole {
   Regular = 'regular',
   Chameleon = 'chameleon',

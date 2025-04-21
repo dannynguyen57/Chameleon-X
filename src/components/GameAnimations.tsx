@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, useState } from "react";
-import { useGame } from "@/contexts/GameContextProvider";
+import { useGame } from "@/hooks/useGame";  
 
 export const GameAnimations = () => {
   const { room } = useGame();
@@ -72,7 +72,7 @@ export const GameAnimations = () => {
             <motion.div
               className="text-4xl font-bold text-primary bg-background/80 p-4 rounded-lg shadow-lg"
             >
-              Category: {room?.category}
+              Category: {room?.category?.name}
             </motion.div>
           </motion.div>
         )}

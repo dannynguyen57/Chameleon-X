@@ -1,5 +1,5 @@
 import { useParams } from "react-router-dom";
-import { useGame } from "@/contexts/GameContextProvider";
+import { useGame } from "@/hooks/useGame";
 import GameRoom from "@/components/GameRoom";
 import { useEffect } from "react";
 

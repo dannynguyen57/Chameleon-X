@@ -4,12 +4,14 @@ export type WordCategory = {
   name: string;
   emoji: string;
   words: string[];
+  description: string;
 };
 
 export const categories: WordCategory[] = [
   {
     name: "Animals",
     emoji: "🐘",
+    description: "Guess the animal! From common pets to exotic creatures.",
     words: [
       "Elephant", "Tiger", "Penguin", "Giraffe", "Dolphin", "Kangaroo", "Panda",
       "Eagle", "Octopus", "Crocodile", "Butterfly", "Rhinoceros", "Wolf", "Gorilla",
@@ -23,6 +25,7 @@ export const categories: WordCategory[] = [
   {
     name: "Occupations",
     emoji: "👨‍⚕️",
+    description: "Name different jobs and professions!",
     words: [
       "Doctor", "Teacher", "Firefighter", "Architect", "Chef", "Pilot", "Actor",
       "Engineer", "Scientist", "Lawyer", "Journalist", "Programmer", "Astronaut",
@@ -38,6 +41,7 @@ export const categories: WordCategory[] = [
   {
     name: "Fictional Characters",
     emoji: "🦸‍♀️",
+    description: "Guess characters from books, movies, and TV shows!",
     words: [
       "Harry Potter", "Sherlock Holmes", "Wonder Woman", "Darth Vader", "Snow White",
       "Batman", "Frodo Baggins", "Superman", "Captain Jack Sparrow", "Elsa", "Pikachu",
@@ -53,6 +57,7 @@ export const categories: WordCategory[] = [
   {
     name: "Travel Destinations",
     emoji: "🗼",
+    description: "Name famous places around the world!",
     words: [
       "Paris", "Tokyo", "New York", "Venice", "Machu Picchu", "Dubai", "Sydney",
       "Santorini", "Rome", "Bali", "London", "Kyoto", "Grand Canyon", "Barcelona",
@@ -67,6 +72,7 @@ export const categories: WordCategory[] = [
   {
     name: "Food & Drinks",
     emoji: "🍕",
+    description: "Name different foods and beverages!",
     words: [
       "Pizza", "Sushi", "Espresso", "Burger", "Chocolate", "Smoothie", "Taco",
       "Croissant", "Curry", "Lemonade", "Lasagna", "Cappuccino", "Pancakes",
@@ -81,6 +87,7 @@ export const categories: WordCategory[] = [
   {
     name: "Technology",
     emoji: "💻",
+    description: "Name modern tech gadgets and concepts!",
     words: [
       "Smartphone", "Robot", "Virtual Reality", "Bluetooth", "Artificial Intelligence",
       "Drone", "Cloud Computing", "Blockchain", "Internet of Things", "Smart Watch",
@@ -98,6 +105,7 @@ export const categories: WordCategory[] = [
   {
     name: "Movies & TV Shows",
     emoji: "🎬",
+    description: "Name your favorite shows and films!",
     words: [
       "Inception", "Friends", "Star Wars", "Breaking Bad", "Titanic", "Game of Thrones",
       "The Matrix", "The Office", "Jurassic Park", "The Simpsons", "Avatar",
@@ -115,6 +123,7 @@ export const categories: WordCategory[] = [
   {
     name: "Sports",
     emoji: "⚽",
+    description: "Name different sports and athletic activities!",
     words: [
       "Soccer", "Basketball", "Tennis", "Golf", "Swimming", "Baseball", "Cricket",
       "Volleyball", "Hockey", "Rugby", "Surfing", "Boxing", "Skiing", "Gymnastics",
@@ -130,6 +139,7 @@ export const categories: WordCategory[] = [
   {
     name: "Musical Instruments",
     emoji: "🎸",
+    description: "Name different musical instruments!",
     words: [
       "Guitar", "Piano", "Violin", "Drums", "Flute", "Saxophone", "Trumpet", "Harp",
       "Cello", "Clarinet", "Accordion", "Ukulele", "Harmonica", "Bagpipes", "Xylophone",
@@ -144,6 +154,7 @@ export const categories: WordCategory[] = [
   {
     name: "Famous Landmarks",
     emoji: "🗽",
+    description: "Name iconic buildings and monuments!",
     words: [
       "Eiffel Tower", "Statue of Liberty", "Great Wall of China", "Taj Mahal", 
       "Colosseum", "Machu Picchu", "Pyramids of Giza", "Sydney Opera House", 
@@ -162,6 +173,7 @@ export const categories: WordCategory[] = [
   {
     name: "Video Games",
     emoji: "🎮",
+    description: "Name popular video games and franchises!",
     words: [
       "Minecraft", "Fortnite", "The Legend of Zelda", "Super Mario", "Call of Duty", 
       "Tetris", "Overwatch", "Pac-Man", "Grand Theft Auto", "World of Warcraft", 
@@ -178,6 +190,7 @@ export const categories: WordCategory[] = [
   {
     name: "Inventions",
     emoji: "💡",
+    description: "Name important inventions throughout history!",
     words: [
       "Wheel", "Light Bulb", "Telephone", "Internet", "Printing Press", "Compass", 
       "Antibiotics", "Steam Engine", "Microscope", "Airplane", "Computer", "Telescope", 
@@ -193,6 +206,7 @@ export const categories: WordCategory[] = [
   {
     name: "Board Games",
     emoji: "🎲",
+    description: "Name classic and modern board games!",
     words: [
       "Chess", "Monopoly", "Scrabble", "Risk", "Clue", "Battleship", "Catan", 
       "Checkers", "Trivial Pursuit", "Backgammon", "Connect Four", "Ticket to Ride", 
@@ -208,6 +222,7 @@ export const categories: WordCategory[] = [
   {
     name: "Fantasy Creatures",
     emoji: "🐉",
+    description: "Name mythical and magical creatures!",
     words: [
       "Dragon", "Unicorn", "Mermaid", "Phoenix", "Centaur", "Griffin", "Werewolf", 
       "Vampire", "Fairy", "Troll", "Goblin", "Pegasus", "Cyclops", "Sphinx", 
@@ -222,6 +237,7 @@ export const categories: WordCategory[] = [
   {
     name: "Weather Phenomena",
     emoji: "🌪️",
+    description: "Name different weather events and natural phenomena!",
     words: [
       "Rainbow", "Tornado", "Lightning", "Hurricane", "Blizzard", "Fog", "Tsunami", 
       "Hail", "Avalanche", "Snow", "Rain", "Storm", "Thunder", "Drought", "Flood", 
@@ -236,6 +252,7 @@ export const categories: WordCategory[] = [
   {
     name: "Historical Figures",
     emoji: "👑",
+    description: "Name important people from history!",
     words: [
       "Albert Einstein", "Leonardo da Vinci", "Cleopatra", "Napoleon Bonaparte", 
       "Marie Curie", "Abraham Lincoln", "Julius Caesar", "Joan of Arc", "Mozart", 
@@ -253,6 +270,7 @@ export const categories: WordCategory[] = [
   {
     name: "Emotions",
     emoji: "😊",
+    description: "Express and identify different human emotions and feelings!",
     words: [
       "Joy", "Sadness", "Anger", "Fear", "Surprise", "Disgust", "Love", "Jealousy", 
       "Anxiety", "Excitement", "Guilt", "Pride", "Shame", "Hope", "Disappointment", 
@@ -267,6 +285,7 @@ export const categories: WordCategory[] = [
   {
     name: "Space & Astronomy",
     emoji: "🚀",
+    description: "Explore celestial objects and space phenomena!",
     words: [
       "Planet", "Galaxy", "Comet", "Telescope", "Black Hole", "Asteroid", "Space Station", 
       "Supernova", "Moon", "Constellation", "Meteor", "Solar System", "Satellite", 
@@ -281,6 +300,7 @@ export const categories: WordCategory[] = [
   {
     name: "Art Styles",
     emoji: "🎨",
+    description: "Discover different artistic movements and techniques!",
     words: [
       "Impressionism", "Cubism", "Surrealism", "Renaissance", "Abstract", "Pop Art", 
       "Baroque", "Minimalism", "Gothic", "Realism", "Art Nouveau", "Expressionism", 
@@ -296,6 +316,7 @@ export const categories: WordCategory[] = [
   {
     name: "Plants & Flowers",
     emoji: "🌷",
+    description: "Identify various plants, flowers, and trees!",
     words: [
       "Rose", "Cactus", "Daisy", "Oak Tree", "Sunflower", "Lavender", "Lily", "Pine Tree", 
       "Orchid", "Fern", "Tulip", "Aloe Vera", "Cherry Blossom", "Maple Tree", "Bamboo", 
@@ -310,6 +331,7 @@ export const categories: WordCategory[] = [
   {
     name: "Transportation",
     emoji: "🚗",
+    description: "Name different modes of transport and vehicles!",
     words: [
       "Car", "Airplane", "Bicycle", "Train", "Submarine", "Helicopter", "Boat", "Truck", 
       "Motorcycle", "Bus", "Hot Air Balloon", "Cruise Ship", "Skateboard", "Spaceship", 
@@ -324,6 +346,7 @@ export const categories: WordCategory[] = [
   {
     name: "Random Topics",
     emoji: "🎲",
+    description: "A mix of diverse and interesting subjects!",
     words: [
       "Time Travel", "Parallel Universe", "Artificial Intelligence", "Virtual Reality", "Space Exploration",
       "Climate Change", "Renewable Energy", "Cryptocurrency", "Blockchain", "Quantum Computing",
@@ -341,6 +364,7 @@ export const categories: WordCategory[] = [
   {
     name: "Internet Culture",
     emoji: "🌐",
+    description: "Explore modern digital culture and online phenomena!",
     words: [
       "Meme", "Viral", "Trending", "Hashtag", "Influencer",
       "Streamer", "Content Creator", "Vlogger", "Podcaster", "TikTok",
@@ -357,6 +381,7 @@ export const categories: WordCategory[] = [
   {
     name: "Science Fiction",
     emoji: "🚀",
+    description: "Dive into futuristic concepts and sci-fi elements!",
     words: [
       "Time Machine", "Teleportation", "Hologram", "Force Field", "Lightsaber",
       "Spaceship", "Warp Drive", "Hyperspace", "Wormhole", "Black Hole",
@@ -372,6 +397,7 @@ export const categories: WordCategory[] = [
   {
     name: "Mythology",
     emoji: "🏛️",
+    description: "Discover mythical creatures and legendary figures!",
     words: [
       "Zeus", "Poseidon", "Hades", "Athena", "Apollo",
       "Aphrodite", "Ares", "Hermes", "Dionysus", "Hera",
@@ -387,6 +413,7 @@ export const categories: WordCategory[] = [
   {
     name: "Sports Teams",
     emoji: "🏆",
+    description: "Name famous sports teams and competitions!",
     words: [
       "Real Madrid", "Barcelona", "Manchester United", "Liverpool", "Bayern Munich",
       "Paris Saint-Germain", "Juventus", "AC Milan", "Arsenal", "Chelsea",
@@ -397,6 +424,147 @@ export const categories: WordCategory[] = [
       "Los Angeles Kings", "New York Rangers", "Philadelphia Flyers", "Edmonton Oilers", "Vancouver Canucks",
       "Formula 1", "MotoGP", "NASCAR", "IndyCar", "Le Mans",
       "Olympics", "World Cup", "Super Bowl", "NBA Finals", "Stanley Cup"
+    ]
+  },
+  {
+    name: "Countries",
+    emoji: "🌍",
+    description: "Name countries from around the world!",
+    words: [
+      "USA", "Canada", "Mexico", "Brazil", "Argentina", "UK", "France", "Germany",
+      "Italy", "Spain", "Russia", "China", "Japan", "India", "Australia", "Egypt",
+      "South Africa", "Nigeria", "Kenya", "Morocco"
+    ]
+  },
+  {
+    name: "Jobs",
+    emoji: "💼",
+    description: "What do you want to be when you grow up?",
+    words: [
+      "Doctor", "Teacher", "Engineer", "Chef", "Artist", "Musician", "Actor",
+      "Writer", "Scientist", "Pilot", "Police", "Firefighter", "Nurse", "Lawyer",
+      "Architect", "Designer", "Programmer", "Farmer", "Journalist", "Photographer"
+    ]
+  },
+  {
+    name: "Transport",
+    emoji: "🚗",
+    description: "Name vehicles and modes of transportation!",
+    words: [
+      "Car", "Bus", "Train", "Plane", "Boat", "Bicycle", "Motorcycle", "Truck",
+      "Helicopter", "Subway", "Tram", "Taxi", "Rocket", "Ship", "Yacht", "Van",
+      "Scooter", "Skateboard", "Rollerblades", "Horse"
+    ]
+  },
+  {
+    name: "Weather",
+    emoji: "☀️",
+    description: "Describe the weather and natural phenomena!",
+    words: [
+      "Sunny", "Rainy", "Cloudy", "Snowy", "Windy", "Stormy", "Foggy", "Hot",
+      "Cold", "Warm", "Cool", "Humid", "Dry", "Lightning", "Thunder", "Hail",
+      "Tornado", "Hurricane", "Earthquake", "Tsunami"
+    ]
+  },
+  {
+    name: "Holidays",
+    emoji: "🎄",
+    description: "Name holidays and special occasions!",
+    words: [
+      "Christmas", "Halloween", "Easter", "Thanksgiving", "New Year", "Valentine's Day",
+      "Independence Day", "Birthday", "Wedding", "Graduation", "Anniversary",
+      "Mother's Day", "Father's Day", "Labor Day", "Memorial Day", "Hanukkah",
+      "Diwali", "Chinese New Year", "St. Patrick's Day", "April Fools' Day"
+    ]
+  },
+  {
+    name: "Books",
+    emoji: "📚",
+    description: "Name famous books and literary works!",
+    words: [
+      "To Kill a Mockingbird", "1984", "Pride and Prejudice", "The Great Gatsby", "The Catcher in the Rye",
+      "To the Lighthouse", "The Lord of the Rings", "The Hobbit", "The Picture of Dorian Gray", "The Adventures of Sherlock Holmes",
+      "The Old Man and the Sea", "The Secret Garden", "The Divine Comedy", "The Iliad", "The Odyssey",
+      "The Scarlet Letter", "The Adventures of Huckleberry Finn", "The Call of the Wild", "The Grapes of Wrath", "The Sun Also Rises"
+    ]
+  },
+  {
+    name: "TV Shows",
+    emoji: "📺",
+    description: "Name popular television shows and series!",
+    words: [
+      "Game of Thrones", "Breaking Bad", "The Office", "Stranger Things", "The Crown",
+      "The Simpsons", "Friends", "The Big Bang Theory", "The Mandalorian", "The Handmaid's Tale",
+      "The Good Place", "The Dark Knight", "The Lord of the Rings", "The Witcher", "The Muppets",
+      "The X-Files", "The Twilight Zone", "The 100", "The Expanse", "The Good Doctor"
+    ]
+  },
+  {
+    name: "Music",
+    emoji: "🎵",
+    description: "Name different music genres and artists!",
+    words: [
+      "Rock", "Pop", "Hip-Hop", "Country", "Jazz", "Classical", "Electronic",
+      "R&B", "Reggae", "Blues", "Folk", "Metal", "Punk", "Soul", "Rap",
+      "Opera", "Baroque", "Romantic", "Impressionism", "Cubism", "Surrealism",
+      "Expressionism", "Dadaism", "Art Nouveau", "Art Deco", "Baroque", "Minimalism",
+      "Gothic", "Renaissance", "Abstract", "Pop Art", "Pop Rock", "Pop Punk",
+      "Pop Metal", "Pop Soul", "Pop Rap", "Pop Baroque", "Pop Classical", "Pop Electronic",
+      "Pop Reggae", "Pop Blues", "Pop Folk", "Pop Metal", "Pop Punk", "Pop Soul",
+      "Pop Rap", "Pop Baroque", "Pop Classical", "Pop Electronic", "Pop Reggae", "Pop Blues"
+    ]
+  },
+  {
+    name: "Art",
+    emoji: "🎨",
+    description: "Name different art forms and famous artworks!",
+    words: [
+      "Impressionism", "Cubism", "Surrealism", "Renaissance", "Abstract", "Pop Art",
+      "Baroque", "Minimalism", "Gothic", "Realism", "Art Nouveau", "Expressionism",
+      "Dadaism", "Rococo", "Art Deco", "Romanticism", "Futurism", "Modernism",
+      "Neoclassicism", "Post-Impressionism", "Pointillism", "Bauhaus", "Constructivism",
+      "Fauvism", "Folk Art", "Byzantine", "Conceptual Art", "Op Art", "Street Art",
+      "Performance Art", "Digital Art", "Installation Art", "Photorealism", "Classicism",
+      "Mannerism", "Symbolism", "Suprematism", "Primitivism", "Precisionism", "Tonalism",
+      "Ukiyo-e", "Tachisme", "Neo-Expressionism", "Vorticism", "Hyperrealism",
+      "Regionalism", "Divisionism", "Color Field Painting", "Byzantine"
+    ]
+  },
+  {
+    name: "Science",
+    emoji: "🔬",
+    description: "Name scientific concepts and discoveries!",
+    words: [
+      "Gravity", "Electromagnetism", "Quantum Mechanics", "Relativity", "DNA",
+      "Cell Biology", "Genetics", "Evolution", "Astronomy", "Chemistry",
+      "Physics", "Biology", "Paleontology", "Geology", "Botany",
+      "Zoology", "Microbiology", "Immunology", "Neuroscience", "Psychology",
+      "Anthropology", "Sociology", "Economics", "Political Science", "Geography",
+      "Climate Science", "Environmental Science", "Astrophysics", "Cosmology", "Paleoclimatology",
+      "Paleoecology", "Paleobotany", "Paleozoology", "Paleoanthropology", "Paleoecology",
+      "Paleobotany", "Paleozoology", "Paleoanthropology", "Paleoecology", "Paleobotany"
+    ]
+  },
+  {
+    name: "History",
+    emoji: "⏳",
+    description: "Name important historical events and periods!",
+    words: [
+      "World War II", "The French Revolution", "The American Revolution", "The Renaissance", "The Industrial Revolution",
+      "The Great Depression", "The Civil War", "The American Civil War", "The French Revolution", "The Russian Revolution",
+      "The Reformation", "The Renaissance", "The Industrial Revolution", "The Great Depression", "The Civil War",
+      "The American Civil War", "The French Revolution", "The Russian Revolution", "The Reformation", "The Renaissance"
+    ]
+  },
+  {
+    name: "Geography",
+    emoji: "🌍",
+    description: "Name geographical features and locations!",
+    words: [
+      "Mount Everest", "The Amazon Rainforest", "The Grand Canyon", "The Great Barrier Reef", "The Pyramids of Giza",
+      "The Eiffel Tower", "The Great Wall of China", "The Taj Mahal", "The Sydney Opera House", "The Statue of Liberty",
+      "The Vatican City", "The Louvre Museum", "The Empire State Building", "The Golden Gate Bridge", "The Sydney Harbour Bridge",
+      "The Niagara Falls", "The Sydney Opera House", "The Sydney Harbour Bridge", "The Empire State Building", "The Golden Gate Bridge"
     ]
   }
 ];

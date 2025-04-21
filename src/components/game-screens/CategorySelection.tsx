@@ -1,6 +1,6 @@
 
 import { useState } from "react";
-import { useGame } from "@/contexts/GameContextProvider";
+import { useGame } from "@/hooks/useGame";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { categories } from "@/lib/word-categories";

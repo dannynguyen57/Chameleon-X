@@ -11,13 +11,13 @@ import { DEFAULT_SETTINGS } from '../lib/constants';
 import { GameContext } from './gameContext';
 import { GameContextType } from './gameTypes';
 
-export const useGame = () => {
-  const context = useContext(GameContext);
-  if (!context) {
-    throw new Error('useGame must be used within a GameProvider');
-  }
-  return context;
-};
+// export const useGame = () => {
+//   const context = useContext(GameContext);
+//   if (!context) {
+//     throw new Error('useGame must be used within a GameProvider');
+//   }
+//   return context;
+// };
 
 export const GameProvider = ({ children }: { children: React.ReactNode }) => {
   const [playerId, setPlayerId] = useState(() => uuidv4());
@@ -41,7 +41,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     [room?.chameleon_id, playerId]
   );
 
-  const { createRoom: createRoomAction, joinRoom: joinRoomAction, startGame, selectCategory, submitVote, nextRound, leaveRoom: leaveRoomAction, resetGame, handleRoleAbility, setPlayerRole } = useGameActions(
+  const { createRoom: createRoomAction, joinRoom: joinRoomAction, startGame: startGameAction, selectCategory, submitVote, nextRound, leaveRoom: leaveRoomAction, resetGame, handleRoleAbility, setPlayerRole } = useGameActions(
     playerId,
     room,
     settings,
@@ -58,6 +58,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
       current_turn: newState === 'selecting' ? 0 : undefined,
       secret_word: newState === 'selecting' ? undefined : room.secret_word,
       chameleon_id: newState === 'selecting' ? undefined : room.chameleon_id,
+      category: room.category,
       last_updated: new Date().toISOString()
     };
 
@@ -138,7 +139,11 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         }, 
         async (payload) => {
           console.log('Room change detected:', payload);
-          await fetchRoom();
+          if (payload.eventType !== 'UPDATE' || 
+              (payload.new && payload.old && 
+               JSON.stringify(payload.new) !== JSON.stringify(payload.old))) {
+            await fetchRoom();
+          }
         }
       )
       .on('postgres_changes', 
@@ -150,13 +155,13 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         }, 
         async (payload) => {
           console.log('Player change detected:', payload);
-          await fetchRoom();
+          if (payload.eventType !== 'UPDATE' || 
+              (payload.new && payload.old && 
+               JSON.stringify(payload.new) !== JSON.stringify(payload.old))) {
+            await fetchRoom();
+          }
         }
       )
-      .on('broadcast', { event: 'sync' }, async () => {
-        console.log('Sync broadcast received');
-        await fetchRoom();
-      })
       .subscribe((status) => {
         console.log('Subscription status:', status);
         if (status === 'SUBSCRIBED') {
@@ -168,7 +173,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
 
     const syncInterval = setInterval(() => {
       fetchRoom();
-    }, 2000);
+    }, 5000);
 
     return () => {
       if (channelRef.current) {
@@ -299,6 +304,11 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     await leaveRoomAction();
     setRoom(null);
   }, [room?.id, leaveRoomAction]);
+
+  const startGame = useCallback(async () => {
+    if (!room) return;
+    await startGameAction(room);
+  }, [room, startGameAction]);
 
   const value: GameContextType = useMemo(() => ({
     playerId,

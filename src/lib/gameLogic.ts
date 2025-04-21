@@ -97,53 +97,92 @@ export const assignRoles = async (roomId: string, players: Player[]) => {
     const playerCount = players.length;
     if (playerCount === 0) return;
     
-    const imposterCount = calculateImposterCount(playerCount);
-    
-    const rolePool: PlayerRole[] = [
-      ...Array(imposterCount).fill(PlayerRole.Chameleon),
-      ...(playerCount > 4 ? Array(1).fill(PlayerRole.Mimic) : []),
-      ...(playerCount > 5 ? Array(1).fill(PlayerRole.Oracle) : []), 
-      ...(playerCount > 6 ? Array(1).fill(PlayerRole.Spy) : []), 
-      ...(playerCount > 7 ? Array(1).fill(PlayerRole.Jester) : []), 
-    ];
+    // Get the current host ID from the room
+    const { data: roomData, error: roomError } = await supabase
+      .from('game_rooms')
+      .select('host_id')
+      .eq('id', roomId)
+      .single();
 
+    if (roomError) {
+      console.error('Error fetching room host:', roomError);
+      throw roomError;
+    }
+
+    const hostId = roomData?.host_id;
+    
+    // Always ensure at least one Chameleon
+    const imposterCount = Math.max(1, calculateImposterCount(playerCount));
+    
+    // Create the initial role pool with exact number of roles needed
+    const rolePool: PlayerRole[] = [];
+    
+    // Add Chameleons first
+    rolePool.push(...Array(imposterCount).fill(PlayerRole.Chameleon));
+    
+    // Add special roles based on player count
+    if (playerCount > 4) rolePool.push(PlayerRole.Mimic);
+    if (playerCount > 5) rolePool.push(PlayerRole.Oracle);
+    if (playerCount > 6) rolePool.push(PlayerRole.Spy);
+    if (playerCount > 7) rolePool.push(PlayerRole.Jester);
+    
+    // Fill remaining slots with Regular players
     const regularCount = playerCount - rolePool.length;
     rolePool.push(...Array(Math.max(0, regularCount)).fill(PlayerRole.Regular));
-
-    const shuffledRoles = rolePool.sort(() => Math.random() - 0.5);
+    
+    // Ensure we have exactly the right number of roles
+    if (rolePool.length !== playerCount) {
+        console.error('Role pool size mismatch:', rolePool.length, 'vs', playerCount);
+        throw new Error('Role pool size does not match player count');
+    }
+    
+    // Fisher-Yates shuffle for better randomization
+    for (let i = rolePool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [rolePool[i], rolePool[j]] = [rolePool[j], rolePool[i]];
+    }
 
     const updates = players.map((player, index) => ({
-      id: player.id,
-      room_id: roomId,
-      name: player.name,
-      role: shuffledRoles[index % shuffledRoles.length], 
-      last_updated: new Date().toISOString()
+        id: player.id,
+        room_id: roomId,
+        name: player.name,
+        role: rolePool[index],
+        is_host: player.id === hostId,
+        is_ready: false,
+        last_updated: new Date().toISOString()
     }));
 
+    // Batch update all players
     const { error } = await supabase
-      .from('players')
-      .upsert(updates, { onConflict: 'id' });
+        .from('players')
+        .upsert(updates, { onConflict: 'id' });
 
     if (error) {
-      console.error('Error assigning roles (DB Upsert Failed):', error);
-      throw error;
+        console.error('Error assigning roles (DB Upsert Failed):', error);
+        throw error;
     }
 
-    // Find the first chameleon player and update the room's chameleon_id
-    const chameleonPlayer = updates.find(p => p.role === PlayerRole.Chameleon);
-    if (chameleonPlayer) {
-      const { error: roomError } = await supabase
-        .from('game_rooms')
-        .update({ chameleon_id: chameleonPlayer.id })
-        .eq('id', roomId);
+    // Find all chameleon players
+    const chameleonPlayers = updates.filter(p => p.role === PlayerRole.Chameleon);
+    
+    // Update room with the first chameleon's ID (maintaining existing behavior)
+    if (chameleonPlayers.length > 0) {
+        const { error: roomError } = await supabase
+            .from('game_rooms')
+            .update({ 
+                chameleon_id: chameleonPlayers[0].id,
+                chameleon_count: chameleonPlayers.length 
+            })
+            .eq('id', roomId);
 
-      if (roomError) {
-        console.error('Error updating room chameleon_id:', roomError);
-        throw roomError;
-      }
+        if (roomError) {
+            console.error('Error updating room chameleon_id:', roomError);
+            throw roomError;
+        }
     }
 
-    console.log('Roles successfully assigned in DB:', updates.map(u => `${players.find(p=>p.id===u.id)?.name}: ${u.role}`));
+    console.log('Roles assigned:', updates.map(u => `${players.find(p=>p.id===u.id)?.name}: ${u.role}`));
+    console.log('Chameleon count:', chameleonPlayers.length);
 };
 
 export type DBPlayerData = { // Export type if needed elsewhere

@@ -4,7 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { GameProvider } from "./contexts/GameContextProvider";
-import ErrorBoundary from "./components/ErrorBoundary";
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import Index from "./pages/Index";
 import Room from "./pages/Room";
 import NotFound from "./pages/NotFound";

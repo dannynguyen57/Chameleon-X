@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { GameRoom, PlayerRole, GameState, GameMode, GameSettings, Player, GameResultType, WordCategory } from '@/lib/types';
-import { GamePhase } from '@/types/GamePhase';
+import { GameRoom, GameState, GameMode, GameSettings, Player, GameResultType, WordCategory } from '@/lib/types';
+import { GamePhase, PlayerRole } from '../lib/types';
 import { Room } from '@/types/Room';
 import { toast } from '@/components/ui/use-toast';
 import { DEFAULT_SETTINGS } from '@/lib/constants';
+import { categories } from '@/lib/word-categories';
 
 interface DatabasePlayer {
   id: string;
@@ -58,93 +59,71 @@ export interface DatabaseRoom {
   host_id?: string;
 }
 
-const DEFAULT_SETTINGS_REALTIME: GameSettings = {
-  max_players: 10,
-  discussion_time: 30,
-  max_rounds: 3,
-  game_mode: GameMode.Classic,
-  team_size: 2,
-  chaos_mode: false,
-  time_per_round: 30,
-  voting_time: 30,
-  roles: {
-    [GameMode.Classic]: [PlayerRole.Regular, PlayerRole.Chameleon],
-    [GameMode.Teams]: [PlayerRole.Regular, PlayerRole.Chameleon, PlayerRole.Detective, PlayerRole.Guardian],
-    [GameMode.Chaos]: [PlayerRole.Regular, PlayerRole.Chameleon, PlayerRole.Mimic, PlayerRole.Jester, PlayerRole.Spy, PlayerRole.Mirror],
-    [GameMode.Timed]: [PlayerRole.Regular, PlayerRole.Chameleon, PlayerRole.Timekeeper]
-  },
-  special_abilities: false
-};
+// const DEFAULT_SETTINGS_REALTIME: GameSettings = {
+//   max_players: 10,
+//   discussion_time: 30,
+//   max_rounds: 3,
+//   game_mode: GameMode.Classic,
+//   team_size: 2,
+//   chaos_mode: false,
+//   time_per_round: 30,
+//   voting_time: 30,
+//   roles: {
+//     [GameMode.Classic]: [PlayerRole.Regular, PlayerRole.Chameleon],
+//     [GameMode.Teams]: [PlayerRole.Regular, PlayerRole.Chameleon, PlayerRole.Guardian],
+//     [GameMode.Chaos]: [PlayerRole.Regular, PlayerRole.Chameleon, PlayerRole.Mimic, PlayerRole.Jester, PlayerRole.Spy],
+//     [GameMode.Timed]: [PlayerRole.Regular, PlayerRole.Chameleon]
+//   },
+//   special_abilities: false
+// };
 
 export const mapRoomData = (room: DatabaseRoom): GameRoom => {
-  const mappedPlayers = room.players.map((player: DatabasePlayer) => {
-    if (room.state !== 'lobby' && !player.role) {
-      console.error('Player role is missing:', player.id);
-      throw new Error('Player role is required');
-    }
-    return {
-      id: player.id,
-      name: player.name,
-      role: player.role || PlayerRole.Regular,
-      score: player.score || 0,
-      is_host: player.is_host,
-      is_ready: player.is_ready,
-      is_protected: player.is_protected || false,
-      has_voted: player.has_voted || false,
-      word: player.word,
-      turn_description: player.turn_description,
-      vote: player.vote,
-      last_active: player.last_active,
-      last_updated: player.last_updated,
-      vote_multiplier: player.vote_multiplier || 1,
-      special_word: player.special_word,
-      special_ability_used: player.special_ability_used || false,
-      timeout_at: player.timeout_at,
-      protected_player_id: player.protected_player_id,
-      investigated_player_id: player.investigated_player_id,
-      revealed_role: player.revealed_role,
-      team: player.team ? parseInt(player.team) : undefined,
-      is_illusionist: player.is_illusionist || false,
-      can_see_word: player.can_see_word || false,
-      created_at: player.created_at || new Date().toISOString(),
-      room_id: room.id,
-      isProtected: player.is_protected || false,
-      isInvestigated: false,
-      isCurrentPlayer: false,
-      isTurn: false
-    };
-  });
-
+  const categoryData = room.category ? categories.find(c => c.name === room.category) : undefined;
+  
   return {
     id: room.id,
     state: room.state,
     settings: room.settings,
-    players: mappedPlayers,
-    category: room.category as WordCategory | undefined,
-    secret_word: room.secret_word,
-    chameleon_id: room.chameleon_id,
-    timer: room.timer,
-    current_turn: room.current_turn,
-    current_word: room.current_word,
+    players: room.players.map(player => ({
+      ...player,
+      role: player.role,
+      special_ability_used: player.special_ability_used || false,
+      special_word: player.special_word || undefined,
+      is_ready: player.is_ready || false,
+      isProtected: player.is_protected || false,
+      isInvestigated: false,
+      isCurrentPlayer: false,
+      isTurn: false,
+      room_id: room.id,
+      team: player.team ? Number(player.team) : undefined
+    })),
+    category: categoryData || undefined,
+    secret_word: room.secret_word || undefined,
+    chameleon_id: room.chameleon_id || undefined,
+    timer: room.timer || 0,
+    current_turn: room.current_turn || 0,
+    current_word: room.current_word || undefined,
     created_at: room.created_at,
     updated_at: room.updated_at,
+    turn_order: [],
     round: room.round || 1,
-    round_outcome: room.round_outcome as GameResultType | null || null,
+    current_round: room.round || 1,
+    round_outcome: room.round_outcome || null,
     votes_tally: room.votes_tally || null,
     votes: room.votes || {},
     results: room.results || [],
     revealed_player_id: room.revealed_player_id || null,
     revealed_role: room.revealed_role || null,
     last_updated: room.last_updated || new Date().toISOString(),
-    max_rounds: room.max_rounds || 10,
+    max_rounds: room.max_rounds || 1,
     host_id: room.host_id || '',
-    max_players: room.settings.max_players,
-    discussion_time: room.settings.discussion_time,
-    game_mode: room.settings.game_mode,
-    team_size: room.settings.team_size,
-    chaos_mode: room.settings.chaos_mode,
-    time_per_round: room.settings.time_per_round,
-    voting_time: room.settings.voting_time
+    current_phase: room.state === GameState.Lobby ? 'lobby' :
+                  room.state === GameState.Selecting ? 'selecting' :
+                  room.state === GameState.Presenting ? 'presenting' :
+                  room.state === GameState.Discussion ? 'discussion' :
+                  room.state === GameState.Voting ? 'voting' :
+                  room.state === GameState.Results ? 'results' :
+                  'lobby'
   };
 };
 

@@ -1,25 +1,18 @@
 import { WordCategory } from './word-categories';
+import { RoleTheme } from './roleThemes';
 
 export type { WordCategory };
 
 export enum PlayerRole {
   Regular = 'regular',
   Chameleon = 'chameleon',
-  Detective = 'detective',
-  Guardian = 'guardian',
-  Trickster = 'trickster',
-  Saboteur = 'saboteur',
-  Host = 'host',
-  Player = 'player',
-  Spectator = 'spectator',
   Mimic = 'mimic',
   Oracle = 'oracle',
   Jester = 'jester',
   Spy = 'spy',
-  Mirror = 'mirror',
-  Whisperer = 'whisperer',
-  Timekeeper = 'timekeeper',
-  Illusionist = 'illusionist'
+  Guardian = 'guardian',
+  Trickster = 'trickster',
+  Illusionist = 'illusionist',
 }
 
 export interface Player {
@@ -52,6 +45,8 @@ export interface Player {
   can_see_word?: boolean;
   room_id: string;
   created_at: string;
+  avatar?: string;
+  roleTheme?: RoleTheme;
 }
 
 export enum GameState {
@@ -156,6 +151,8 @@ export type DatabaseRoom = {
   host_id?: string;
 };
 
+export type GamePhase = 'lobby' | 'selecting' | 'presenting' | 'discussion' | 'voting' | 'results';
+
 export interface GameRoom {
   id: string;
   state: GameState;
@@ -169,8 +166,9 @@ export interface GameRoom {
   current_word: string | undefined;
   created_at: string;
   updated_at: string;
-  turn_order?: string[];
+  turn_order: string[];
   round: number;
+  current_round: number;
   round_outcome: GameResultType | null;
   votes_tally: Record<string, number> | null;
   votes: Record<string, string>;
@@ -180,13 +178,7 @@ export interface GameRoom {
   last_updated: string;
   max_rounds: number;
   host_id: string;
-  max_players: number;
-  discussion_time: number;
-  game_mode: GameMode;
-  team_size: number;
-  chaos_mode: boolean;
-  time_per_round: number;
-  voting_time: number;
+  current_phase: GamePhase;
 }
 
 export interface ChatMessage {
@@ -295,7 +287,7 @@ export interface Database {
 
 export const DEFAULT_ROLES: Record<GameMode, PlayerRole[]> = {
   [GameMode.Classic]: [PlayerRole.Regular, PlayerRole.Chameleon],
-  [GameMode.Teams]: [PlayerRole.Regular, PlayerRole.Chameleon, PlayerRole.Detective, PlayerRole.Guardian],
+  [GameMode.Teams]: [PlayerRole.Regular, PlayerRole.Chameleon, PlayerRole.Guardian],
   [GameMode.Chaos]: [],
   [GameMode.Timed]: []
 };

@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { useGame } from "@/hooks/useGame";
 import { Button } from "@/components/ui/button";
@@ -20,7 +19,10 @@ export default function CategorySelection() {
   
   const handleConfirm = () => {
     if (selectedCategory) {
-      selectCategory(selectedCategory);
+      const category = categories.find(c => c.name === selectedCategory);
+      if (category) {
+        selectCategory(category);
+      }
     }
   };
   

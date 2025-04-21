@@ -20,7 +20,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Check, Clock, Lightbulb, Trophy, Gamepad2, Users, MessageSquare, Vote, CheckCircle, XCircle, Smile, ShieldCheck, Award, Shield, Search, Laugh, Crown, Eye, EyeOff } from "lucide-react";
+import { Check, Clock, Lightbulb, Trophy, Gamepad2, Users, MessageSquare, Vote, CheckCircle, XCircle, Smile, ShieldCheck, Award, Shield, Search, Laugh, Crown, Eye, EyeOff, Timer } from "lucide-react";
 
 import ChatSystem from "./ChatSystem";
 import DevModeSetup from '@/components/dev/DevModeSetup';
@@ -42,10 +42,10 @@ const getRoleStyle = (role: PlayerRole | undefined): RoleStyle => {
   };
 };
 
-const getPlayerRoleIcon = (player: Player) => {
-  const theme = getRoleTheme(player.role);
-  return theme.icon;
-};
+// const getPlayerRoleIcon = (player: Player) => {
+//   const theme = getRoleTheme(player.role);
+//   return theme.icon;
+// };
 
 // Memoized Player Role Display Component
 const PlayerRoleDisplay = memo(({ player }: { player: Player }) => {
@@ -81,98 +81,357 @@ const PlayerRoleDisplay = memo(({ player }: { player: Player }) => {
   );
 });
 
-// Memoized Current Turn Card Component
-const CurrentTurnCard = ({ 
-  room, 
-  player, 
-  onDescriptionSubmit 
-}: { 
-  room: GameRoom; 
-  player: Player; 
+interface CurrentTurnCardProps {
+  room: GameRoom;
+  currentPlayer: Player;
   onDescriptionSubmit: (description: string) => void;
+  onSkipTurn: () => void;
+}
+
+const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({ 
+  room, 
+  currentPlayer, 
+  onDescriptionSubmit, 
+  onSkipTurn 
 }) => {
-  const [description, setDescription] = useState("");
+  const [description, setDescription] = useState('');
   const [isWordVisible, setIsWordVisible] = useState(false);
-  const isCurrentPlayer = room.current_turn?.toString() === player.id;
-  const currentPlayer = room.players.find(p => p.id === room.current_turn?.toString());
+  const [isBlendingIn, setIsBlendingIn] = useState(false);
+  const [isMimicking, setIsMimicking] = useState(false);
+  const [isProtecting, setIsProtecting] = useState(false);
+  const [isSwappingVotes, setIsSwappingVotes] = useState(false);
+  const [isDoublingVote, setIsDoublingVote] = useState(false);
+  const [targetPlayer, setTargetPlayer] = useState<string | null>(null);
+  const [isViewingRoles, setIsViewingRoles] = useState(false);
+  const [isActingSuspicious, setIsActingSuspicious] = useState(false);
+  const [isGuiding, setIsGuiding] = useState(false);
+
+  const { handleRoleAbility } = useGameActions(currentPlayer.id, room, room.settings, () => {});
+
+  const isChameleon = currentPlayer.role === PlayerRole.Chameleon;
+  const isMimic = currentPlayer.role === PlayerRole.Mimic;
+  const isOracle = currentPlayer.role === PlayerRole.Oracle;
+  const isJester = currentPlayer.role === PlayerRole.Jester;
+  const isSpy = currentPlayer.role === PlayerRole.Spy;
+  const isGuardian = currentPlayer.role === PlayerRole.Guardian;
+  const isTrickster = currentPlayer.role === PlayerRole.Trickster;
+  const isIllusionist = currentPlayer.role === PlayerRole.Illusionist;
+
+  const currentTurnPlayer = room.players[room.current_turn || 0];
+  const isCurrentPlayerTurn = currentPlayer.id === currentTurnPlayer?.id;
+
+  const handleAbilityUse = async (ability: string) => {
+    switch (ability) {
+      case 'blendIn':
+        setIsBlendingIn(true);
+        await handleRoleAbility();
+        break;
+      case 'mimic':
+        setIsMimicking(true);
+        await handleRoleAbility();
+        break;
+      case 'protect':
+        setIsProtecting(true);
+        if (targetPlayer) {
+          await handleRoleAbility(targetPlayer);
+        }
+        break;
+      case 'swapVotes':
+        setIsSwappingVotes(true);
+        if (targetPlayer) {
+          await handleRoleAbility(targetPlayer);
+        }
+        break;
+      case 'doubleVote':
+        setIsDoublingVote(true);
+        if (targetPlayer) {
+          await handleRoleAbility(targetPlayer);
+        }
+        break;
+      case 'viewRoles':
+        setIsViewingRoles(true);
+        await handleRoleAbility();
+        break;
+      case 'actSuspicious':
+        setIsActingSuspicious(true);
+        await handleRoleAbility();
+        break;
+      case 'guide':
+        setIsGuiding(true);
+        await handleRoleAbility();
+        break;
+    }
+  };
+
+  const handleTargetSelect = (playerId: string) => {
+    setTargetPlayer(playerId);
+  };
+
+  const handleSubmitDescription = () => {
+    if (description.trim() && isCurrentPlayerTurn) {
+      onDescriptionSubmit(description);
+      setDescription('');
+    }
+  };
 
   return (
-    <motion.div
-      className="relative w-full max-w-2xl mx-auto"
+    <motion.div 
+      className="w-full max-w-2xl mx-auto"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
     >
-      <Card className="overflow-hidden">
-        <CardHeader className="bg-primary/5">
-          <CardTitle className="text-center">
-            {isCurrentPlayer ? "Your Turn" : `${currentPlayer?.name}'s Turn`}
-          </CardTitle>
+      <Card className="border-2 border-primary/20 shadow-lg overflow-hidden">
+        <CardHeader className="bg-primary/5 p-4 sm:p-6">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex flex-col items-center sm:items-start gap-2">
+              <div className="flex items-center gap-2">
+                <Timer className="w-6 h-6 text-primary" />
+                <span className="text-2xl sm:text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary/60">
+                  {isCurrentPlayerTurn ? "Your Turn!" : `${currentTurnPlayer?.name}'s Turn`}
+                </span>
+              </div>
+              <p className="text-sm sm:text-base text-muted-foreground text-center sm:text-left">
+                {isCurrentPlayerTurn 
+                  ? "Describe the word without saying it directly"
+                  : "Wait for your turn to describe the word"}
+              </p>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-lg">
+                Time Left: {room.timer}s
+              </Badge>
+            </div>
+          </div>
         </CardHeader>
-        <CardContent className="p-6">
-          <div className="space-y-4">
-            {/* Word Display */}
-            <motion.div
-              className="flex items-center justify-between p-4 bg-muted rounded-lg"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.2 }}
-            >
-              <span className="text-lg font-medium">
-                {isWordVisible ? room.secret_word : "••••••••"}
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsWordVisible(!isWordVisible)}
-              >
-                {isWordVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </Button>
-            </motion.div>
 
-            {/* Description Input */}
-            {isCurrentPlayer && (
-              <motion.div
-                className="space-y-2"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.4 }}
-              >
-                <Label htmlFor="description">Your Description</Label>
-                <Textarea
-                  id="description"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Enter your description..."
-                  className="min-h-[100px]"
-                />
-                <Button
-                  className="w-full"
-                  onClick={() => {
-                    onDescriptionSubmit(description);
-                    setDescription("");
-                  }}
+        <CardContent className="p-4 sm:p-6 space-y-6">
+          {/* Role Abilities Section */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {isChameleon && (
+              <>
+                <Button 
+                  onClick={() => handleAbilityUse('blendIn')}
+                  disabled={isBlendingIn || currentPlayer.special_ability_used}
+                  className="flex items-center gap-2"
+                  variant="secondary"
                 >
-                  Submit
+                  <ShieldCheck className="w-4 h-4" />
+                  Blend In
                 </Button>
-              </motion.div>
+                <Button 
+                  onClick={() => handleAbilityUse('viewRoles')}
+                  disabled={isViewingRoles || currentPlayer.special_ability_used}
+                  className="flex items-center gap-2"
+                  variant="secondary"
+                >
+                  <Eye className="w-4 h-4" />
+                  View Roles
+                </Button>
+              </>
+            )}
+            {isMimic && (
+              <Button 
+                onClick={() => handleAbilityUse('mimic')}
+                disabled={isMimicking || currentPlayer.special_ability_used}
+                className="flex items-center gap-2"
+                variant="secondary"
+              >
+                <Laugh className="w-4 h-4" />
+                Mimic
+              </Button>
+            )}
+            {isOracle && (
+              <Button 
+                onClick={() => handleAbilityUse('guide')}
+                disabled={isGuiding || currentPlayer.special_ability_used}
+                className="flex items-center gap-2"
+                variant="secondary"
+              >
+                <Lightbulb className="w-4 h-4" />
+                Guide
+              </Button>
+            )}
+            {isJester && (
+              <Button 
+                onClick={() => handleAbilityUse('actSuspicious')}
+                disabled={isActingSuspicious || currentPlayer.special_ability_used}
+                className="flex items-center gap-2"
+                variant="secondary"
+              >
+                <Crown className="w-4 h-4" />
+                Act Suspicious
+              </Button>
+            )}
+            {isSpy && (
+              <Button 
+                onClick={() => handleAbilityUse('protect')}
+                disabled={isProtecting || currentPlayer.special_ability_used}
+                className="flex items-center gap-2"
+                variant="secondary"
+              >
+                <Shield className="w-4 h-4" />
+                Protect Chameleon
+              </Button>
+            )}
+            {isGuardian && (
+              <Button 
+                onClick={() => handleAbilityUse('protect')}
+                disabled={isProtecting || currentPlayer.special_ability_used}
+                className="flex items-center gap-2"
+                variant="secondary"
+              >
+                <Shield className="w-4 h-4" />
+                Protect Player
+              </Button>
+            )}
+            {isTrickster && (
+              <Button 
+                onClick={() => handleAbilityUse('swapVotes')}
+                disabled={isSwappingVotes || currentPlayer.special_ability_used}
+                className="flex items-center gap-2"
+                variant="secondary"
+              >
+                <Award className="w-4 h-4" />
+                Swap Votes
+              </Button>
+            )}
+            {isIllusionist && (
+              <Button 
+                onClick={() => handleAbilityUse('doubleVote')}
+                disabled={isDoublingVote || currentPlayer.special_ability_used}
+                className="flex items-center gap-2"
+                variant="secondary"
+              >
+                <EyeOff className="w-4 h-4" />
+                Double Vote
+              </Button>
             )}
           </div>
+
+          {/* Target Selection */}
+          {(isProtecting || isSwappingVotes || isDoublingVote) && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium">Select Target Player:</h4>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {room.players.map((player: Player) => (
+                  <Button
+                    key={player.id}
+                    onClick={() => handleTargetSelect(player.id)}
+                    variant={targetPlayer === player.id ? "default" : "outline"}
+                    disabled={player.id === currentPlayer.id}
+                    className="flex items-center gap-2"
+                  >
+                    <Avatar className="w-6 h-6">
+                      <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}`} />
+                      <AvatarFallback>{player.name[0]}</AvatarFallback>
+                    </Avatar>
+                    {player.name}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Word Display */}
+          <div className="space-y-2">
+            <h4 className="text-sm font-medium">Secret Word:</h4>
+            <div className="flex items-center justify-between p-4 rounded-lg bg-primary/5 border border-primary/20">
+              {isChameleon ? (
+                <span className="text-2xl font-bold tracking-widest">??????</span>
+              ) : (
+                <>
+                  <span className={cn(
+                    "text-2xl font-bold tracking-widest transition-all duration-300",
+                    isWordVisible ? "opacity-100" : "opacity-0"
+                  )}>
+                    {isWordVisible ? room.secret_word : '••••••••'}
+                  </span>
+                  <Button 
+                    onClick={() => setIsWordVisible(!isWordVisible)}
+                    variant="ghost"
+                    size="sm"
+                    className="flex items-center gap-1"
+                  >
+                    {isWordVisible ? (
+                      <>
+                        <EyeOff className="w-4 h-4" />
+                        Hide
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="w-4 h-4" />
+                        Show
+                      </>
+                    )}
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Description Input */}
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="description">Your Description</Label>
+              <Textarea
+                id="description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Enter your description..."
+                disabled={!isWordVisible && !isChameleon}
+                className="min-h-[100px]"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button 
+                onClick={handleSubmitDescription}
+                disabled={!description.trim() || !isCurrentPlayerTurn}
+                className="flex-1"
+              >
+                <CheckCircle className="w-4 h-4 mr-2" />
+                Submit Description
+              </Button>
+              <Button 
+                onClick={onSkipTurn}
+                variant="outline"
+                disabled={!isCurrentPlayerTurn}
+              >
+                <XCircle className="w-4 h-4 mr-2" />
+                Skip Turn
+              </Button>
+            </div>
+          </div>
+
+          {/* Role View */}
+          {isViewingRoles && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium flex items-center gap-2">
+                <Users className="w-4 h-4" />
+                Player Roles
+              </h4>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {room.players.map((player: Player) => (
+                  <div 
+                    key={player.id}
+                    className="flex items-center gap-2 p-2 rounded-lg bg-muted"
+                  >
+                    <Avatar className="w-6 h-6">
+                      <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}`} />
+                      <AvatarFallback>{player.name[0]}</AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{player.name}</p>
+                      <p className="text-xs text-muted-foreground">{player.role}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
-
-      {/* Phase-specific Overlay */}
-      <AnimatePresence>
-        {room.state === GameState.Discussion && (
-          <motion.div
-            className="absolute inset-0 bg-primary/5 backdrop-blur-sm rounded-lg"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-          />
-        )}
-      </AnimatePresence>
     </motion.div>
   );
 };
@@ -180,37 +439,65 @@ const CurrentTurnCard = ({
 // Add these new components at the top level
 const GamePhaseIndicator = ({ room }: { room: GameRoom }) => {
   const phases = [
-    { state: GameState.Presenting, label: "Presenting", icon: <Gamepad2 className="w-4 h-4" /> },
-    { state: GameState.Discussion, label: "Discussion", icon: <MessageSquare className="w-4 h-4" /> },
-    { state: GameState.Voting, label: "Voting", icon: <Vote className="w-4 h-4" /> },
-    { state: GameState.Results, label: "Results", icon: <Trophy className="w-4 h-4" /> }
+    { 
+      state: GameState.Presenting, 
+      label: "Presenting", 
+      icon: <MessageSquare className="w-4 h-4" />,
+      description: "Players take turns describing the word"
+    },
+    { 
+      state: GameState.Discussion, 
+      label: "Discussion", 
+      icon: <Users className="w-4 h-4" />,
+      description: "Discuss and identify the Chameleon"
+    },
+    { 
+      state: GameState.Voting, 
+      label: "Voting", 
+      icon: <Vote className="w-4 h-4" />,
+      description: "Vote for who you think is the Chameleon"
+    },
+    { 
+      state: GameState.Results, 
+      label: "Results", 
+      icon: <Trophy className="w-4 h-4" />,
+      description: "See who won the round"
+    }
   ];
 
   return (
     <div className="relative">
       <motion.div 
-        className="flex items-center justify-center gap-2 p-2 bg-background/50 backdrop-blur-sm rounded-lg"
+        className="flex flex-col gap-4 p-4 bg-background/50 backdrop-blur-sm rounded-lg border border-primary/20"
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
       >
-        {phases.map((phase, index) => (
-          <motion.div
-            key={phase.state}
-            className={cn(
-              "flex items-center gap-1 px-3 py-1 rounded-full transition-all duration-300",
-              room.state === phase.state
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground"
-            )}
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ delay: index * 0.1 }}
-          >
-            {phase.icon}
-            <span className="text-sm font-medium">{phase.label}</span>
-          </motion.div>
-        ))}
+        <div className="flex items-center justify-center gap-2">
+          {phases.map((phase, index) => (
+            <motion.div
+              key={phase.state}
+              className={cn(
+                "flex items-center gap-1 px-3 py-1 rounded-full transition-all duration-300",
+                room.state === phase.state
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground"
+              )}
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ delay: index * 0.1 }}
+            >
+              {phase.icon}
+              <span className="text-sm font-medium">{phase.label}</span>
+            </motion.div>
+          ))}
+        </div>
+        
+        <div className="text-center">
+          <p className="text-sm text-muted-foreground">
+            {phases.find(p => p.state === room.state)?.description}
+          </p>
+        </div>
       </motion.div>
       
       {/* Transition Overlay */}
@@ -239,7 +526,7 @@ const GameTimer = ({ remainingTime }: { remainingTime: number | null }) => {
       className="fixed bottom-4 right-4 bg-background/80 backdrop-blur-sm p-3 rounded-lg shadow-lg border border-primary/20"
     >
       <div className="flex items-center gap-2">
-        <Clock className="w-5 h-5 text-primary" />
+        <Timer className="w-5 h-5 text-primary" />
         <span className="text-lg font-semibold">{remainingTime}s</span>
       </div>
     </motion.div>
@@ -275,12 +562,6 @@ export default function GamePlay() {
         return "Tip: Help others find the Chameleon without being too obvious!";
       case PlayerRole.Jester:
         return "Tip: Try to get others to vote for you by being suspicious!";
-      case PlayerRole.Mirror:
-        return "Tip: Use other players' descriptions to your advantage!";
-      case PlayerRole.Whisperer:
-        return "Tip: Share information secretly with other players!";
-      case PlayerRole.Timekeeper:
-        return "Tip: Control the pace of the game with your time abilities!";
       case PlayerRole.Illusionist:
         return "Tip: Create confusion with your illusion abilities!";
       case PlayerRole.Guardian:
@@ -311,14 +592,13 @@ export default function GamePlay() {
     <div className="min-h-screen bg-gradient-to-br from-background to-background/80">
       <div className="container mx-auto p-4 space-y-6">
         {/* Game Header */}
-        {room.category && (
-          <GameHeader 
-            room={room} 
-            category={room.category} 
-            roleTheme={getRoleTheme(currentPlayer?.role || PlayerRole.Regular)}
-            isPlayerChameleon={isPlayerChameleon}
-          />
-        )}
+        <GameHeader
+          roomName={room.id}
+          category={room.category || null}
+          playerRole={currentPlayer?.role}
+          word={room.secret_word}
+          roleTheme={getRoleTheme(currentPlayer?.role || PlayerRole.Regular)}
+        />
         
         {/* Game Phase Indicator */}
         <GamePhaseIndicator room={room} />
@@ -396,8 +676,9 @@ export default function GamePlay() {
                 >
                   <CurrentTurnCard
                     room={room}
-                    player={currentPlayer}
+                    currentPlayer={currentPlayer}
                     onDescriptionSubmit={submitWord}
+                    onSkipTurn={() => {}}
                   />
                 </motion.div>
               )}
@@ -420,7 +701,7 @@ export default function GamePlay() {
                           Discussion Phase
                         </CardTitle>
                         <Badge variant="outline" className="text-lg">
-                          Time Left: {remainingTime}s
+                          Time Left: {remainingTime.timeLeft}s
                         </Badge>
                       </div>
                       <CardDescription className="text-base">
@@ -483,7 +764,7 @@ export default function GamePlay() {
                           Voting Phase
                         </CardTitle>
                         <Badge variant="outline" className="text-lg">
-                          Time Left: {remainingTime}s
+                          Time Left: {remainingTime.timeLeft}s
                         </Badge>
                       </div>
                       <CardDescription className="text-base">
@@ -606,17 +887,24 @@ export default function GamePlay() {
                 <div className="space-y-4">
                   <div>
                     <h4 className="text-sm font-medium text-muted-foreground">Round</h4>
-                    <p className="text-2xl font-bold">{room?.round || 1}</p>
+                    <p className="text-2xl font-bold">{room?.round || 1} / {room?.max_rounds || 3}</p>
                   </div>
                   <div>
                     <h4 className="text-sm font-medium text-muted-foreground">Time Remaining</h4>
-                    <p className="text-2xl font-bold">{remainingTime || 0}s</p>
+                    <p className="text-2xl font-bold">{remainingTime.timeLeft || 0}s</p>
                   </div>
                   <div>
                     <h4 className="text-sm font-medium text-muted-foreground">Category</h4>
-                    <p className="text-lg font-semibold">{room?.category?.name || "Not selected"}</p>
+                    <p className="text-lg font-semibold">
+                      {room?.category?.name || "Not selected"}
+                    </p>
+                    {room?.category?.description && (
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {room.category.description}
+                      </p>
+                    )}
                   </div>
-                  {room?.secret_word && (
+                  {room?.secret_word && room.state !== GameState.Selecting && !isPlayerChameleon && (
                     <div>
                       <h4 className="text-sm font-medium text-muted-foreground">Secret Word</h4>
                       <p className="text-lg font-semibold">{room.secret_word}</p>
@@ -629,7 +917,7 @@ export default function GamePlay() {
         </div>
 
         {/* Floating Timer */}
-        <GameTimer remainingTime={remainingTime} />
+        <GameTimer remainingTime={remainingTime.timeLeft} />
       </div>
     </div>
   );

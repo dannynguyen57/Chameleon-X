@@ -19,7 +19,6 @@ export const GameAnimations = () => {
   useEffect(() => {
     if (room?.category) {
       setShowCategoryAnimation(true);
-      setTimeout(() => setShowCategoryAnimation(false), 2000);
     }
   }, [room?.category]);
 

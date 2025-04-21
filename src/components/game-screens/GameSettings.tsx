@@ -68,12 +68,6 @@ export default function GameSettings({ onClose }: GameSettingsProps) {
         return "Wins if they get voted as the chameleon";
       case PlayerRole.Spy:
         return "Knows the word but must pretend they don't";
-      case PlayerRole.Mirror:
-        return "Must repeat what the previous player said";
-      case PlayerRole.Whisperer:
-        return "Can secretly communicate with one other player";
-      case PlayerRole.Timekeeper:
-        return "Can extend or reduce the timer once";
       case PlayerRole.Illusionist:
         return "Can make one player's vote count double";
       case PlayerRole.Guardian:

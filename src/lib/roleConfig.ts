@@ -29,12 +29,12 @@ export const roleConfig: Record<PlayerRole, RoleConfig> = {
     description: "The imposter who doesn't know the secret word and must blend in with regular players.",
     abilities: [
       "Can see other players' roles",
-      "Can use special abilities if enabled",
+      "Can use 'Blend In' ability once per game",
       "Wins if not voted out"
     ],
     tips: [
       "Listen carefully to other players' descriptions",
-      "Give vague but plausible hints",
+      "Use your 'Blend In' ability strategically",
       "Don't be too obvious or too quiet"
     ],
     winCondition: "Survive the voting phase without being caught"
@@ -44,12 +44,12 @@ export const roleConfig: Record<PlayerRole, RoleConfig> = {
     description: "A player who knows a similar word to the secret word and must use this to their advantage.",
     abilities: [
       "Knows a similar word to the secret word",
-      "Can use special abilities if enabled",
+      "Can mimic another player's description style",
       "Can help or hinder the Chameleon"
     ],
     tips: [
       "Use your knowledge of the similar word to blend in",
-      "Help identify the Chameleon while maintaining your cover",
+      "Mimic other players' description styles",
       "Be careful not to reveal your role"
     ],
     winCondition: "Help identify the Chameleon while maintaining your cover"
@@ -59,13 +59,13 @@ export const roleConfig: Record<PlayerRole, RoleConfig> = {
     description: "A player with special insight who can see who the Chameleon is.",
     abilities: [
       "Can see who the Chameleon is",
-      "Can use special abilities if enabled",
+      "Can guide other players subtly",
       "Must help others identify the Chameleon"
     ],
     tips: [
       "Guide the discussion subtly",
-      "Protect yourself from being voted out",
-      "Help regular players without revealing your role"
+      "Use your abilities to help others",
+      "Don't reveal your role too early"
     ],
     winCondition: "Help identify the Chameleon while maintaining your cover"
   },
@@ -73,13 +73,13 @@ export const roleConfig: Record<PlayerRole, RoleConfig> = {
     name: "Jester",
     description: "A mischievous player who wins by getting voted out as the Chameleon.",
     abilities: [
-      "Can use special abilities if enabled",
-      "Must act suspiciously but not too obviously",
+      "Can act suspicious to draw attention",
+      "Can distract other players",
       "Wins if voted out as the Chameleon"
     ],
     tips: [
-      "Give vague or misleading hints",
       "Act suspicious but not too obviously",
+      "Use your abilities to draw attention",
       "Try to get voted out as the Chameleon"
     ],
     winCondition: "Get voted out as the Chameleon"
@@ -89,98 +89,23 @@ export const roleConfig: Record<PlayerRole, RoleConfig> = {
     description: "A player who knows the Chameleon's identity but must help them win.",
     abilities: [
       "Knows who the Chameleon is",
-      "Can use special abilities if enabled",
+      "Can protect the Chameleon",
       "Must help the Chameleon survive"
     ],
     tips: [
       "Protect the Chameleon subtly",
-      "Distract other players from the real Chameleon",
+      "Use your abilities to help the Chameleon",
       "Don't reveal your role"
     ],
     winCondition: "Help the Chameleon survive the voting phase"
-  },
-  [PlayerRole.Mirror]: {
-    name: "Mirror",
-    description: "A player who can see one other player's role.",
-    abilities: [
-      "Can see one other player's role",
-      "Can use special abilities if enabled",
-      "Must use this information wisely"
-    ],
-    tips: [
-      "Use your knowledge strategically",
-      "Help identify the Chameleon or protect yourself",
-      "Don't reveal your role too early"
-    ],
-    winCondition: "Help identify the Chameleon while maintaining your cover"
-  },
-  [PlayerRole.Whisperer]: {
-    name: "Whisperer",
-    description: "A player who can send one secret message to another player.",
-    abilities: [
-      "Can send one secret message",
-      "Can use special abilities if enabled",
-      "Must use this ability strategically"
-    ],
-    tips: [
-      "Use your message to help or hinder others",
-      "Choose your message recipient carefully",
-      "Don't waste your message"
-    ],
-    winCondition: "Help identify the Chameleon while maintaining your cover"
-  },
-  [PlayerRole.Timekeeper]: {
-    name: "Timekeeper",
-    description: "A player who can control the game's timing.",
-    abilities: [
-      "Can add or subtract time from phases",
-      "Can use special abilities if enabled",
-      "Must use timing strategically"
-    ],
-    tips: [
-      "Use timing to help your team",
-      "Watch for opportunities to use your ability",
-      "Don't reveal your role too early"
-    ],
-    winCondition: "Help identify the Chameleon while maintaining your cover"
-  },
-  [PlayerRole.Illusionist]: {
-    name: "Illusionist",
-    description: "A player who can make one player's vote count double.",
-    abilities: [
-      "Can double one player's vote",
-      "Can use special abilities if enabled",
-      "Must use this power strategically"
-    ],
-    tips: [
-      "Use your ability to help your team",
-      "Choose your target carefully",
-      "Don't reveal your role too early"
-    ],
-    winCondition: "Help identify the Chameleon while maintaining your cover"
-  },
-  [PlayerRole.Detective]: {
-    name: "Detective",
-    description: "A player who can investigate one player's role.",
-    abilities: [
-      "Can investigate one player's role",
-      "Can use special abilities if enabled",
-      "Must use this information wisely"
-    ],
-    tips: [
-      "Use your investigation strategically",
-      "Help identify the Chameleon",
-      "Don't reveal your role too early"
-    ],
-    winCondition: "Help identify the Chameleon while maintaining your cover"
   },
   [PlayerRole.Guardian]: {
     name: "Guardian",
     description: "A player who can protect one player from being voted out.",
     abilities: [
       "Can protect one player from votes",
-      "Can use special abilities if enabled",
-      "Must use this protection wisely"
+      "Protection lasts for one round",
+      "Must use protection wisely"
     ],
     tips: [
       "Use your protection strategically",
@@ -194,8 +119,8 @@ export const roleConfig: Record<PlayerRole, RoleConfig> = {
     description: "A player who can swap two players' votes.",
     abilities: [
       "Can swap two players' votes",
-      "Can use special abilities if enabled",
-      "Must use this power strategically"
+      "Can use ability once per game",
+      "Must use power strategically"
     ],
     tips: [
       "Use your ability to help your team",
@@ -204,64 +129,19 @@ export const roleConfig: Record<PlayerRole, RoleConfig> = {
     ],
     winCondition: "Help identify the Chameleon while maintaining your cover"
   },
-  [PlayerRole.Saboteur]: {
-    name: "Saboteur",
-    description: "A player who can disrupt the game in various ways.",
+  [PlayerRole.Illusionist]: {
+    name: "Illusionist",
+    description: "A player who can make one player's vote count double.",
     abilities: [
-      "Can disrupt the game in various ways",
-      "Can use special abilities if enabled",
-      "Must use this power strategically"
+      "Can double one player's vote",
+      "Can use ability once per game",
+      "Must use power strategically"
     ],
     tips: [
-      "Use your abilities to create chaos",
-      "Help the Chameleon or your own team",
+      "Use your ability to help your team",
+      "Choose your target carefully",
       "Don't reveal your role too early"
     ],
     winCondition: "Help identify the Chameleon while maintaining your cover"
   },
-  [PlayerRole.Host]: {
-    name: "Host",
-    description: "The game host who controls the game settings and flow.",
-    abilities: [
-      "Controls game settings",
-      "Can start and end rounds",
-      "Can manage players"
-    ],
-    tips: [
-      "Set up the game fairly",
-      "Keep the game moving smoothly",
-      "Help players understand the rules"
-    ],
-    winCondition: "Ensure a fair and enjoyable game for all players"
-  },
-  [PlayerRole.Player]: {
-    name: "Player",
-    description: "A standard player in the game.",
-    abilities: [
-      "Can participate in the game",
-      "Can vote and use abilities",
-      "Must follow the game rules"
-    ],
-    tips: [
-      "Pay attention to the game",
-      "Follow the rules",
-      "Have fun!"
-    ],
-    winCondition: "Help your team win the game"
-  },
-  [PlayerRole.Spectator]: {
-    name: "Spectator",
-    description: "A player who watches the game but doesn't participate.",
-    abilities: [
-      "Can watch the game",
-      "Can chat with other spectators",
-      "Cannot vote or use abilities"
-    ],
-    tips: [
-      "Enjoy watching the game",
-      "Don't interfere with the game",
-      "Learn from other players"
-    ],
-    winCondition: "Enjoy watching the game"
-  }
 }; 

@@ -41,13 +41,13 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     [room?.chameleon_id, playerId]
   );
 
-  const { createRoom: createRoomAction, joinRoom: joinRoomAction, startGame: startGameAction, selectCategory, submitVote, nextRound, leaveRoom: leaveRoomAction, resetGame, handleRoleAbility, setPlayerRole } = useGameActions(
+  const { createRoom: createRoomAction, joinRoom: joinRoomAction, startGame: startGameAction, selectCategory, submitVote, nextRound, leaveRoom: leaveRoomAction, resetGame, handleRoleAbility, setPlayerRole, submitWord } = useGameActions(
     playerId,
     room,
     settings,
     setRoom
   );
-  const remainingTime = useGameTimer(room?.id, room?.timer ?? undefined, room?.state, settings);
+  const remainingTime = useGameTimer();
 
   const handleGameStateTransition = useCallback(async (newState: GameState) => {
     if (!room) return;
@@ -318,6 +318,10 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     joinRoom,
     startGame,
     selectCategory,
+    submitWord: async (word: string) => {
+      if (!room) return;
+      await submitWord(word);
+    },
     submitVote,
     nextRound,
     leaveRoom,
@@ -358,7 +362,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     loading: false,
     error: null
   }), [
-    playerId, room, settings, createRoom, joinRoom, startGame, selectCategory, submitVote, nextRound, leaveRoom, resetGame, handleRoleAbility, setPlayerRole,
+    playerId, room, settings, createRoom, joinRoom, startGame, selectCategory, submitWord, submitVote, nextRound, leaveRoom, resetGame, handleRoleAbility, setPlayerRole,
     isPlayerChameleon, remainingTime, playerName, setSettings, setRoom, fetchRoom, handleGameStateTransition
   ]);
 

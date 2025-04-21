@@ -1,6 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { categories } from '@/lib/word-categories';
-import { GameRoom, GameSettings, GameState, PlayerRole, Player } from '@/lib/types';
+import { GameRoom, GameSettings, GameState, PlayerRole, Player, WordCategory } from '@/lib/types';
 import { useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { mapRoomData, DatabaseRoom } from '@/hooks/useGameRealtime';
@@ -8,10 +8,12 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   handleGameStateTransition,
   updatePlayer,
-  getSimilarWord,
   assignRoles,
+  getSimilarWord,
   // DBPlayerData
 } from '@/lib/gameLogic';
+import { getRandomWord } from '../lib/utils';
+import { GamePhase as GamePhaseType } from '@/types/GamePhase';
 
 // Helper functions are now in gameLogic.ts
 // const calculateImposterCount = ...
@@ -29,79 +31,86 @@ export const useGameActions = (
   setRoom: (room: GameRoom | null) => void
 ) => {
   const submitWord = useCallback(async (word: string) => {
-    if (!room || !playerId) return false;
-
-    // Basic validation
-    if (!word.trim()) {
-      toast.error("Please enter a valid word or phrase.");
-      return false;
-    }
-
-    // Check if it's the player's turn
-    const currentTurnPlayerId = room.turn_order?.[room.current_turn ?? 0];
-    if (currentTurnPlayerId && currentTurnPlayerId !== playerId) {
-      toast.error("It's not your turn to submit a word.");
-      return false;
-    }
+    if (!room || !playerId || !room.turn_order || typeof room.current_turn !== 'number') return;
 
     try {
       // Update the player's description
-      await updatePlayer(playerId, room.id, { turn_description: word });
-      
-      // Fetch latest room data
-      const latestRoomData = await fetchRoom(room.id);
-      if (!latestRoomData) {
-        toast.error("Could not refresh game state after submission.");
-        return false;
-      }
-      
-      // Check if all players have submitted
-      const allPlayersSubmitted = latestRoomData.players.every(p => p.turn_description);
-      
+      const { error: updateError } = await supabase
+        .from('players')
+        .update({ 
+          turn_description: word,
+          last_updated: new Date().toISOString()
+        })
+        .eq('id', playerId)
+        .eq('room_id', room.id);
+
+      if (updateError) throw updateError;
+
+      // Check if all players have submitted their descriptions
+      const { data: players, error: playersError } = await supabase
+        .from('players')
+        .select('turn_description')
+        .eq('room_id', room.id);
+
+      if (playersError) throw playersError;
+
+      const allPlayersSubmitted = players?.every(p => p.turn_description);
+
       if (allPlayersSubmitted) {
         // Move to discussion phase
-        await handleGameStateTransition(room.id, GameState.Presenting, settings, latestRoomData);
-        toast.success("All players have submitted! Moving to discussion phase.");
-      } else {
-        // Move to next player's turn
-        const nextTurnIndex = (room.current_turn ?? 0) + 1;
-        const nextPlayerId = room.turn_order?.[nextTurnIndex];
-        
-        // Update room state with next turn
-        const { error: updateError } = await supabase
+        const { error: stateError } = await supabase
           .from('game_rooms')
           .update({ 
-            current_turn: nextTurnIndex,
+            state: GameState.Discussion,
+            timer: settings.discussion_time,
+            last_updated: new Date().toISOString()
+          })
+          .eq('id', room.id);
+
+        if (stateError) throw stateError;
+
+        // Update local state
+        setRoom({
+          ...room,
+          state: GameState.Discussion,
+          timer: settings.discussion_time,
+          last_updated: new Date().toISOString()
+        });
+
+        toast.success("All players have submitted their descriptions! Moving to discussion phase.");
+      } else {
+        // Move to next player's turn
+        const nextTurn = (room.current_turn + 1) % room.players.length;
+        const nextPlayerId = room.turn_order[nextTurn];
+
+        const { error: turnError } = await supabase
+          .from('game_rooms')
+          .update({ 
+            current_turn: nextTurn,
             timer: settings.time_per_round,
             last_updated: new Date().toISOString()
           })
           .eq('id', room.id);
-          
-        if (updateError) throw updateError;
-        
-        const nextPlayer = latestRoomData.players.find(p => p.id === nextPlayerId);
+
+        if (turnError) throw turnError;
+
+        // Update local state
+        setRoom({
+          ...room,
+          current_turn: nextTurn,
+          timer: settings.time_per_round,
+          last_updated: new Date().toISOString()
+        });
+
+        // Show toast for next player's turn
+        const nextPlayer = room.players.find(p => p.id === nextPlayerId);
         if (nextPlayer) {
-          toast.success(`Submitted! Now it's ${nextPlayer.name}'s turn.`);
-        } else {
-          toast.success("Submitted! Waiting for next player's turn.");
+          toast.success(`It's ${nextPlayer.name}'s turn to describe the word!`);
         }
       }
-      
-      // Fetch final room state
-      const finalRoomState = await fetchRoom(room.id);
-      if (finalRoomState) {
-        setRoom(finalRoomState);
-      }
-      
-      return true;
     } catch (error) {
-      let errorMessage = "An unknown error occurred";
-      if (error instanceof Error) {
-        errorMessage = error.message;
-      }
-      console.error("Error in submitWord:", error);
-      toast.error(errorMessage);
-      return false;
+      console.error('Error submitting word:', error);
+      toast.error("Failed to submit word");
     }
   }, [room, playerId, settings, setRoom]);
 
@@ -397,66 +406,100 @@ export const useGameActions = (
     }
   };
 
-  const selectCategory = async (category: string) => {
-    if (!room || !room.players.length || room.state !== GameState.Selecting) return;
+  const selectCategory = async (category: WordCategory) => {
+    if (!room) return;
 
     try {
-      const categoryData = categories.find(c => c.name === category);
-      if (!categoryData?.words.length) {
-        toast.error("Category has no words.");
-        return;
-      }
+      const secretWord = getRandomWord(category);
       
-      const secretWord = categoryData.words[Math.floor(Math.random() * categoryData.words.length)];
+      // Update the room in the database with just the category name
+      const { error: updateError } = await supabase
+        .from('game_rooms')
+        .update({
+          category: category.name,  // Store only the category name
+          state: GameState.Presenting,
+          secret_word: secretWord,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', room.id);
 
+      if (updateError) throw updateError;
+
+      // Update local state immediately to prevent UI flicker
+      setRoom({
+        ...room,
+        category,  // Keep the full category object in local state
+        state: GameState.Presenting,
+        secret_word: secretWord,
+        updated_at: new Date().toISOString()
+      });
+
+      // Assign similar words to Mimic players
+      const mimicPlayers = room.players.filter(p => p.role === PlayerRole.Mimic);
+      for (const player of mimicPlayers) {
+        const similarWord = getSimilarWord(secretWord, category.words);
+        await updatePlayer(player.id, room.id, { special_word: similarWord });
+      }
+
+      // Fetch fresh data to ensure consistency
+      const updatedRoom = await fetchRoom(room.id);
+      if (updatedRoom) {
+        setRoom(updatedRoom);
+      }
+    } catch (error) {
+      console.error('Error selecting category:', error);
+    }
+  };
+
+  const startFirstTurn = async (roomId: string, timePerRound: number) => {
+    try {
+      // Get the current room data
+      const { data: currentRoom, error: fetchError } = await supabase
+        .from('game_rooms')
+        .select(`
+          *,
+          players:players(*)
+        `)
+        .eq('id', roomId)
+        .single();
+
+      if (fetchError) throw fetchError;
+      if (!currentRoom) throw new Error("Failed to fetch room data");
+
+      // Create turn order
+      const turnOrder = currentRoom.players.map((p: Player) => p.id).sort(() => Math.random() - 0.5);
+      const currentTurn = 0;
+      const currentPlayerId = turnOrder[currentTurn];
+
+      // Update room with turn information and timer
       const { error: updateError } = await supabase
         .from('game_rooms')
         .update({ 
-          category: categoryData, 
-          secret_word: secretWord,
-          state: GameState.Presenting,
-          last_updated: new Date().toISOString() 
+          current_turn: currentTurn,
+          turn_order: turnOrder,
+          timer: timePerRound,
+          last_updated: new Date().toISOString()
         })
-        .eq('id', room.id);
-        
+        .eq('id', roomId);
+
       if (updateError) throw updateError;
 
-      const updatedRoomWithRoles = await fetchRoom(room.id);
-      if (!updatedRoomWithRoles) throw new Error("Failed to fetch room after role assignment.");
-      
-      const chameleon = updatedRoomWithRoles.players.find(p => p.role === PlayerRole.Chameleon);
-      const mimic = updatedRoomWithRoles.players.find(p => p.role === PlayerRole.Mimic);
-      const spy = updatedRoomWithRoles.players.find(p => p.role === PlayerRole.Spy);
-      
-      const playerUpdates = [];
-      if (spy && chameleon) {
-          playerUpdates.push(supabase.from('players').update({ special_word: chameleon.id }).eq('id', spy.id));
-      }
-      if (mimic && secretWord && categoryData) {
-          const similarWord = getSimilarWord(secretWord, categoryData.words);
-          playerUpdates.push(supabase.from('players').update({ special_word: similarWord }).eq('id', mimic.id));
-      }
-      
-      if (playerUpdates.length > 0) {
-          await Promise.all(playerUpdates);
-      }
+      // Update local state
+      setRoom({
+        ...currentRoom,
+        current_turn: currentTurn,
+        turn_order: turnOrder,
+        timer: timePerRound
+      });
 
-      const finalRoomState = await fetchRoom(room.id);
-      if (finalRoomState) {
-        setRoom({
-          ...finalRoomState,
-          category: categoryData,
-          state: GameState.Presenting
-        });
+      // Show toast with current player's turn
+      const currentPlayer = currentRoom.players.find((p: Player) => p.id === currentPlayerId);
+      if (currentPlayer) {
+        toast.success(`It's ${currentPlayer.name}'s turn to describe the word!`);
       }
-
     } catch (error) {
-      let errorMessage = "An unexpected error occurred.";
-      if (error instanceof Error) {
-          errorMessage = error.message;
-      }
-      console.error("Error selecting category:", error);
-      toast.error(errorMessage);
+      console.error('Error starting first turn:', error);
+      toast.error("Failed to start first turn");
     }
   };
 
@@ -470,7 +513,7 @@ export const useGameActions = (
     }
     
     const targetPlayer = room.players.find(p => p.id === votedPlayerId);
-    if (targetPlayer?.is_protected) {
+    if (targetPlayer?.isProtected) {
        toast.error(`${targetPlayer.name} is protected.`);
        return;
     }
@@ -727,11 +770,11 @@ export const useGameActions = (
     }
   };
 
-  const handleRoleAbility = async (targetPlayerId: string | null = null) => {
+  const handleRoleAbility = async (targetPlayerId?: string) => {
     if (!room || !playerId) return;
 
-    const player = room.players.find(p => p.id === playerId);
-    if (!player || player.special_ability_used || !player.role) {
+    const currentPlayer = room.players.find(p => p.id === playerId);
+    if (!currentPlayer || currentPlayer.special_ability_used || !currentPlayer.role) {
       console.warn("Cannot use special ability: Player not found, already used, or no role.");
       return; 
     }
@@ -742,110 +785,58 @@ export const useGameActions = (
       return;
     }
 
-    // Find target player if ID is provided
-    const targetPlayer = targetPlayerId ? room.players.find(p => p.id === targetPlayerId) : null;
-
     try {
       // Mark the ability as used for the current player immediately
       await updatePlayer(playerId, room.id, { special_ability_used: true });
 
-      // --- Role Specific Logic ---
-      switch (player.role) {
+      // Handle role-specific abilities
+      switch (currentPlayer.role) {
         case PlayerRole.Guardian:
-          if (!targetPlayerId) {
-            toast.error("No target selected for protection.");
-            // Revert the special_ability_used flag
-            await updatePlayer(playerId, room.id, { special_ability_used: false });
-            return; 
+          if (targetPlayerId) {
+            // Update target player's isProtected flag
+            await updatePlayer(targetPlayerId, room.id, { isProtected: true });
           }
-          console.log(`Guardian ${player.name} protecting ${targetPlayerId}`);
-          // Set is_protected on the target player
-          await updatePlayer(targetPlayerId, room.id, { is_protected: true });
-          toast.success("You protected a player from being eliminated this round.");
           break;
-
-        case PlayerRole.Timekeeper:
-          // Double vote power
-          await updatePlayer(playerId, room.id, { vote_multiplier: 2 });
-          toast.success("Your vote will count double this round.");
-          break;
-
-        case PlayerRole.Whisperer:
-          if (!targetPlayerId) {
-            toast.error("Please select a player to whisper to.");
-            await updatePlayer(playerId, room.id, { special_ability_used: false });
-            return;
-          }
-          
-          if (!targetPlayer) {
-            toast.error("Target player not found.");
-            await updatePlayer(playerId, room.id, { special_ability_used: false });
-            return;
-          }
-          
-          // This should be handled in the UI by showing the secret word to the whisperer
-          toast.success(`You whispered to ${targetPlayer.name}.`);
-          break;
-
-        case PlayerRole.Illusionist:
-          if (!targetPlayerId) {
-            toast.error("Please select a player to create an illusion for.");
-            await updatePlayer(playerId, room.id, { special_ability_used: false });
-            return;
-          }
-          
-          // Double the target player's vote power
-          await updatePlayer(targetPlayerId, room.id, { vote_multiplier: 2 });
-          toast.success("You've enhanced a player's vote power.");
-          break;
-
         case PlayerRole.Trickster:
-          // Make own vote negative
-          await updatePlayer(playerId, room.id, { vote_multiplier: -1 });
-          toast.success("Your vote will count as negative this round, allowing you to protect a player.");
-          break;
-
-        case PlayerRole.Mirror:
-          if (!targetPlayerId) {
-            toast.error("Please select a player to mirror.");
-            await updatePlayer(playerId, room.id, { special_ability_used: false });
-            return;
+          if (targetPlayerId) {
+            // Swap votes between current player and target
+            const targetPlayer = room.players.find(p => p.id === targetPlayerId);
+            if (targetPlayer) {
+              await updatePlayer(playerId, room.id, { vote: targetPlayer.vote });
+              await updatePlayer(targetPlayerId, room.id, { vote: currentPlayer.vote });
+            }
           }
-          
-          // In a full implementation, this would reveal the player's role to the target
-          // For simplicity, we'll just notify
-          toast.success("You've revealed your role to the target player.");
           break;
-
+        case PlayerRole.Illusionist:
+          if (targetPlayerId) {
+            // Double target player's vote multiplier
+            await updatePlayer(targetPlayerId, room.id, { vote_multiplier: 2 });
+          }
+          break;
         case PlayerRole.Spy:
           // Spy ability is passive - they already know the Chameleon
           toast.success("You're using your spy abilities to observe other players.");
           break;
-
         case PlayerRole.Jester:
           // Make own vote not count
           await updatePlayer(playerId, room.id, { vote_multiplier: 0 });
           toast.success("Your vote will be nullified this round, helping your plan to get voted out.");
           break;
-
         case PlayerRole.Oracle:
           // Oracle's ability is passive - they know the secret word
           toast.success("You've used your oracle abilities to gain insight.");
           break;
-
         case PlayerRole.Mimic:
           // Mimic's ability is passive - they have a similar word
           toast.success("Your mimic abilities are in effect.");
           break;
-
         case PlayerRole.Chameleon:
           // Chameleon doesn't have a special ability to use
           toast.error("As the Chameleon, you must blend in without special abilities.");
           await updatePlayer(playerId, room.id, { special_ability_used: false });
           return;
-
         default:
-          console.log(`No special ability action defined for role: ${player.role}`);
+          console.log(`No special ability action defined for role: ${currentPlayer.role}`);
           // Revert the special_ability_used flag if no action was taken
           await updatePlayer(playerId, room.id, { special_ability_used: false });
           return;

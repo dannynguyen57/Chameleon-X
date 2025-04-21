@@ -1,4 +1,4 @@
-import { GameRoom, GameSettings, PlayerRole, GameState, GameResultType } from '@/lib/types';
+import { GameRoom, GameSettings, PlayerRole, GameState, GameResultType, WordCategory } from '@/lib/types';
 
 export interface DatabaseRoom {
   id: string;
@@ -32,18 +32,26 @@ export interface GameContextType {
   createRoom: (playerName: string, settings: GameSettings) => Promise<string>;
   joinRoom: (roomId: string, playerName: string) => Promise<void>;
   startGame: () => Promise<void>;
-  selectCategory: (category: string) => Promise<void>;
+  selectCategory: (category: WordCategory) => Promise<void>;
+  submitWord: (word: string) => Promise<void>;
   submitVote: (votedPlayerId: string) => Promise<void>;
   nextRound: () => Promise<void>;
   leaveRoom: () => Promise<void>;
   resetGame: () => Promise<void>;
-  handleRoleAbility: (targetPlayerId: string | null) => Promise<void>;
+  handleRoleAbility: (targetPlayerId?: string) => Promise<void>;
   setPlayerRole: (playerId: string, role: PlayerRole) => Promise<boolean>;
   handleGameStateTransition: (newState: GameState) => Promise<void>;
   getPublicRooms: () => Promise<GameRoom[]>;
   updateSettings: (newSettings: GameSettings) => Promise<void>;
   isPlayerChameleon: boolean;
-  remainingTime: number | null;
+  remainingTime: {
+    timeLeft: number;
+    isActive: boolean;
+    startTimer: (duration: number) => void;
+    stopTimer: () => void;
+    resetTimer: (duration: number) => void;
+    formatTime: (seconds: number) => string;
+  };
   playerName: string;
   setPlayerName: (name: string) => void;
   setRoom: (room: GameRoom | null) => void;

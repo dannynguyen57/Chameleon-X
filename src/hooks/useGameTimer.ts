@@ -7,6 +7,7 @@ export const useGameTimer = () => {
   const { room, handleGameStateTransition } = useGame();
   const currentPlayer = room?.players.find(p => p.id === room.current_turn?.toString());
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const startTimeRef = useRef<number | null>(null);
   
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [isActive, setIsActive] = useState<boolean>(false);
@@ -18,6 +19,7 @@ export const useGameTimer = () => {
     }
     setTimeLeft(duration);
     setIsActive(true);
+    startTimeRef.current = Date.now();
   }, []);
 
   const stopTimer = useCallback(() => {
@@ -26,6 +28,7 @@ export const useGameTimer = () => {
       timerRef.current = null;
     }
     setIsActive(false);
+    startTimeRef.current = null;
   }, []);
 
   const resetTimer = useCallback((duration: number) => {
@@ -35,38 +38,40 @@ export const useGameTimer = () => {
     }
     setTimeLeft(duration);
     setIsActive(false);
+    startTimeRef.current = null;
   }, []);
 
+  // Handle timer countdown
   useEffect(() => {
-    if (!room || !currentPlayer) return;
-
-    if (room.current_phase === 'presenting') {
-      resetTimer(room.settings.time_per_round);
-    } else {
-      stopTimer();
-    }
-  }, [room, currentPlayer, room?.current_phase, resetTimer, stopTimer, room?.settings?.time_per_round]);
-
-  useEffect(() => {
-    if (!isActive || !room || !currentPlayer) return;
+    if (!isActive || !room) return;
 
     timerRef.current = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          if (timerRef.current) {
-            clearInterval(timerRef.current);
-            timerRef.current = null;
-          }
-          setIsActive(false);
+      if (startTimeRef.current) {
+        const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
+        const newTimeLeft = Math.max(0, timeLeft - elapsed);
+        
+        if (newTimeLeft <= 0) {
+          stopTimer();
           
-          if (room.current_phase === 'presenting' && room.current_turn?.toString() === currentPlayer.id) {
-            handleGameStateTransition(GameState.Discussion);
+          // Handle state transitions based on current phase
+          switch (room.current_phase) {
+            case 'presenting':
+              if (room.current_turn?.toString() === currentPlayer?.id) {
+                handleGameStateTransition(GameState.Discussion);
+              }
+              break;
+            case 'discussion':
+              handleGameStateTransition(GameState.Voting);
+              break;
+            case 'voting':
+              handleGameStateTransition(GameState.Results);
+              break;
           }
-          
-          return 0;
         }
-        return prev - 1;
-      });
+        
+        setTimeLeft(newTimeLeft);
+        startTimeRef.current = Date.now();
+      }
     }, 1000);
 
     return () => {
@@ -75,17 +80,40 @@ export const useGameTimer = () => {
         timerRef.current = null;
       }
     };
-  }, [isActive, room, currentPlayer, handleGameStateTransition]);
+  }, [isActive, room, currentPlayer, stopTimer, handleGameStateTransition, timeLeft]);
 
+  // Initialize timer based on game state
   useEffect(() => {
-    if (!room || !currentPlayer) return;
+    if (!room) return;
 
-    if (room.current_phase === 'presenting' && 
-        room.current_turn?.toString() === currentPlayer.id && 
-        !isActive) {
-      startTimer(room.settings.time_per_round);
+    switch (room.current_phase) {
+      case 'presenting':
+        if (room.current_turn?.toString() === currentPlayer?.id) {
+          startTimer(room.settings.time_per_round);
+        } else {
+          stopTimer();
+        }
+        break;
+      case 'discussion':
+        startTimer(room.settings.discussion_time);
+        break;
+      case 'voting':
+        startTimer(room.settings.voting_time);
+        break;
+      default:
+        stopTimer();
     }
-  }, [room, currentPlayer, isActive, startTimer]);
+  }, [room, currentPlayer, startTimer, stopTimer]);
+
+  // Sync timer with room state
+  useEffect(() => {
+    if (!room) return;
+    
+    // Only sync if the timer is not active or if the room timer is different
+    if (!isActive || room.timer !== timeLeft) {
+      setTimeLeft(room.timer || 0);
+    }
+  }, [room, timeLeft, isActive]);
 
   return {
     timeLeft: debouncedTimeLeft,

@@ -200,7 +200,7 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
             
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="text-lg">
-                Time Left: {room.timer}s
+                {/* Time Left: {room.timer}s */}
               </Badge>
             </div>
           </div>
@@ -516,21 +516,10 @@ const GamePhaseIndicator = ({ room }: { room: GameRoom }) => {
   );
 };
 
-const GameTimer = ({ remainingTime }: { remainingTime: number | null }) => {
-  if (remainingTime === null) return null;
-
-  return (
-    <motion.div
-      initial={{ scale: 0.9, opacity: 0 }}
-      animate={{ scale: 1, opacity: 1 }}
-      className="fixed bottom-4 right-4 bg-background/80 backdrop-blur-sm p-3 rounded-lg shadow-lg border border-primary/20"
-    >
-      <div className="flex items-center gap-2">
-        <Timer className="w-5 h-5 text-primary" />
-        <span className="text-lg font-semibold">{remainingTime}s</span>
-      </div>
-    </motion.div>
-  );
+const formatTime = (seconds: number) => {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
 
 export default function GamePlay() {
@@ -539,6 +528,11 @@ export default function GamePlay() {
   const [selectedVote, setSelectedVote] = useState<string | null>(null);
   const hasVoted = Boolean(room?.votes?.[playerId]);
   const isDevMode = import.meta.env.VITE_ENABLE_DEV_MODE === 'false';
+
+  const truncateName = (name: string, maxLength: number = 12) => {
+    if (name.length <= maxLength) return name;
+    return name.slice(0, maxLength) + '...';
+  };
 
   if (!room) return null;
 
@@ -623,19 +617,21 @@ export default function GamePlay() {
                         player.id === playerId ? "bg-primary/10" : "bg-muted/50"
                       )}
                     >
-                      <Avatar>
+                      <Avatar className="flex-shrink-0">
                         <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}`} />
                         <AvatarFallback>{player.name[0]}</AvatarFallback>
                       </Avatar>
-                      <div className="flex-1">
+                      <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between">
-                          <span className="font-medium">{player.name}</span>
+                          <span className="font-medium truncate" title={player.name}>
+                            {truncateName(player.name)}
+                          </span>
                           {player.id === playerId && (
-                            <Badge variant="outline">You</Badge>
+                            <Badge variant="outline" className="flex-shrink-0">You</Badge>
                           )}
                         </div>
                         {player.turn_description && (
-                          <p className="text-sm text-muted-foreground mt-1">
+                          <p className="text-sm text-muted-foreground mt-1 truncate">
                             {player.turn_description}
                           </p>
                         )}
@@ -695,18 +691,10 @@ export default function GamePlay() {
                 >
                   <Card className="border shadow-sm bg-background/50 backdrop-blur-sm">
                     <CardHeader>
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="flex items-center gap-2 text-2xl">
-                          <MessageSquare className="w-6 h-6" />
-                          Discussion Phase
-                        </CardTitle>
-                        <Badge variant="outline" className="text-lg">
-                          Time Left: {remainingTime.timeLeft}s
-                        </Badge>
-                      </div>
-                      <CardDescription className="text-base">
-                        Discuss the descriptions and try to identify the Chameleon!
-                      </CardDescription>
+                      <CardTitle className="flex items-center gap-2">
+                        <MessageSquare className="w-5 h-5" />
+                        Descriptions
+                      </CardTitle>
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-4">
@@ -714,13 +702,15 @@ export default function GamePlay() {
                           {room.players.map((player) => (
                             <Card key={player.id} className="p-4">
                               <div className="flex items-center gap-3">
-                                <Avatar>
+                                <Avatar className="flex-shrink-0">
                                   <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}`} />
                                   <AvatarFallback>{player.name[0]}</AvatarFallback>
                                 </Avatar>
-                                <div>
-                                  <h3 className="font-semibold">{player.name}</h3>
-                                  <p className="text-sm text-muted-foreground">
+                                <div className="flex-1 min-w-0">
+                                  <h3 className="font-semibold truncate" title={player.name}>
+                                    {truncateName(player.name)}
+                                  </h3>
+                                  <p className="text-sm text-muted-foreground truncate">
                                     {player.turn_description || "No description yet"}
                                   </p>
                                 </div>
@@ -758,18 +748,10 @@ export default function GamePlay() {
                 >
                   <Card className="border shadow-sm bg-background/50 backdrop-blur-sm">
                     <CardHeader>
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="flex items-center gap-2 text-2xl">
-                          <Vote className="w-6 h-6" />
-                          Voting Phase
-                        </CardTitle>
-                        <Badge variant="outline" className="text-lg">
-                          Time Left: {remainingTime.timeLeft}s
-                        </Badge>
-                      </div>
-                      <CardDescription className="text-base">
-                        Vote for who you think is the Chameleon!
-                      </CardDescription>
+                      <CardTitle className="flex items-center gap-2">
+                        <Vote className="w-5 h-5" />
+                        Vote for the Chameleon
+                      </CardTitle>
                     </CardHeader>
                     <CardContent>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -785,13 +767,15 @@ export default function GamePlay() {
                             onClick={() => !hasVoted && setSelectedVote(player.id)}
                           >
                             <div className="flex items-center gap-3">
-                              <Avatar>
+                              <Avatar className="flex-shrink-0">
                                 <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}`} />
                                 <AvatarFallback>{player.name[0]}</AvatarFallback>
                               </Avatar>
-                              <div>
-                                <h3 className="font-semibold">{player.name}</h3>
-                                <p className="text-sm text-muted-foreground">
+                              <div className="flex-1 min-w-0">
+                                <h3 className="font-semibold truncate" title={player.name}>
+                                  {truncateName(player.name)}
+                                </h3>
+                                <p className="text-sm text-muted-foreground truncate">
                                   {player.turn_description || "No description yet"}
                                 </p>
                               </div>
@@ -891,7 +875,12 @@ export default function GamePlay() {
                   </div>
                   <div>
                     <h4 className="text-sm font-medium text-muted-foreground">Time Remaining</h4>
-                    <p className="text-2xl font-bold">{remainingTime.timeLeft || 0}s</p>
+                    <div className="flex items-center justify-center gap-2">
+                      <Timer className="w-5 h-5 text-primary" />
+                      <span className="text-lg font-semibold">
+                        {formatTime(room.timer || 0)}
+                      </span>
+                    </div>
                   </div>
                   <div>
                     <h4 className="text-sm font-medium text-muted-foreground">Category</h4>
@@ -900,14 +889,16 @@ export default function GamePlay() {
                     </p>
                     {room?.category?.description && (
                       <p className="text-sm text-muted-foreground mt-1">
-                        {room.category.description}
+                        {/* {room.category.description} */}
                       </p>
                     )}
                   </div>
                   {room?.secret_word && room.state !== GameState.Selecting && !isPlayerChameleon && (
                     <div>
                       <h4 className="text-sm font-medium text-muted-foreground">Secret Word</h4>
-                      <p className="text-lg font-semibold">{room.secret_word}</p>
+                      <Badge variant="secondary" className="text-lg font-semibold px-3 py-1">
+                        {room.secret_word}
+                      </Badge>
                     </div>
                   )}
                 </div>
@@ -915,9 +906,6 @@ export default function GamePlay() {
             </Card>
           </div>
         </div>
-
-        {/* Floating Timer */}
-        <GameTimer remainingTime={remainingTime.timeLeft} />
       </div>
     </div>
   );

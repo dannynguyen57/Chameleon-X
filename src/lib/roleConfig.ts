@@ -1,4 +1,6 @@
 import { PlayerRole } from './types';
+import { Search, Smile, Laugh, Lightbulb, Crown, Eye, Shield, Award, EyeOff } from "lucide-react";
+import { LucideIcon } from "lucide-react";
 
 export interface RoleConfig {
   name: string;
@@ -6,6 +8,7 @@ export interface RoleConfig {
   abilities: string[];
   tips: string[];
   winCondition: string;
+  icon: LucideIcon;
 }
 
 export const roleConfig: Record<PlayerRole, RoleConfig> = {
@@ -22,7 +25,8 @@ export const roleConfig: Record<PlayerRole, RoleConfig> = {
       "Watch for players who seem uncertain",
       "Coordinate with other regular players"
     ],
-    winCondition: "Successfully identify and vote out the Chameleon"
+    winCondition: "Successfully identify and vote out the Chameleon",
+    icon: Search
   },
   [PlayerRole.Chameleon]: {
     name: "Chameleon",
@@ -37,7 +41,8 @@ export const roleConfig: Record<PlayerRole, RoleConfig> = {
       "Use your 'Blend In' ability strategically",
       "Don't be too obvious or too quiet"
     ],
-    winCondition: "Survive the voting phase without being caught"
+    winCondition: "Survive the voting phase without being caught",
+    icon: Smile
   },
   [PlayerRole.Mimic]: {
     name: "Mimic",
@@ -52,7 +57,8 @@ export const roleConfig: Record<PlayerRole, RoleConfig> = {
       "Mimic other players' description styles",
       "Be careful not to reveal your role"
     ],
-    winCondition: "Help identify the Chameleon while maintaining your cover"
+    winCondition: "Help identify the Chameleon while maintaining your cover",
+    icon: Laugh
   },
   [PlayerRole.Oracle]: {
     name: "Oracle",
@@ -67,7 +73,8 @@ export const roleConfig: Record<PlayerRole, RoleConfig> = {
       "Use your abilities to help others",
       "Don't reveal your role too early"
     ],
-    winCondition: "Help identify the Chameleon while maintaining your cover"
+    winCondition: "Help identify the Chameleon while maintaining your cover",
+    icon: Lightbulb
   },
   [PlayerRole.Jester]: {
     name: "Jester",
@@ -82,7 +89,8 @@ export const roleConfig: Record<PlayerRole, RoleConfig> = {
       "Use your abilities to draw attention",
       "Try to get voted out as the Chameleon"
     ],
-    winCondition: "Get voted out as the Chameleon"
+    winCondition: "Get voted out as the Chameleon",
+    icon: Crown
   },
   [PlayerRole.Spy]: {
     name: "Spy",
@@ -97,7 +105,8 @@ export const roleConfig: Record<PlayerRole, RoleConfig> = {
       "Use your abilities to help the Chameleon",
       "Don't reveal your role"
     ],
-    winCondition: "Help the Chameleon survive the voting phase"
+    winCondition: "Help the Chameleon survive the voting phase",
+    icon: Eye
   },
   [PlayerRole.Guardian]: {
     name: "Guardian",
@@ -112,7 +121,8 @@ export const roleConfig: Record<PlayerRole, RoleConfig> = {
       "Protect key players or yourself",
       "Don't reveal your role too early"
     ],
-    winCondition: "Help identify the Chameleon while maintaining your cover"
+    winCondition: "Help identify the Chameleon while maintaining your cover",
+    icon: Shield
   },
   [PlayerRole.Trickster]: {
     name: "Trickster",
@@ -127,7 +137,8 @@ export const roleConfig: Record<PlayerRole, RoleConfig> = {
       "Choose your targets carefully",
       "Don't reveal your role too early"
     ],
-    winCondition: "Help identify the Chameleon while maintaining your cover"
+    winCondition: "Help identify the Chameleon while maintaining your cover",
+    icon: Award
   },
   [PlayerRole.Illusionist]: {
     name: "Illusionist",
@@ -142,6 +153,7 @@ export const roleConfig: Record<PlayerRole, RoleConfig> = {
       "Choose your target carefully",
       "Don't reveal your role too early"
     ],
-    winCondition: "Help identify the Chameleon while maintaining your cover"
+    winCondition: "Help identify the Chameleon while maintaining your cover",
+    icon: EyeOff
   },
 }; 

@@ -51,7 +51,7 @@ export const GameAnimations = () => {
               initial={{ scale: 1 }}
               animate={{ scale: [1, 1.2, 1] }}
               transition={{ repeat: Infinity, duration: 1 }}
-              className="text-6xl font-bold text-primary bg-background/80 p-8 rounded-lg shadow-lg"
+              className="text-6xl font-bold text-primary bg-blue-50/80 p-8 rounded-lg shadow-lg"
             >
               Game Started!
             </motion.div>
@@ -69,7 +69,7 @@ export const GameAnimations = () => {
             className="absolute top-4 left-1/2 -translate-x-1/2"
           >
             <motion.div
-              className="text-4xl font-bold text-primary bg-background/80 p-4 rounded-lg shadow-lg"
+              className="text-4xl font-bold text-primary bg-blue-50/80 p-4 rounded-lg shadow-lg"
             >
               Category: {room?.category?.name}
             </motion.div>
@@ -96,7 +96,7 @@ export const GameAnimations = () => {
                 repeat: Infinity,
                 repeatType: "reverse"
               }}
-              className="text-4xl font-bold text-primary bg-background/80 p-6 rounded-lg shadow-lg"
+              className="text-4xl font-bold text-primary bg-blue-50/80 p-6 rounded-lg shadow-lg"
             >
               Time to Vote!
             </motion.div>
@@ -123,7 +123,7 @@ export const GameAnimations = () => {
                 repeat: Infinity,
                 repeatType: "reverse"
               }}
-              className="text-4xl font-bold text-primary bg-background/80 p-6 rounded-lg shadow-lg"
+              className="text-4xl font-bold text-primary bg-blue-50/80 p-6 rounded-lg shadow-lg"
             >
               Results Time!
             </motion.div>
@@ -147,7 +147,7 @@ export const GameAnimations = () => {
               repeat: Infinity,
               repeatType: "reverse"
             }}
-            className="text-2xl font-bold text-primary bg-background/80 p-4 rounded-lg shadow-lg"
+            className="text-2xl font-bold text-primary bg-blue-50/80 p-4 rounded-lg shadow-lg"
           >
             Time Remaining: {room?.timer}s
           </motion.div>

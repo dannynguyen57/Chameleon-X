@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -7,9 +7,10 @@ import { GameRoom } from '@/lib/types';
 import { useNavigate } from 'react-router-dom';
 import { Clock, Users, Gamepad2, Settings2 } from 'lucide-react';
 import { toast } from '@/components/ui/use-toast';
-import { mapRoomData } from '@/hooks/useGameRealtime';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { supabase } from '@/integrations/supabase/client';
+import { RealtimeChannel } from '@supabase/supabase-js';
 
 export default function PublicRooms() {
   const [rooms, setRooms] = useState<GameRoom[]>([]);
@@ -17,8 +18,12 @@ export default function PublicRooms() {
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [isJoinDialogOpen, setIsJoinDialogOpen] = useState(false);
   const [playerName, setPlayerName] = useState('');
-  const { getPublicRooms, joinRoom, playerName: contextPlayerName } = useGame();
+  const { getPublicRooms, joinRoom, playerName: contextPlayerName, checkNameExists } = useGame();
   const navigate = useNavigate();
+  const lastFetchRef = useRef<number>(0);
+  const isFetchingRef = useRef<boolean>(false);
+  const roomsRef = useRef<GameRoom[]>([]);
+  const channelRef = useRef<RealtimeChannel | null>(null);
 
   // Load player name from context or localStorage when component mounts
   useEffect(() => {
@@ -27,30 +32,102 @@ export default function PublicRooms() {
   }, [contextPlayerName]);
 
   // Define fetchRooms function with useCallback to prevent infinite loops
-  const fetchRooms = useCallback(async () => {
+  const fetchPublicRooms = useCallback(async () => {
+    // Prevent multiple simultaneous fetches
+    if (isFetchingRef.current) return;
+    
+    // Only fetch if at least 2 seconds have passed since last fetch
+    const now = Date.now();
+    if (now - lastFetchRef.current < 2000 && roomsRef.current.length > 0) return;
+
+    isFetchingRef.current = true;
+    lastFetchRef.current = now;
+
     try {
       setLoading(true);
       const data = await getPublicRooms();
-      setRooms(data);
+      
+      // Only update if there are actual changes
+      if (JSON.stringify(roomsRef.current) !== JSON.stringify(data)) {
+        roomsRef.current = data;
+        setRooms(data);
+      }
     } catch (error) {
       console.error('Error fetching rooms:', error);
     } finally {
       setLoading(false);
+      isFetchingRef.current = false;
     }
   }, [getPublicRooms]);
 
+  // Set up real-time subscriptions
   useEffect(() => {
-    fetchRooms();
+    // Clean up any existing subscription
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+    }
+
+    const channel = supabase.channel('public_rooms');
     
+    // Subscribe to game_rooms changes
+    channel
+      .on('postgres_changes', 
+        { 
+          event: '*', 
+          schema: 'public', 
+          table: 'game_rooms',
+          filter: 'state=eq.lobby'
+        }, 
+        async (payload) => {
+          console.log('Room change detected:', payload);
+          // Force immediate fetch regardless of event type
+          await fetchPublicRooms();
+        }
+      )
+      .on('postgres_changes', 
+        { 
+          event: '*', 
+          schema: 'public', 
+          table: 'players',
+          filter: 'room_id=not.is.null'
+        }, 
+        async (payload) => {
+          console.log('Player change detected:', payload);
+          // Force immediate fetch
+          await fetchPublicRooms();
+        }
+      )
+      .on('broadcast', { event: 'sync' }, async (payload) => {
+        console.log('Sync broadcast received:', payload);
+        // Force immediate fetch for any sync event
+        await fetchPublicRooms();
+      })
+      .subscribe((status) => {
+        console.log('Subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          // Initial fetch when subscription is established
+          fetchPublicRooms();
+        }
+      });
+
+    channelRef.current = channel;
+
     // Set up periodic refresh
-    const intervalId = setInterval(fetchRooms, 5000);
-    
-    return () => clearInterval(intervalId);
-  }, [fetchRooms]);
+    const intervalId = setInterval(fetchPublicRooms, 5000);
+
+    return () => {
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+      clearInterval(intervalId);
+    };
+  }, [fetchPublicRooms]);
 
   const openJoinDialog = (roomId: string) => {
     setSelectedRoomId(roomId);
     setIsJoinDialogOpen(true);
+    setPlayerName('');
   };
 
   const handleJoinRoom = async () => {
@@ -64,6 +141,17 @@ export default function PublicRooms() {
     }
 
     try {
+      // Check if name exists in the room
+      const nameExists = await checkNameExists(selectedRoomId, playerName);
+      if (nameExists) {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "This name is already in use in this room. Please choose a different name."
+        });
+        return;
+      }
+
       // Save the player name to localStorage for future use
       localStorage.setItem('playerName', playerName);
       
@@ -86,7 +174,7 @@ export default function PublicRooms() {
           description: "This room no longer exists."
         });
         // Refresh the rooms list
-        fetchRooms();
+        fetchPublicRooms();
         setIsJoinDialogOpen(false);
         return;
       }
@@ -98,25 +186,25 @@ export default function PublicRooms() {
           description: "This room is now full. Please choose another room."
         });
         // Refresh the rooms list
-        fetchRooms();
+        fetchPublicRooms();
         setIsJoinDialogOpen(false);
         return;
       }
       
-      await joinRoom(cleanRoomId, playerName);
-      setIsJoinDialogOpen(false);
-      navigate(`/room/${cleanRoomId}`);
+      const success = await joinRoom(cleanRoomId, playerName);
+      if (success) {
+        setIsJoinDialogOpen(false);
+        navigate(`/room/${cleanRoomId}`);
+      } else {
+        setIsJoinDialogOpen(false);
+      }
     } catch (error) {
       console.error('Error joining room:', error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Failed to join the room. Please try again."
-      });
+      setIsJoinDialogOpen(false);
     }
   };
 
-  if (loading) {
+  if (loading && rooms.length === 0) {
     return (
       <div className="flex justify-center items-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>

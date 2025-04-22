@@ -30,7 +30,7 @@ export interface GameContextType {
   room: GameRoom | null;
   settings: GameSettings;
   createRoom: (playerName: string, settings: GameSettings) => Promise<string>;
-  joinRoom: (roomId: string, playerName: string) => Promise<void>;
+  joinRoom: (roomId: string, playerName: string) => Promise<boolean>;
   startGame: () => Promise<void>;
   selectCategory: (category: WordCategory) => Promise<void>;
   submitWord: (word: string) => Promise<void>;
@@ -43,6 +43,7 @@ export interface GameContextType {
   handleGameStateTransition: (newState: GameState) => Promise<void>;
   getPublicRooms: () => Promise<GameRoom[]>;
   updateSettings: (newSettings: GameSettings) => Promise<void>;
+  checkNameExists: (roomId: string, playerName: string) => Promise<boolean>;
   isPlayerChameleon: boolean;
   remainingTime: {
     timeLeft: number;

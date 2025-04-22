@@ -153,34 +153,34 @@ export const assignRoles = async (roomId: string, players: Player[]) => {
     
     // Ensure we have exactly the right number of roles
     if (rolePool.length !== playerCount) {
-      console.error('Role pool size mismatch:', rolePool.length, 'vs', playerCount);
-      throw new Error('Role pool size does not match player count');
+        console.error('Role pool size mismatch:', rolePool.length, 'vs', playerCount);
+        throw new Error('Role pool size does not match player count');
     }
     
     // Fisher-Yates shuffle for better randomization
     for (let i = rolePool.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [rolePool[i], rolePool[j]] = [rolePool[j], rolePool[i]];
+        const j = Math.floor(Math.random() * (i + 1));
+        [rolePool[i], rolePool[j]] = [rolePool[j], rolePool[i]];
     }
 
     const updates = players.map((player, index) => ({
-      id: player.id,
-      room_id: roomId,
-      name: player.name,
-      role: rolePool[index],
-      is_host: player.id === hostId,
-      is_ready: false,
-      last_updated: new Date().toISOString()
+        id: player.id,
+        room_id: roomId,
+        name: player.name,
+        role: rolePool[index],
+        is_host: player.id === hostId,
+        is_ready: false,
+        last_updated: new Date().toISOString()
     }));
 
     // Batch update all players
     const { error } = await supabase
-      .from('players')
-      .upsert(updates, { onConflict: 'id' });
+        .from('players')
+        .upsert(updates, { onConflict: 'id' });
 
     if (error) {
-      console.error('Error assigning roles (DB Upsert Failed):', error);
-      throw error;
+        console.error('Error assigning roles (DB Upsert Failed):', error);
+        throw error;
     }
 
     // Find all chameleon players
@@ -188,18 +188,18 @@ export const assignRoles = async (roomId: string, players: Player[]) => {
     
     // Update room with the first chameleon's ID (maintaining existing behavior)
     if (chameleonPlayers.length > 0) {
-      const { error: roomError } = await supabase
-        .from('game_rooms')
-        .update({ 
-          chameleon_id: chameleonPlayers[0].id,
-          chameleon_count: chameleonPlayers.length 
-        })
-        .eq('id', roomId);
+        const { error: roomError } = await supabase
+            .from('game_rooms')
+            .update({ 
+                chameleon_id: chameleonPlayers[0].id,
+                chameleon_count: chameleonPlayers.length 
+            })
+            .eq('id', roomId);
 
-      if (roomError) {
+        if (roomError) {
         console.error('Error updating room with chameleon info:', roomError);
-        throw roomError;
-      }
+            throw roomError;
+        }
     }
 
     console.log('Roles assigned:', updates.map(u => `${players.find(p=>p.id===u.id)?.name}: ${u.role}`));
@@ -239,96 +239,96 @@ export const handleGameStateTransition = async (
     let determinedNextState: GameState | null = null;
 
     switch (currentState) {
-      case GameState.Lobby: {
-        const nextStateConst = GameState.Selecting;
-        determinedNextState = nextStateConst;
-        
-        // Assign roles before transitioning to Selecting state
-        await assignRoles(roomId, room.players);
-        
-        updateData = { 
-          state: nextStateConst,
-          round: 1,
-          timer: settings.time_per_round,
-          current_turn: 0,
-          turn_order: room.players.map(p => p.id).sort(() => Math.random() - 0.5),
-          round_outcome: null,
-          votes_tally: null,
-          votes: {},
-          results: []
-        };
-        break;
-      }
-      
-      case GameState.Selecting: {
-        const nextStateConst = GameState.Presenting;
-        determinedNextState = nextStateConst;
-        updateData = { 
-          state: nextStateConst,
-          timer: settings.time_per_round,
-          current_turn: 0,
-          turn_order: room.players.map(p => p.id).sort(() => Math.random() - 0.5),
-          round_outcome: null, 
-          votes_tally: null,
-          votes: {},
-          revealed_player_id: null,
-          revealed_role: null
-        };
-        break;
-      }
-      
-      case GameState.Presenting: {
-        const allPlayersSubmitted = room.players.every(p => p.turn_description);
-        if (allPlayersSubmitted) {
-          const nextStateConst = GameState.Discussion;
-          determinedNextState = nextStateConst;
-          updateData = { 
-            state: nextStateConst,
-            timer: settings.discussion_time,
-            current_turn: 0 
-          };
-        } else {
-          const currentTurnPlayerId = room.turn_order?.[room.current_turn ?? 0];
-          const currentTurnOrderIndex = room.turn_order?.findIndex(id => id === currentTurnPlayerId) ?? room.current_turn ?? 0;
-          const nextTurnOrderIndex = (currentTurnOrderIndex + 1) % (room.turn_order?.length || room.players.length);
-          const nextPlayerId = room.turn_order?.[nextTurnOrderIndex];
-          const nextPlayerRoomIndex = room.players.findIndex(p => p.id === nextPlayerId);
-          
-          updateData = { 
-            current_turn: nextPlayerRoomIndex >= 0 ? nextPlayerRoomIndex : 0,
-            timer: settings.time_per_round
-          };
-        }
-        break;
-      }
-      
-      case GameState.Discussion: {
-        const nextStateConst = GameState.Voting;
-        determinedNextState = nextStateConst;
-        updateData = { 
-          state: nextStateConst,
-          timer: settings.voting_time,
-          current_turn: 0,
-          votes_tally: null,
-          votes: {}
-        };
-        await supabase.from('players').update({ vote: null }).eq('room_id', roomId);
-        break;
-      }
-      
-      case GameState.Voting: { 
-        const nextStateConst = GameState.Results;
-        determinedNextState = nextStateConst;
-        
-        const votes: Record<string, number> = {};
-        room.players.forEach(player => {
-          if (player.vote) {
-            const targetPlayer = room.players.find(p => p.id === player.vote);
-            if (!targetPlayer?.is_protected) {
-              votes[player.vote] = (votes[player.vote] || 0) + (player.vote_multiplier || 1);
-            }
-          }
-        });
+     case GameState.Lobby: {
+       const nextStateConst = GameState.Selecting;
+       determinedNextState = nextStateConst;
+       
+       // Assign roles before transitioning to Selecting state
+       await assignRoles(roomId, room.players);
+       
+       updateData = { 
+         state: nextStateConst,
+         round: 1,
+         timer: settings.time_per_round,
+         current_turn: 0,
+         turn_order: room.players.map(p => p.id).sort(() => Math.random() - 0.5),
+         round_outcome: null,
+         votes_tally: null,
+         votes: {},
+         results: []
+       };
+       break;
+     }
+    
+     case GameState.Selecting: {
+       const nextStateConst = GameState.Presenting;
+       determinedNextState = nextStateConst;
+       updateData = { 
+         state: nextStateConst,
+         timer: settings.time_per_round,
+         current_turn: 0,
+         turn_order: room.players.map(p => p.id).sort(() => Math.random() - 0.5),
+         round_outcome: null, 
+         votes_tally: null,
+         votes: {},
+         revealed_player_id: null,
+         revealed_role: null
+       };
+       break;
+     }
+    
+     case GameState.Presenting: {
+       const allPlayersSubmitted = room.players.every(p => p.turn_description);
+       if (allPlayersSubmitted) {
+         const nextStateConst = GameState.Discussion;
+         determinedNextState = nextStateConst;
+         updateData = { 
+           state: nextStateConst,
+           timer: settings.discussion_time,
+           current_turn: 0 
+         };
+       } else {
+         const currentTurnPlayerId = room.turn_order?.[room.current_turn ?? 0];
+         const currentTurnOrderIndex = room.turn_order?.findIndex(id => id === currentTurnPlayerId) ?? room.current_turn ?? 0;
+         const nextTurnOrderIndex = (currentTurnOrderIndex + 1) % (room.turn_order?.length || room.players.length);
+         const nextPlayerId = room.turn_order?.[nextTurnOrderIndex];
+         const nextPlayerRoomIndex = room.players.findIndex(p => p.id === nextPlayerId);
+         
+         updateData = { 
+           current_turn: nextPlayerRoomIndex >= 0 ? nextPlayerRoomIndex : 0,
+           timer: settings.time_per_round
+         };
+       }
+       break;
+     }
+    
+     case GameState.Discussion: {
+       const nextStateConst = GameState.Voting;
+       determinedNextState = nextStateConst;
+       updateData = { 
+         state: nextStateConst,
+         timer: settings.voting_time,
+         current_turn: 0,
+         votes_tally: null,
+         votes: {}
+       };
+       await supabase.from('players').update({ vote: null }).eq('room_id', roomId);
+       break;
+     }
+    
+     case GameState.Voting: { 
+       const nextStateConst = GameState.Results;
+       determinedNextState = nextStateConst;
+       
+       const votes: Record<string, number> = {};
+       room.players.forEach(player => {
+         if (player.vote) {
+           const targetPlayer = room.players.find(p => p.id === player.vote);
+           if (!targetPlayer?.is_protected) {
+             votes[player.vote] = (votes[player.vote] || 0) + (player.vote_multiplier || 1);
+           }
+         }
+       });
 
         // Determine voting result
         let maxVotes = 0;
@@ -345,59 +345,59 @@ export const handleGameStateTransition = async (
           (room.players.find(p => p.id === mostVotedId)?.role === PlayerRole.Chameleon ? GameResultType.ImposterCaught :
            room.players.find(p => p.id === mostVotedId)?.role === PlayerRole.Jester ? GameResultType.JesterWins :
            GameResultType.InnocentVoted) : GameResultType.Tie;
-
-        updateData = {
-          state: nextStateConst,
+       
+       updateData = { 
+         state: nextStateConst,
           round_outcome: roundOutcome,
-          votes_tally: votes,
+         votes_tally: votes,
           revealed_player_id: mostVotedId,
           revealed_role: mostVotedId ? room.players.find(p => p.id === mostVotedId)?.role : null
-        };
-        break;
-      }
-      
-      case GameState.Results: {
+       };
+       break;
+     }
+    
+     case GameState.Results: { 
         const nextStateConst = room.round >= room.max_rounds ? GameState.Ended : GameState.Selecting;
-        determinedNextState = nextStateConst;
+         determinedNextState = nextStateConst;
         
         if (nextStateConst === GameState.Selecting) {
-          updateData = {
-            state: nextStateConst,
+         updateData = {
+           state: nextStateConst,
             round: (room.round || 0) + 1,
-            timer: settings.time_per_round,
-            current_turn: 0,
-            turn_order: room.players.map(p => p.id).sort(() => Math.random() - 0.5),
-            round_outcome: null,
-            votes_tally: null,
+           timer: settings.time_per_round,
+           current_turn: 0,
+           turn_order: room.players.map(p => p.id).sort(() => Math.random() - 0.5),
+           round_outcome: null,
+           votes_tally: null,
             votes: {},
-            revealed_player_id: null,
+           revealed_player_id: null,
             revealed_role: null
           };
         } else {
           updateData = {
             state: nextStateConst,
             timer: 0
-          };
-        }
-        break;
-      }
-    }
+         };
+       }
+       break;
+     }
+   }
 
     if (determinedNextState) {
-      const { error } = await supabase
-        .from('game_rooms')
+       const { error } = await supabase
+         .from('game_rooms')
         .update({
           ...updateData,
           last_updated: new Date().toISOString()
         })
-        .eq('id', roomId);
-
-      if (error) {
+         .eq('id', roomId);
+       
+       if (error) {
         console.error('Error updating game state:', error);
         throw error;
-      }
-    }
-
+       }
+   }
+  
     return determinedNextState;
   } catch (error) {
     console.error('Error in handleGameStateTransition:', error);

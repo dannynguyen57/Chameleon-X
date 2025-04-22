@@ -79,7 +79,7 @@ export interface DatabaseRoom {
 
 export const mapRoomData = (room: DatabaseRoom): GameRoom => {
   const categoryData = room.category ? categories.find(c => c.name === room.category) : undefined;
-  
+
   return {
     id: room.id,
     state: room.state,
@@ -123,7 +123,14 @@ export const mapRoomData = (room: DatabaseRoom): GameRoom => {
                   room.state === GameState.Discussion ? 'discussion' :
                   room.state === GameState.Voting ? 'voting' :
                   room.state === GameState.Results ? 'results' :
-                  'lobby'
+                  'lobby',
+    phase: room.state === GameState.Lobby ? 'lobby' :
+           room.state === GameState.Selecting ? 'selecting' :
+           room.state === GameState.Presenting ? 'presenting' :
+           room.state === GameState.Discussion ? 'discussion' :
+           room.state === GameState.Voting ? 'voting' :
+           room.state === GameState.Results ? 'results' :
+           'lobby'
   };
 };
 

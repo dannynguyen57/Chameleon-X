@@ -145,21 +145,21 @@ export default function ChatSystem() {
 
   // Memoized message list to prevent unnecessary re-renders
   const messageList = useMemo(() => (
-    <div className="space-y-4">
-      {messages.map((message) => (
-        <div
-          key={message.id}
-          className={`flex flex-col ${
-            message.player_id === playerId ? 'items-end' : 'items-start'
-          }`}
-        >
-          <div
-            className={`max-w-[80%] rounded-lg p-3 ${
-              message.player_id === playerId
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-muted'
-            }`}
-          >
+        <div className="space-y-4">
+          {messages.map((message) => (
+            <div
+              key={message.id}
+              className={`flex flex-col ${
+                message.player_id === playerId ? 'items-end' : 'items-start'
+              }`}
+            >
+              <div
+                className={`max-w-[80%] rounded-lg p-3 ${
+                  message.player_id === playerId
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted'
+                }`}
+              >
             <div className="flex items-start gap-3">
               <Avatar className="flex-shrink-0">
                 <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${message.player_name}`} />

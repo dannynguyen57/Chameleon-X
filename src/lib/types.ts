@@ -179,6 +179,7 @@ export interface GameRoom {
   max_rounds: number;
   host_id: string;
   current_phase: GamePhase;
+  phase: GamePhase;
 }
 
 export interface ChatMessage {

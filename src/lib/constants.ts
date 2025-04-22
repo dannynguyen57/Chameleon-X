@@ -11,9 +11,9 @@ export const DEFAULT_SETTINGS: GameSettings = {
   voting_time: 30,
   roles: {
     [GameMode.Classic]: [PlayerRole.Regular, PlayerRole.Chameleon, PlayerRole.Mimic],
-    [GameMode.Teams]: [PlayerRole.Regular, PlayerRole.Chameleon, PlayerRole.Detective, PlayerRole.Guardian],
-    [GameMode.Chaos]: [PlayerRole.Regular, PlayerRole.Chameleon, PlayerRole.Mimic, PlayerRole.Jester, PlayerRole.Spy, PlayerRole.Mirror],
-    [GameMode.Timed]: [PlayerRole.Regular, PlayerRole.Chameleon, PlayerRole.Timekeeper]
+    [GameMode.Teams]: [PlayerRole.Regular, PlayerRole.Chameleon, PlayerRole.Guardian],
+    [GameMode.Chaos]: [PlayerRole.Regular, PlayerRole.Chameleon, PlayerRole.Mimic, PlayerRole.Jester, PlayerRole.Spy],
+    [GameMode.Timed]: [PlayerRole.Regular, PlayerRole.Chameleon]
   },
   special_abilities: false
 }; 

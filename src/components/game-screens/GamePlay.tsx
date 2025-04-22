@@ -200,7 +200,8 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
             
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="text-lg">
-                {/* Time Left: {room.timer}s */}
+                <Timer className="w-4 h-4 mr-1" />
+                {formatTime(room.timer || 0)}
               </Badge>
             </div>
           </div>

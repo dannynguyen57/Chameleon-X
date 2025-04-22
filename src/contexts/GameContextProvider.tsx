@@ -47,7 +47,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     settings,
     setRoom
   );
-  const remainingTime = useGameTimer();
+  const remainingTime = useGameTimer(room, settings, setRoom);
 
   const handleGameStateTransition = useCallback(async (newState: GameState) => {
     if (!room) return;
@@ -89,26 +89,20 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
 
       if (error) {
         console.error('Error fetching room:', error);
-        toast({
-          variant: "destructive",
-          title: "Error fetching game data",
-          description: "Could not retrieve the latest game data. Please refresh the page."
-        });
         return;
       }
 
       if (data) {
         const mappedRoom = mapRoomData(data as unknown as DatabaseRoom);
-        setRoom(mappedRoom as unknown as GameRoom);
-        roomRef.current = mappedRoom as unknown as GameRoom;
+        // Only update if there are actual changes
+        if (JSON.stringify(roomRef.current) !== JSON.stringify(mappedRoom)) {
+          console.log('Room data changed, updating state');
+          setRoom(mappedRoom as unknown as GameRoom);
+          roomRef.current = mappedRoom as unknown as GameRoom;
+        }
       }
     } catch (error) {
       console.error('Error in fetchRoom:', error);
-      toast({
-        variant: "destructive",
-        title: "Unexpected error",
-        description: "An error occurred while refreshing game data."
-      });
     }
   }, [room?.id]);
 
@@ -139,11 +133,8 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         }, 
         async (payload) => {
           console.log('Room change detected:', payload);
-          if (payload.eventType !== 'UPDATE' || 
-              (payload.new && payload.old && 
-               JSON.stringify(payload.new) !== JSON.stringify(payload.old))) {
-            await fetchRoom();
-          }
+          // Force immediate update for room changes
+          await fetchRoom();
         }
       )
       .on('postgres_changes', 
@@ -155,13 +146,16 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         }, 
         async (payload) => {
           console.log('Player change detected:', payload);
-          if (payload.eventType !== 'UPDATE' || 
-              (payload.new && payload.old && 
-               JSON.stringify(payload.new) !== JSON.stringify(payload.old))) {
-            await fetchRoom();
-          }
+          // Force immediate update for player changes
+          await fetchRoom();
         }
       )
+      .on('broadcast', { event: 'sync' }, async (payload) => {
+        console.log('Sync broadcast received:', payload);
+        if (payload.payload?.action === 'player_joined' || payload.payload?.action === 'player_left') {
+          await fetchRoom();
+        }
+      })
       .subscribe((status) => {
         console.log('Subscription status:', status);
         if (status === 'SUBSCRIBED') {
@@ -171,17 +165,12 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
 
     channelRef.current = channel;
 
-    const syncInterval = setInterval(() => {
-      fetchRoom();
-    }, 5000);
-
     return () => {
       if (channelRef.current) {
         console.log('Cleaning up subscription for room:', room.id);
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;
       }
-      clearInterval(syncInterval);
     };
   }, [room?.id, fetchRoom]);
 
@@ -233,13 +222,16 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, [createRoomAction, setRoom]);
 
-  const joinRoom = useCallback(async (roomId: string, playerName: string) => {
+  const joinRoom = useCallback(async (roomId: string, playerName: string): Promise<boolean> => {
     try {
       // Check if we're already in this room
       if (room?.id === roomId) {
         console.log('Already in room:', roomId);
-        return;
+        return true;
       }
+
+      // Clear the current player name
+      setPlayerName('');
 
       // Sanitize the room ID to ensure it only contains valid characters
       const cleanRoomId = roomId.replace(/[^a-zA-Z0-9-]/g, '');
@@ -251,7 +243,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
       }
       
       console.log(`Attempting to join room: ${roomId} with player name: ${playerName}`);
-      const success = await joinRoomAction(roomId, playerName, setPlayerId);
+      const success = await joinRoomAction(roomId, playerName);
       
       if (success) {
         console.log(`Successfully joined room ${roomId}, fetching room data`);
@@ -268,42 +260,70 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
           
         if (roomError) {
           console.error('Error fetching room after join:', roomError);
-          toast({
-            variant: "destructive",
-            title: "Error",
-            description: "Joined room but couldn't fetch room data. Please refresh."
-          });
-          return;
+          return false;
         }
         
         if (roomData) {
           const mappedRoom = mapRoomData(roomData as unknown as DatabaseRoom);
           setRoom(mappedRoom as unknown as GameRoom);
           console.log(`Room data loaded successfully after joining: ${roomId}`);
+          return true;
         }
-      } else {
-        console.error(`Failed to join room: ${roomId}`);
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: "Failed to join room. Please try again or choose another room."
-        });
+        return false;
       }
+      return false;
     } catch (error) {
       console.error('Error in joinRoom wrapper:', error);
-      toast({
-        variant: "destructive",
-        title: "Error Joining Room",
-        description: error instanceof Error ? error.message : "An unexpected error occurred"
-      });
+      return false;
     }
-  }, [joinRoomAction, setPlayerId, setRoom, room?.id]);
+  }, [joinRoomAction, setRoom, room?.id]);
 
   const leaveRoom = useCallback(async () => {
-    if (!room?.id) return;
-    await leaveRoomAction();
-    setRoom(null);
-  }, [room?.id, leaveRoomAction]);
+    if (!room?.id || !playerId) return;
+
+    try {
+      // Delete the player
+      const { error: deleteError } = await supabase
+        .from('players')
+        .delete()
+        .eq('id', playerId);
+
+      if (deleteError) throw deleteError;
+
+      // Update room's last_updated timestamp to trigger real-time updates
+      const { error: updateError } = await supabase
+        .from('game_rooms')
+        .update({ 
+          last_updated: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', room.id);
+
+      if (updateError) throw updateError;
+
+      // Fetch the latest room data before setting to null
+      const { data: updatedRoom, error: fetchError } = await supabase
+        .from('game_rooms')
+        .select(`
+          *,
+          players:players(*)
+        `)
+        .eq('id', room.id)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      // Update local state with the latest room data
+      setRoom(updatedRoom);
+      
+      // Then set to null after a short delay to ensure UI updates
+      setTimeout(() => {
+        setRoom(null);
+      }, 100);
+    } catch (error) {
+      console.error('Error leaving room:', error);
+    }
+  }, [room?.id, playerId, setRoom]);
 
   const startGame = useCallback(async () => {
     if (!room) return;
@@ -353,6 +373,26 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     updateSettings: async (newSettings: GameSettings) => {
       setSettings(newSettings);
       await fetchRoom();
+    },
+    checkNameExists: async (roomId: string, playerName: string) => {
+      try {
+        const { data: roomData, error: roomError } = await supabase
+          .from('game_rooms')
+          .select('*')
+          .eq('id', roomId)
+          .single();
+
+        if (roomError || !roomData) {
+          return false;
+        }
+
+        return roomData.players?.some((p: Player) => 
+          p.name.toLowerCase().trim() === playerName.toLowerCase().trim()
+        );
+      } catch (error) {
+        console.error('Error checking name:', error);
+        return false;
+      }
     },
     isPlayerChameleon,
     remainingTime,

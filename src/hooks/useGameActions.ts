@@ -54,7 +54,22 @@ export const useGameActions = (
           action: 'description_submitted',
           playerId,
           description: word,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          roomId: room.id
+        }
+      });
+
+      // Also send to public_rooms channel for broader visibility
+      const publicChannel = supabase.channel('public_rooms');
+      await publicChannel.send({
+        type: 'broadcast',
+        event: 'sync',
+        payload: {
+          action: 'description_submitted',
+          playerId,
+          description: word,
+          timestamp: new Date().toISOString(),
+          roomId: room.id
         }
       });
 
@@ -95,6 +110,17 @@ export const useGameActions = (
 
         // Send broadcast for state change
         await channel.send({
+          type: 'broadcast',
+          event: 'sync',
+          payload: {
+            action: 'game_state_changed',
+            newState: GameState.Discussion,
+            roomId: room.id
+          }
+        });
+
+        // Also send to public_rooms channel
+        await publicChannel.send({
           type: 'broadcast',
           event: 'sync',
           payload: {

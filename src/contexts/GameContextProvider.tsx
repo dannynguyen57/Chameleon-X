@@ -316,7 +316,8 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
             payload.payload?.action === 'player_left' ||
             payload.payload?.action === 'game_state_changed' ||
             payload.payload?.action === 'game_started' ||
-            payload.payload?.action === 'category_selected') {
+            payload.payload?.action === 'category_selected' ||
+            payload.payload?.action === 'description_submitted') {
           
           // Force immediate update
           await fetchRoom();
@@ -326,7 +327,8 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
                payload.payload?.action === 'game_state_changed' ||
                payload.payload?.newState === GameState.Selecting ||
                payload.payload?.newState === GameState.Presenting ||
-               payload.payload?.action === 'category_selected') && 
+               payload.payload?.action === 'category_selected' ||
+               payload.payload?.action === 'description_submitted') && 
               payload.payload?.roomId === room.id) {
             
             // Force a complete state update with all broadcast data

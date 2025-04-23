@@ -9,6 +9,7 @@ import { ChatMessage, GameState, Player } from '@/lib/types';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Lightbulb, ArrowDown } from "lucide-react";
+import { toast } from "@/components/ui/use-toast";
 
 export default function ChatSystem() {
   const { room, playerId } = useGame();
@@ -40,6 +41,97 @@ export default function ChatSystem() {
     }
   }, []);
 
+  // Optimized message loading with pagination
+  useEffect(() => {
+    if (!room) return;
+
+    const loadMessages = async () => {
+      const { data, error } = await supabase
+        .from('chat_messages')
+        .select('*')
+        .eq('room_id', room.id)
+        .order('created_at', { ascending: true })
+        .limit(50);
+
+      if (error) {
+        console.error('Error loading messages:', error);
+        return;
+      }
+
+      setMessages(data || []);
+      setTimeout(scrollToBottom, 100);
+    };
+
+    loadMessages();
+
+    // Optimized subscription with message deduplication
+    const channel = supabase
+      .channel(`room:${room.id}`, {
+        config: {
+          broadcast: { self: true },
+          presence: { key: '' },
+        },
+      })
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'chat_messages',
+          filter: `room_id=eq.${room.id}`
+        },
+        (payload) => {
+          console.log('New message received:', payload);
+          const newMessage = payload.new as ChatMessage;
+          
+          // Deduplicate messages
+          if (lastMessageRef.current?.id === newMessage.id) return;
+          lastMessageRef.current = newMessage;
+
+          setMessages(prev => {
+            // Check if message already exists
+            if (prev.some(m => m.id === newMessage.id)) return prev;
+            return [...prev, newMessage];
+          });
+
+          if (!showScrollButton) {
+            setTimeout(scrollToBottom, 100);
+          }
+        }
+      )
+      .on('broadcast', { event: 'sync' }, async (payload) => {
+        if (payload.payload?.action === 'chat_message') {
+          console.log('Broadcast message received:', payload);
+          const newMessage = payload.payload.message as ChatMessage;
+          
+          // Deduplicate messages
+          if (lastMessageRef.current?.id === newMessage.id) return;
+          lastMessageRef.current = newMessage;
+
+          setMessages(prev => {
+            // Check if message already exists
+            if (prev.some(m => m.id === newMessage.id)) return prev;
+            return [...prev, newMessage];
+          });
+
+          if (!showScrollButton) {
+            setTimeout(scrollToBottom, 100);
+          }
+        }
+      })
+      .subscribe((status) => {
+        console.log('Subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('Successfully subscribed to chat messages');
+        }
+      });
+
+    return () => {
+      console.log('Cleaning up chat subscription');
+      channel.unsubscribe();
+    };
+  }, [room, scrollToBottom, showScrollButton]);
+
   // Optimized message sending
   const handleSendMessage = useCallback(async () => {
     if (!room || !newMessage.trim()) return;
@@ -68,78 +160,54 @@ export default function ChatSystem() {
       scrollToBottom();
 
       // Send to server
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('chat_messages')
-        .insert(messageData);
+        .insert(messageData)
+        .select()
+        .single();
 
       if (error) {
         // Revert optimistic update on error
         setMessages(prev => prev.filter(m => m.id !== optimisticMessage.id));
         throw error;
       }
+
+      // Update the optimistic message with the real one
+      setMessages(prev => {
+        const filtered = prev.filter(m => m.id !== optimisticMessage.id);
+        return [...filtered, data];
+      });
+
+      // Send broadcast to ensure all clients get the message
+      const channel = supabase.channel(`room:${room.id}`);
+      await channel.send({
+        type: 'broadcast',
+        event: 'sync',
+        payload: {
+          action: 'chat_message',
+          message: data
+        }
+      });
+
+      // Also send to public_rooms channel for broader visibility
+      const publicChannel = supabase.channel('public_rooms');
+      await publicChannel.send({
+        type: 'broadcast',
+        event: 'sync',
+        payload: {
+          action: 'chat_message',
+          message: data
+        }
+      });
     } catch (error) {
       console.error('Error sending message:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to send message. Please try again."
+      });
     }
   }, [room, playerId, newMessage, isHint, scrollToBottom]);
-
-  // Optimized message loading with pagination
-  useEffect(() => {
-    if (!room) return;
-
-    const loadMessages = async () => {
-      const { data, error } = await supabase
-        .from('chat_messages')
-        .select('*')
-        .eq('room_id', room.id)
-        .order('created_at', { ascending: true })
-        .limit(50);
-
-      if (error) {
-        console.error('Error loading messages:', error);
-        return;
-      }
-
-      setMessages(data || []);
-      setTimeout(scrollToBottom, 100);
-    };
-
-    loadMessages();
-
-    // Optimized subscription with message deduplication
-    const channel = supabase
-      .channel(`room:${room.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'chat_messages',
-          filter: `room_id=eq.${room.id}`
-        },
-        (payload) => {
-          const newMessage = payload.new as ChatMessage;
-          
-          // Deduplicate messages
-          if (lastMessageRef.current?.id === newMessage.id) return;
-          lastMessageRef.current = newMessage;
-
-          setMessages(prev => {
-            // Check if message already exists
-            if (prev.some(m => m.id === newMessage.id)) return prev;
-            return [...prev, newMessage];
-          });
-
-          if (!showScrollButton) {
-            setTimeout(scrollToBottom, 100);
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      channel.unsubscribe();
-    };
-  }, [room, scrollToBottom, showScrollButton]);
 
   const isChatDisabled = room?.state === GameState.Voting;
 

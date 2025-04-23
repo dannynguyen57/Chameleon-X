@@ -261,15 +261,15 @@ export const handleGameStateTransition = async (
        updateData = { 
          state: nextStateConst,
          round: 1,
-         timer: settings.time_per_round,
+         presenting_timer: settings.presenting_time,
          current_turn: 0,
          turn_order: shuffledPlayers.map(p => p.id),
          round_outcome: null,
-         votes_tally: null,
+         votes_tally: {},
          votes: {},
          results: [],
          last_updated: new Date().toISOString(),
-         updated_at: new Date().toISOString() // Force real-time update
+         updated_at: new Date().toISOString()
        };
        break;
      }
@@ -291,16 +291,16 @@ export const handleGameStateTransition = async (
        
        updateData = { 
          state: nextStateConst,
-         timer: settings.time_per_round,
+         presenting_timer: settings.presenting_time,
          current_turn: 0,
          turn_order: shuffledPlayers.map(p => p.id),
          round_outcome: null, 
-         votes_tally: null,
+         votes_tally: {},
          votes: {},
          revealed_player_id: null,
          revealed_role: null,
          last_updated: new Date().toISOString(),
-         updated_at: new Date().toISOString() // Force real-time update
+         updated_at: new Date().toISOString()
        };
        break;
      }
@@ -312,10 +312,10 @@ export const handleGameStateTransition = async (
          determinedNextState = nextStateConst;
          updateData = { 
            state: nextStateConst,
-           timer: settings.discussion_time,
+           discussion_timer: settings.discussion_time,
            current_turn: 0,
            last_updated: new Date().toISOString(),
-           updated_at: new Date().toISOString() // Force real-time update
+           updated_at: new Date().toISOString()
          };
        } else {
          // Get the current turn index
@@ -341,9 +341,10 @@ export const handleGameStateTransition = async (
          
          updateData = { 
            current_turn: nextPlayerRoomIndex >= 0 ? nextPlayerRoomIndex : 0,
-           timer: settings.time_per_round,
+           presenting_timer: settings.presenting_time,
+           discussion_timer: settings.discussion_time,
            last_updated: new Date().toISOString(),
-           updated_at: new Date().toISOString() // Force real-time update
+           updated_at: new Date().toISOString()
          };
        }
        break;
@@ -354,12 +355,12 @@ export const handleGameStateTransition = async (
        determinedNextState = nextStateConst;
        updateData = { 
          state: nextStateConst,
-         timer: settings.voting_time,
+         voting_timer: settings.voting_time,
          current_turn: 0,
-         votes_tally: null,
+         votes_tally: {},
          votes: {},
          last_updated: new Date().toISOString(),
-         updated_at: new Date().toISOString() // Force real-time update
+         updated_at: new Date().toISOString()
        };
        await supabase.from('players').update({ vote: null }).eq('room_id', roomId);
        break;
@@ -391,7 +392,9 @@ export const handleGameStateTransition = async (
        
        updateData = { 
          state: nextStateConst,
-         timer: 0,
+         presenting_timer: 0,
+         discussion_timer: 0,
+         voting_timer: 0,
          current_turn: 0,
          votes_tally: votes,
          round_outcome: isChameleonCaught ? GameResultType.ImposterCaught : GameResultType.InnocentVoted,
@@ -421,7 +424,9 @@ export const handleGameStateTransition = async (
        
        updateData = { 
          state: nextStateConst,
-         timer: 0,
+         presenting_timer: 0,
+         discussion_timer: 0,
+         voting_timer: 0,
          current_turn: 0,
          turn_order: [],
          round: 1,
@@ -429,7 +434,7 @@ export const handleGameStateTransition = async (
          secret_word: undefined,
          chameleon_id: undefined,
          round_outcome: null,
-         votes_tally: null,
+         votes_tally: {},
          votes: {},
          revealed_player_id: null,
          revealed_role: null

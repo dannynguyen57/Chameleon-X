@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect, useContext } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { Player, GameRoom, GameState, GameSettings, PlayerRole, GameResultType, GameMode } from '../lib/types';
+import { GameRoom as BaseGameRoom, Player, GameState, GameSettings, PlayerRole, GameResultType, GameMode } from '../lib/types';
 import { mapRoomData, DatabaseRoom } from '../hooks/useGameRealtime';
 import { useGameTimer } from '../hooks/useGameTimer';
 import { useGameActions } from '../hooks/useGameActions';
@@ -12,7 +12,38 @@ import { GameContext } from './gameContext';
 import { GameContextType } from './gameTypes';
 import { categories } from '@/lib/word-categories';
 import { WordCategory } from '@/lib/types';
-import { Room } from '@/types/Room';
+import { convertToExtendedRoom } from '@/lib/roomUtils';
+
+// Extend the base GameRoom type with additional timer fields
+export interface ExtendedGameRoom extends BaseGameRoom {
+  presenting_timer: number;  // Time for each player's turn
+  discussion_timer: number;  // Time for discussion phase
+  voting_timer: number;     // Time for voting phase
+  turn_timer: number;       // Current time left for individual player
+  turn_started_at?: string;
+  chameleon_count: number;
+  player_count: number;
+  presenting_time: number;
+  game_mode: string;
+  team_size: number;
+  chaos_mode: boolean;
+  max_players: number;
+  discussion_time: number;
+  voting_time: number;
+  host_id: string;
+  round: number;
+  max_rounds: number;
+  turn_order: string[];
+  votes_tally: Record<string, number>;
+  votes: Record<string, string>;
+  results: GameResultType[];
+  round_outcome: GameResultType | null;
+  revealed_player_id: string | null;
+  revealed_role: PlayerRole | null;
+  last_updated: string;
+  updated_at: string;
+  created_at: string;
+}
 
 // export const useGame = () => {
 //   const context = useContext(GameContext);
@@ -127,13 +158,13 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     initializePlayerId();
   }, [generateNewPlayerId]);
 
-  const [room, setRoom] = useState<GameRoom | null>(null);
+  const [room, setRoom] = useState<ExtendedGameRoom | null>(null);
   const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS);
   const [playerName, setPlayerName] = useState<string>('');
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  const roomRef = useRef<GameRoom | null>(null);
+  const roomRef = useRef<ExtendedGameRoom | null>(null);
   const reconnectAttempts = useRef<number>(0);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const lastUpdateRef = useRef<number>(0);
@@ -158,6 +189,11 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     setRoom
   );
   const remainingTime = useGameTimer(room, settings, setRoom);
+
+  const mapRoomWithTimers = useCallback((roomData: DatabaseRoom): ExtendedGameRoom => {
+    const baseRoom = mapRoomData(roomData);
+    return convertToExtendedRoom(baseRoom);
+  }, []);
 
   const fetchRoom = useCallback(async () => {
     if (!room?.id) {
@@ -185,21 +221,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
           .from('game_rooms')
           .select(`
             *,
-            players (
-              id,
-              name,
-              is_host,
-              is_ready,
-              role,
-              vote,
-              turn_description,
-              special_ability_used,
-              is_protected,
-              vote_multiplier,
-              special_word,
-              last_active,
-              last_updated
-            )
+            players (*)
           `)
           .eq('id', room.id)
           .maybeSingle();
@@ -220,7 +242,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
 
         if (data) {
           console.log('Room data received:', data);
-          const mappedRoom = mapRoomData(data as unknown as DatabaseRoom);
+          const mappedRoom = mapRoomWithTimers(data as DatabaseRoom);
           
           // Only update if the data has actually changed
           const currentRoomStr = JSON.stringify(roomRef.current);
@@ -228,8 +250,8 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
           
           if (currentRoomStr !== newRoomStr) {
             console.log('Updating room state with:', mappedRoom);
-            setRoom(mappedRoom as unknown as GameRoom);
-            roomRef.current = mappedRoom as unknown as GameRoom;
+            setRoom(mappedRoom);
+            roomRef.current = mappedRoom;
             lastUpdateRef.current = Date.now();
           }
         } else {
@@ -247,32 +269,59 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         isFetchingRef.current = false;
       }
     }, 100); // 100ms debounce
-  }, [room?.id]);
+  }, [room?.id, mapRoomWithTimers]);
 
   const handleGameStateTransition = useCallback(async (newState: GameState) => {
     if (!room) return;
 
-    // Get the current players data to preserve their roles and host status
-    const { data: currentPlayers, error: playersError } = await supabase
-      .from('players')
-      .select('*')
-      .eq('room_id', room.id);
-
-    if (playersError) {
-      console.error('Error fetching players:', playersError);
-      return;
-    }
-
-    // First update the room state
-    const updates = {
+    const now = new Date().toISOString();
+    let updates: Partial<ExtendedGameRoom> = {
       state: newState,
-      timer: newState === 'selecting' ? 30 : undefined,
-      current_turn: newState === 'selecting' ? 0 : undefined,
-      secret_word: newState === 'selecting' ? undefined : room.secret_word,
-      chameleon_id: newState === 'selecting' ? undefined : room.chameleon_id,
-      category: room.category,
-      last_updated: new Date().toISOString()
+      last_updated: now
     };
+
+    // Set appropriate timers based on the game state
+    switch (newState) {
+      case 'discussion': {
+        const discussionTime = room.settings.discussion_time;
+        updates = {
+          ...updates,
+          presenting_timer: 0,
+          voting_timer: 0,
+          discussion_timer: discussionTime
+        };
+        break;
+      }
+      case 'voting': {
+        const votingTime = room.settings.voting_time;
+        updates = {
+          ...updates,
+          presenting_timer: 0,
+          discussion_timer: 0,
+          voting_timer: votingTime
+        };
+        break;
+      }
+      case 'presenting': {
+        const turnTime = room.settings.presenting_time;
+        updates = {
+          ...updates,
+          presenting_timer: turnTime,
+          turn_started_at: now,
+          current_turn: room.current_turn || 0
+        };
+        break;
+      }
+      default: {
+        updates = {
+          ...updates,
+          presenting_timer: 0,
+          discussion_timer: 0,
+          voting_timer: 0,
+          turn_started_at: undefined
+        };
+      }
+    }
 
     const { error } = await supabase
       .from('game_rooms')
@@ -284,39 +333,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
       throw error;
     }
 
-    // Then ensure all players maintain their original roles and host status
-    if (currentPlayers) {
-      const updatePromises = currentPlayers.map(player => {
-        // Only update the necessary fields to preserve the player's state
-        return supabase
-          .from('players')
-          .update({
-            role: player.role,
-            is_host: player.is_host,
-            is_ready: player.is_ready,
-            vote: player.vote,
-            turn_description: player.turn_description,
-            special_ability_used: player.special_ability_used,
-            is_protected: player.is_protected,
-            vote_multiplier: player.vote_multiplier,
-            special_word: player.special_word,
-            last_updated: new Date().toISOString()
-          })
-          .eq('id', player.id);
-      });
-
-      // Wait for all player updates to complete
-      const results = await Promise.all(updatePromises);
-      
-      // Log any errors that occurred during player updates
-      results.forEach((result, index) => {
-        if (result.error) {
-          console.error(`Error updating player ${currentPlayers[index].id}:`, result.error);
-        }
-      });
-    }
-
-    // Force a room data refresh to ensure all clients have the latest state
+    // Force a room data refresh
     await fetchRoom();
   }, [room, fetchRoom]);
 
@@ -343,21 +360,30 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         const playerExists = prevRoom.players.some(p => p.id === playerId);
         
         if (!playerExists) {
-          // Add new player to the room
+          // Create new player with both database and application requirements
           const newPlayer: Player = {
+            // Database schema fields
             id: playerId,
+            room_id: roomId || '',
             name: playerName,
-            role: 'regular' as PlayerRole,
+            role: PlayerRole.Regular,
+            is_host: false,
+            is_ready: false,
+            turn_description: undefined,
+            vote: undefined,
+            last_active: new Date().toISOString(),
+            last_updated: new Date().toISOString(),
+            is_protected: false,
+            vote_multiplier: 1,
+            special_word: undefined,
+            special_ability_used: false,
+            turn_timer: 0,
+            // Application-specific fields
             isProtected: false,
             isInvestigated: false,
             isCurrentPlayer: false,
             isTurn: false,
-            is_host: false,
-            is_ready: false,
             score: 0,
-            last_active: new Date().toISOString(),
-            last_updated: new Date().toISOString(),
-            room_id: roomId || '',
             created_at: new Date().toISOString()
           };
           
@@ -432,7 +458,9 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
             secret_word: payload.payload?.secretWord || roomRef.current.secret_word,
             current_turn: payload.payload?.currentTurn ?? roomRef.current.current_turn,
             turn_order: payload.payload?.turnOrder || roomRef.current.turn_order,
-            timer: payload.payload?.timer ?? roomRef.current.timer,
+            presenting_timer: payload.payload?.timer ?? roomRef.current.presenting_timer,
+            discussion_timer: payload.payload?.timer ?? roomRef.current.discussion_timer,
+            voting_timer: payload.payload?.timer ?? roomRef.current.voting_timer,
             last_updated: new Date().toISOString()
           };
           
@@ -546,8 +574,8 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         
       // Set the room data
       if (roomData) {
-        const mappedRoom = mapRoomData(roomData as unknown as DatabaseRoom);
-        setRoom(mappedRoom as unknown as GameRoom);
+        const mappedRoom = mapRoomWithTimers(roomData as DatabaseRoom);
+        setRoom(mappedRoom as unknown as ExtendedGameRoom);
         console.log('Room data set successfully:', mappedRoom);
       }
       
@@ -561,7 +589,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
       });
       throw error;
     }
-  }, [createRoomAction, setRoom]);
+  }, [createRoomAction, setRoom, mapRoomWithTimers]);
 
   const joinRoom = useCallback(async (roomId: string, playerName: string): Promise<boolean> => {
     try {
@@ -643,8 +671,8 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         }
         
         if (updatedRoomData) {
-          const mappedRoom = mapRoomData(updatedRoomData as unknown as DatabaseRoom);
-          setRoom(mappedRoom as unknown as GameRoom);
+          const mappedRoom = mapRoomWithTimers(updatedRoomData as DatabaseRoom);
+          setRoom(mappedRoom as unknown as ExtendedGameRoom);
           console.log(`Room data loaded successfully after joining: ${roomId}`);
           return true;
         }
@@ -655,7 +683,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
       console.error('Error in joinRoom wrapper:', error);
       return false;
     }
-  }, [joinRoomAction, setRoom, room?.id, playerId, setPlayerName]);
+  }, [joinRoomAction, setRoom, room?.id, playerId, setPlayerName, mapRoomWithTimers]);
 
   const leaveRoom = useCallback(async () => {
     if (!room?.id || !playerId) return;
@@ -769,7 +797,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, [room, playerId, startGameAction]);
 
-  const handleRoomUpdate = useCallback(async (room: GameRoom) => {
+  const handleRoomUpdate = useCallback(async (room: ExtendedGameRoom) => {
     console.log('Room update received:', room);
     
     // Always update the room state if we have a valid room
@@ -786,6 +814,11 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, [setRoom, fetchRoom]);
 
+  // Create a type-safe setRoom function
+  const setRoomSafe = useCallback((newRoom: ExtendedGameRoom | null) => {
+    setRoom(newRoom);
+  }, []);
+
   const value: GameContextType = useMemo(() => ({
     playerId,
     room,
@@ -794,10 +827,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     joinRoom,
     startGame,
     selectCategory,
-    submitWord: async (word: string) => {
-      if (!room) return;
-      await submitWord(word);
-    },
+    submitWord,
     submitVote,
     nextRound,
     leaveRoom,
@@ -806,31 +836,23 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     setPlayerRole,
     handleGameStateTransition,
     handleRoomUpdate,
-    getPublicRooms: async (): Promise<GameRoom[]> => {
-      try {
-        const { data: rooms, error } = await supabase
-          .from('game_rooms')
-          .select(`
-            *,
-            players:players_room_id_fkey (*)
-          `)
-          .eq('state', 'lobby');
+    getPublicRooms: async (): Promise<ExtendedGameRoom[]> => {
+      const { data: rooms, error } = await supabase
+        .from('game_rooms')
+        .select(`
+          *,
+          players (*)
+        `)
+        .eq('state', 'lobby');
 
-        if (error) {
-          console.error('Error fetching public rooms:', error);
-          return [];
-        }
-
-        // Filter out rooms with no players client-side and map the data
-        const validRooms = (rooms || [])
-          .filter(room => room.players && room.players.length > 0)
-          .map(room => mapRoomData(room as unknown as DatabaseRoom));
-
-        return validRooms;
-      } catch (error) {
-        console.error('Error in getPublicRooms:', error);
+      if (error) {
+        console.error('Error fetching public rooms:', error);
         return [];
       }
+
+      return (rooms || [])
+        .filter(room => room.players && room.players.length > 0)
+        .map(room => mapRoomWithTimers(room as DatabaseRoom));
     },
     updateSettings: async (newSettings: GameSettings) => {
       setSettings(newSettings);
@@ -860,12 +882,12 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     remainingTime,
     playerName,
     setPlayerName,
-    setRoom,
+    setRoom: setRoomSafe,
     loading: false,
     error: null
   }), [
     playerId, room, settings, createRoom, joinRoom, startGame, selectCategory, submitWord, submitVote, nextRound, leaveRoom, resetGame, handleRoleAbility, setPlayerRole,
-    isPlayerChameleon, remainingTime, playerName, setSettings, setRoom, fetchRoom, handleGameStateTransition, handleRoomUpdate
+    isPlayerChameleon, remainingTime, playerName, setSettings, setRoomSafe, fetchRoom, handleGameStateTransition, handleRoomUpdate, mapRoomWithTimers
   ]);
 
   // Add effect to handle tab/window close

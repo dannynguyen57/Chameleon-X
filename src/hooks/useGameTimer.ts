@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { GameRoom, GameSettings, GameState } from '../lib/types';
 import { supabase } from '../integrations/supabase/client';
+import { ExtendedGameRoom } from '../contexts/GameContextProvider';
 
-export const useGameTimer = (room: GameRoom | null, settings: GameSettings, setRoom: (room: GameRoom | null) => void) => {
+export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettings, setRoom: (room: ExtendedGameRoom | null) => void) => {
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [isActive, setIsActive] = useState<boolean>(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -17,27 +18,48 @@ export const useGameTimer = (room: GameRoom | null, settings: GameSettings, setR
   useEffect(() => {
     if (!room) return;
 
-    // Reset timer when game state changes
-    if (room.state !== gameState) {
-      setTimeLeft(room.timer ?? 0);
-      setGameState(room.state);
+    // Clear any existing timer
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
     }
 
-    // Start timer based on game state
-    if (room.timer && room.timer > 0) {
-      const timer = setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            clearInterval(timer);
+    // Get the appropriate timer based on game state
+    let currentTimer = 0;
+    switch (room.state) {
+      case 'presenting':
+        currentTimer = room.presenting_timer ?? room.settings.presenting_time;
+        break;
+      case 'discussion':
+        currentTimer = room.discussion_timer ?? room.settings.discussion_time;
+        break;
+      case 'voting':
+        currentTimer = room.voting_timer ?? room.settings.voting_time;
+        break;
+      default:
+        currentTimer = 0;
+    }
+
+    setTimeLeft(currentTimer);
+
+    // Start the timer if we have time remaining
+    if (currentTimer > 0) {
+      timerRef.current = setInterval(() => {
+        setTimeLeft(prev => {
+          if (prev <= 0) {
+            clearInterval(timerRef.current!);
             return 0;
           }
           return prev - 1;
         });
       }, 1000);
-
-      return () => clearInterval(timer);
     }
-  }, [room, gameState]);
+
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+    };
+  }, [room?.state, room?.presenting_timer, room?.discussion_timer, room?.voting_timer, room]);
 
   // Handle individual player timers in presenting phase
   useEffect(() => {
@@ -50,7 +72,7 @@ export const useGameTimer = (room: GameRoom | null, settings: GameSettings, setR
     if (!currentPlayer) return;
 
     // Reset and start individual timer for current player
-    setCurrentPlayerTimer(settings.time_per_round);
+    setCurrentPlayerTimer(room.settings.presenting_time);
     
     // Clear any existing timer
     if (timerRef.current) {
@@ -77,7 +99,7 @@ export const useGameTimer = (room: GameRoom | null, settings: GameSettings, setR
         timerRef.current = null;
       }
     };
-  }, [room?.current_turn, room?.state, settings.time_per_round, room]);
+  }, [room?.current_turn, room?.state, room?.settings.presenting_time, room]);
 
   const stopTimer = useCallback(() => {
     setIsActive(false);
@@ -129,7 +151,9 @@ export const useGameTimer = (room: GameRoom | null, settings: GameSettings, setR
               // Update local room state
               setRoom({
                 ...room,
-                timer: newTimeLeft,
+                ...(room.state === 'presenting' ? { presenting_timer: newTimeLeft } :
+                    room.state === 'discussion' ? { discussion_timer: newTimeLeft } :
+                    room.state === 'voting' ? { voting_timer: newTimeLeft } : {}),
                 last_updated: new Date().toISOString()
               });
               
@@ -144,27 +168,36 @@ export const useGameTimer = (room: GameRoom | null, settings: GameSettings, setR
           stopTimer();
           // When timer reaches 0, trigger state transition
           if (room) {
-            const updateRoomState = async (newState: GameState, newTimer: number) => {
-              try {
-                const { error } = await supabase
-                  .from('game_rooms')
-                  .update({ 
-                    state: newState,
-                    timer: newTimer,
-                    last_updated: new Date().toISOString()
-                  })
-                  .eq('id', room.id);
+            const handleStateTransition = async (newState: GameState) => {
+              if (!room) return;
 
-                if (error) {
-                  console.error('Error updating room state:', error);
-                  return;
-                }
+              const updates: Partial<ExtendedGameRoom> = {
+                state: newState,
+                last_updated: new Date().toISOString()
+              };
+
+              // Set appropriate timers based on the game state
+              switch (newState) {
+                case 'presenting':
+                  updates.presenting_timer = room.settings.presenting_time;
+                  break;
+                case 'discussion':
+                  updates.discussion_timer = room.settings.discussion_time;
+                  break;
+                case 'voting':
+                  updates.voting_timer = room.settings.voting_time;
+                  break;
+              }
+
+              try {
+                await supabase
+                  .from('game_rooms')
+                  .update(updates)
+                  .eq('id', room.id);
 
                 setRoom({
                   ...room,
-                  state: newState,
-                  timer: newTimer,
-                  last_updated: new Date().toISOString()
+                  ...updates
                 });
               } catch (error) {
                 console.error('Error in room state update:', error);
@@ -198,24 +231,20 @@ export const useGameTimer = (room: GameRoom | null, settings: GameSettings, setR
                     }
 
                     // Update room state for next turn
-                    const { error } = await supabase
+                    await supabase
                       .from('game_rooms')
                       .update({ 
                         current_turn: nextPlayerRoomIndex >= 0 ? nextPlayerRoomIndex : 0,
-                        timer: settings.time_per_round,
+                        presenting_timer: settings.presenting_time,
                         last_updated: new Date().toISOString()
                       })
                       .eq('id', room.id);
 
-                    if (error) {
-                      console.error('Error updating turn:', error);
-                      return;
-                    }
-
+                    // Update local state
                     setRoom({
                       ...room,
                       current_turn: nextPlayerRoomIndex >= 0 ? nextPlayerRoomIndex : 0,
-                      timer: settings.time_per_round,
+                      presenting_timer: settings.presenting_time,
                       last_updated: new Date().toISOString()
                     });
                   } catch (error) {
@@ -223,23 +252,23 @@ export const useGameTimer = (room: GameRoom | null, settings: GameSettings, setR
                   }
                 } else {
                   // All players have submitted, move to discussion phase
-                  await updateRoomState(GameState.Discussion, settings.discussion_time);
+                  await handleStateTransition(GameState.Discussion);
                 }
                 break;
 
               case GameState.Discussion:
                 // Move to voting phase when discussion timer hits zero
-                await updateRoomState(GameState.Voting, settings.voting_time);
+                await handleStateTransition(GameState.Voting);
                 break;
 
               case GameState.Voting:
                 // Move to results phase when voting timer hits zero
-                await updateRoomState(GameState.Results, 0);
+                await handleStateTransition(GameState.Results);
                 break;
 
               default:
                 // For other phases, just update the timer
-                await updateRoomState(room.state, 0);
+                await handleStateTransition(room.state);
                 break;
             }
           }
@@ -269,24 +298,32 @@ export const useGameTimer = (room: GameRoom | null, settings: GameSettings, setR
     
     if (room) {
       try {
-        const { error } = await supabase
+        const updates: Partial<ExtendedGameRoom> = {
+          last_updated: new Date().toISOString()
+        };
+
+        // Set the appropriate timer based on game state
+        switch (room.state) {
+          case 'presenting':
+            updates.presenting_timer = duration;
+            break;
+          case 'discussion':
+            updates.discussion_timer = duration;
+            break;
+          case 'voting':
+            updates.voting_timer = duration;
+            break;
+        }
+
+        await supabase
           .from('game_rooms')
-          .update({ 
-            timer: duration,
-            last_updated: new Date().toISOString()
-          })
+          .update(updates)
           .eq('id', room.id);
 
-        if (error) {
-          console.error('Error resetting timer:', error);
-          return;
-        }
-        
-        // Update local room state
+        // Update local state
         setRoom({
           ...room,
-          timer: duration,
-          last_updated: new Date().toISOString()
+          ...updates
         });
       } catch (error) {
         console.error('Error in timer reset:', error);
@@ -306,24 +343,47 @@ export const useGameTimer = (room: GameRoom | null, settings: GameSettings, setR
 
     const updateTimer = async () => {
       try {
+        const updates: Partial<ExtendedGameRoom> = {
+          last_updated: new Date().toISOString()
+        };
+
+        // Update the appropriate timer based on game state
+        switch (room.state) {
+          case 'presenting':
+            updates.presenting_timer = timeLeft;
+            break;
+          case 'discussion':
+            updates.discussion_timer = timeLeft;
+            break;
+          case 'voting':
+            updates.voting_timer = timeLeft;
+            break;
+        }
+
         await supabase
           .from('game_rooms')
-          .update({
-            timer: timeLeft,
-            last_updated: new Date().toISOString(),
-            updated_at: new Date().toISOString() // Force real-time update
-          })
+          .update(updates)
           .eq('id', roomId);
+
+        // Update local state
+        setRoom({
+          ...room,
+          ...updates
+        });
       } catch (error) {
         console.error('Error updating timer:', error);
       }
     };
 
     // Only update if timer has changed significantly
-    if (Math.abs(timeLeft - (room.timer ?? 0)) >= 5) {
+    const currentTimer = room.state === 'presenting' ? room.presenting_timer :
+                        room.state === 'discussion' ? room.discussion_timer :
+                        room.state === 'voting' ? room.voting_timer : 0;
+
+    if (Math.abs(timeLeft - (currentTimer ?? 0)) >= 5) {
       updateTimer();
     }
-  }, [timeLeft, room, roomId]);
+  }, [timeLeft, room, roomId, setRoom]);
 
   return { 
     timeLeft: room?.state === GameState.Presenting ? currentPlayerTimer : timeLeft, 

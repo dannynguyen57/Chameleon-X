@@ -22,7 +22,7 @@ export default function GameSettings({ onClose }: GameSettingsProps) {
     game_mode: room?.settings.game_mode || GameMode.Classic,
     team_size: room?.settings.team_size || 2,
     chaos_mode: room?.settings.chaos_mode || false,
-    time_per_round: room?.settings.time_per_round || 60,
+    presenting_time: room?.settings.presenting_time || 60,
     voting_time: room?.settings.voting_time || 30,
     special_abilities: room?.settings.special_abilities || false,
     roles: room?.settings.roles || {
@@ -150,13 +150,13 @@ export default function GameSettings({ onClose }: GameSettingsProps) {
               />
             </div>
             <div className="space-y-2">
-              <Label>Time per Round (seconds)</Label>
+              <Label>Time per Player (seconds)</Label>
               <Input
                 type="number"
                 min="30"
                 max="180"
-                value={settings.time_per_round}
-                onChange={(e) => setSettings({ ...settings, time_per_round: parseInt(e.target.value) })}
+                value={settings.presenting_time}
+                onChange={(e) => setSettings({ ...settings, presenting_time: parseInt(e.target.value) })}
               />
             </div>
           </div>

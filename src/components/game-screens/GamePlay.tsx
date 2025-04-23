@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 // import { useGame } from "@/contexts/GameContextProvider";
 import { useGame } from '@/hooks/useGame';
 import { useGameActions } from "@/hooks/useGameActions";
+import { convertToExtendedRoom } from '@/lib/roomUtils';
 // import { updatePlayer } from "@/lib/gameLogic";
 import { Player, PlayerRole, GameState, GameRoom, GameResultType } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -107,7 +108,7 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
   const [isActingSuspicious, setIsActingSuspicious] = useState(false);
   const [isGuiding, setIsGuiding] = useState(false);
 
-  const { handleRoleAbility } = useGameActions(playerId, room, room.settings, () => {});
+  const { handleRoleAbility } = useGameActions(playerId, room ? convertToExtendedRoom(room) : null, room?.settings, () => {});
   const { theme } = getRoleStyle(currentPlayer.role);
 
   const isChameleon = currentPlayer.role === PlayerRole.Chameleon;
@@ -491,7 +492,7 @@ const shouldShowRole = (room: GameRoom, playerId: string, currentPlayerId?: stri
 
 export default function GamePlay() {
   const { room, isPlayerChameleon, remainingTime, settings, playerId, setRoom, resetGame, startGame } = useGame();
-  const { submitWord, submitVote, nextRound, resetGame: resetGameAction } = useGameActions(playerId, room, settings, setRoom);
+  const { submitWord, submitVote, nextRound, resetGame: resetGameAction } = useGameActions(playerId, room ? convertToExtendedRoom(room) : null, settings, setRoom);
   const [selectedVote, setSelectedVote] = useState<string | null>(null);
   const [isPlayersPanelOpen, setIsPlayersPanelOpen] = useState(false);
   const [isRolePanelOpen, setIsRolePanelOpen] = useState(false);
@@ -773,7 +774,7 @@ export default function GamePlay() {
                               .from('game_rooms')
                               .update({ 
                                 current_turn: nextPlayerRoomIndex >= 0 ? nextPlayerRoomIndex : 0,
-                                timer: settings.time_per_round,
+                                presenting_timer: settings.presenting_time,
                                 last_updated: new Date().toISOString()
                               })
                               .eq('id', room.id);
@@ -784,7 +785,7 @@ export default function GamePlay() {
                             setRoom({
                               ...room,
                               current_turn: nextPlayerRoomIndex >= 0 ? nextPlayerRoomIndex : 0,
-                              timer: settings.time_per_round,
+                              presenting_timer: settings.presenting_time,
                               last_updated: new Date().toISOString()
                             });
 

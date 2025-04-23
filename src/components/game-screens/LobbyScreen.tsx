@@ -13,6 +13,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { motion } from 'framer-motion';
 import { mapRoomData } from '@/hooks/useGameRealtime';
 import { DatabaseRoom } from '@/hooks/useGameRealtime';
+import { convertToExtendedRoom } from '@/lib/roomUtils';
 
 const PlayerReadyStatus = ({ 
   player, 
@@ -201,7 +202,7 @@ export default function LobbyScreen() {
 
       if (roomData) {
         const mappedRoom = mapRoomData(roomData as DatabaseRoom);
-        setRoom(mappedRoom);
+        setRoom(convertToExtendedRoom(mappedRoom));
       }
 
       // Show toast

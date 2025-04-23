@@ -28,7 +28,8 @@ export type Database = {
           game_mode: string
           team_size: number
           chaos_mode: boolean
-          time_per_round: number
+          // time_per_round: number
+          presenting_time: number
           voting_time: number
         }
         Insert: {
@@ -47,7 +48,8 @@ export type Database = {
           game_mode?: string
           team_size?: number
           chaos_mode?: boolean
-          time_per_round?: number
+          // time_per_round?: number
+          presenting_time?: number
           voting_time?: number
         }
         Update: {
@@ -66,7 +68,8 @@ export type Database = {
           game_mode?: string
           team_size?: number
           chaos_mode?: boolean
-          time_per_round?: number
+          // time_per_round?: number
+          presenting_time?: number
           voting_time?: number
         }
         Relationships: []

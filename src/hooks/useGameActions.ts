@@ -1,6 +1,8 @@
 import { supabase } from "@/integrations/supabase/client";
 import { categories } from '@/lib/word-categories';
-import { GameRoom, GameSettings, GameState, PlayerRole, Player, WordCategory } from '@/lib/types';
+import { GameSettings, GameState, PlayerRole, Player, WordCategory } from '@/lib/types';
+import { ExtendedGameRoom } from '@/contexts/GameContextProvider';
+import { convertToExtendedRoom } from '@/lib/roomUtils';
 import { useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { mapRoomData, DatabaseRoom } from '@/hooks/useGameRealtime';
@@ -25,9 +27,9 @@ import { GamePhase as GamePhaseType } from '@/types/GamePhase';
 
 export const useGameActions = (
   playerId: string,
-  room: GameRoom | null,
+  room: ExtendedGameRoom | null,
   settings: GameSettings,
-  setRoom: (room: GameRoom | null) => void
+  setRoom: (room: ExtendedGameRoom | null) => void
 ) => {
   const submitWord = useCallback(async (word: string) => {
     if (!room || !playerId || !room.turn_order || typeof room.current_turn !== 'number') return;
@@ -84,7 +86,7 @@ export const useGameActions = (
 
       if (updatedRoom) {
         const mappedRoom = mapRoomData(updatedRoom as DatabaseRoom);
-        setRoom(mappedRoom);
+        setRoom(convertToExtendedRoom(mappedRoom));
       }
 
       // Check if all players have submitted their descriptions
@@ -147,11 +149,11 @@ export const useGameActions = (
             ...room.settings,
             ...newSettings,
             discussion_time: newSettings.discussion_time,
-            time_per_round: newSettings.time_per_round,
+            presenting_time: newSettings.presenting_time,
             voting_time: newSettings.voting_time
           },
           discussion_time: newSettings.discussion_time,
-          time_per_round: newSettings.time_per_round,
+          presenting_time: newSettings.presenting_time,
           voting_time: newSettings.voting_time,
           timer: newSettings.discussion_time
         })
@@ -248,7 +250,7 @@ export const useGameActions = (
           game_mode: settings.game_mode,
           team_size: settings.team_size,
           chaos_mode: settings.chaos_mode,
-          time_per_round: settings.time_per_round,
+          presenting_time: settings.presenting_time,
           voting_time: settings.voting_time,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -465,7 +467,7 @@ export const useGameActions = (
       }
 
       // Update local state
-      setRoom(updatedRoom as GameRoom);
+      setRoom(updatedRoom as ExtendedGameRoom);
       return true;
     } catch (error) {
       console.error('Error in joinRoom:', error);
@@ -474,7 +476,7 @@ export const useGameActions = (
     }
   };
 
-  const startGame = async (room: GameRoom) => {
+  const startGame = async (room: ExtendedGameRoom) => {
     try {
       console.log('startGame called', { roomId: room?.id, playerId });
 
@@ -499,7 +501,7 @@ export const useGameActions = (
           state: GameState.Selecting,
           round: 1,
           current_turn: 0,
-          timer: settings.time_per_round,
+          timer: settings.presenting_time,
           last_updated: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })
@@ -628,8 +630,9 @@ export const useGameActions = (
           category: category.name,
           state: GameState.Presenting,
           secret_word: secretWord,
-          timer: settings.time_per_round,
+          presenting_timer: settings.presenting_time,
           discussion_timer: settings.discussion_time,
+          voting_timer: settings.voting_time,
           current_turn: 0,
           turn_order: turnOrder,
           updated_at: new Date().toISOString(),
@@ -650,8 +653,9 @@ export const useGameActions = (
         category: category,
         state: GameState.Presenting,
         secret_word: secretWord,
-        timer: settings.time_per_round,
+        presenting_timer: settings.presenting_time,
         discussion_timer: settings.discussion_time,
+        voting_timer: settings.voting_time,
         current_turn: 0,
         turn_order: turnOrder,
         updated_at: new Date().toISOString(),
@@ -671,8 +675,9 @@ export const useGameActions = (
           turnOrder,
           secretWord,
           category: category.name,
-          timer: settings.time_per_round,
-          discussionTimer: settings.discussion_time,
+          presenting_timer: settings.presenting_time,
+          discussion_timer: settings.discussion_time,
+          voting_timer: settings.voting_time,
           timestamp: new Date().toISOString()
         }
       });
@@ -692,8 +697,9 @@ export const useGameActions = (
           turnOrder,
           secretWord,
           category: category.name,
-          timer: settings.time_per_round,
-          discussionTimer: settings.discussion_time,
+          presenting_timer: settings.presenting_time,
+          discussion_timer: settings.discussion_time,
+          voting_timer: settings.voting_time,
           timestamp: new Date().toISOString()
         }
       });
@@ -713,7 +719,9 @@ export const useGameActions = (
           currentTurn: freshRoom.current_turn,
           turnOrder: freshRoom.turn_order,
           secretWord: freshRoom.secret_word,
-          discussionTimer: freshRoom.discussion_timer
+          discussion_timer: freshRoom.discussion_timer,
+          presenting_timer: freshRoom.presenting_timer,
+          voting_timer: freshRoom.voting_timer
         });
         setRoom(freshRoom);
       }
@@ -1193,7 +1201,7 @@ export const useGameActions = (
     }
   };
 
-  const fetchRoom = async (roomId: string): Promise<GameRoom | null> => {
+  const fetchRoom = async (roomId: string): Promise<ExtendedGameRoom | null> => {
     try {
       const { data, error } = await supabase
         .from('game_rooms')
@@ -1206,8 +1214,9 @@ export const useGameActions = (
       if (error) throw error;
       if (!data) return null;
 
-      // Map the data to our GameRoom type
-      return mapRoomData(data as DatabaseRoom);
+      // Map the data to our ExtendedGameRoom type
+      const mappedRoom = mapRoomData(data as DatabaseRoom);
+      return convertToExtendedRoom(mappedRoom);
     } catch (error) {
       console.error('Error fetching room:', error);
       return null;

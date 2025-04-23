@@ -11,7 +11,8 @@ export interface Room {
   game_mode: GameMode;
   team_size: number;
   chaos_mode: boolean;
-  time_per_round: number;
+  // time_per_round: number;
+  presenting_time: number;
   voting_time: number;
   created_at: string;
   updated_at: string;

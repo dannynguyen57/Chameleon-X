@@ -7,7 +7,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   game_mode: GameMode.Classic,
   team_size: 2,
   chaos_mode: false,
-  time_per_round: 30,
+  presenting_time: 30,
   voting_time: 30,
   roles: {
     [GameMode.Classic]: [PlayerRole.Regular, PlayerRole.Chameleon, PlayerRole.Mimic],

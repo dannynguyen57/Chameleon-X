@@ -26,7 +26,7 @@ export default function DevModeSetup() {
       const roomId = await createRoom(playerName, {
         max_players: 4,
         discussion_time: 60,
-        time_per_round: 60,
+        presenting_time: 60,
         voting_time: 30,
         max_rounds: 3,
         game_mode: GameMode.Classic,

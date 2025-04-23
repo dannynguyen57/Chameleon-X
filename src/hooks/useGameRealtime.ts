@@ -32,6 +32,7 @@ interface DatabasePlayer {
   is_illusionist: boolean;
   can_see_word: boolean;
   created_at: string;
+  turn_timer?: number;
 }
 
 export interface DatabaseRoom {
@@ -44,7 +45,6 @@ export interface DatabaseRoom {
   chameleon_id?: string;
   timer?: number;
   current_turn?: number;
-  current_word?: string;
   created_at: string;
   updated_at: string;
   round?: number;
@@ -58,7 +58,19 @@ export interface DatabaseRoom {
   max_rounds?: number;
   host_id?: string;
   turn_order: string[];
-  discussion_timer?: number;
+  discussion_timer: number;
+  voting_timer: number;
+  turn_timer: number;
+  presenting_timer: number;
+  max_players: number;
+  discussion_time: number;
+  game_mode: string;
+  team_size: number;
+  chaos_mode: boolean;
+  presenting_time: number;
+  voting_time: number;
+  chameleon_count: number;
+  player_count: number;
 }
 
 // const DEFAULT_SETTINGS_REALTIME: GameSettings = {
@@ -94,7 +106,8 @@ export const mapRoomData = (room: DatabaseRoom): GameRoom => {
     isCurrentPlayer: false,
     isTurn: false,
     room_id: room.id,
-    team: player.team ? Number(player.team) : undefined
+    team: player.team ? Number(player.team) : undefined,
+    turn_timer: player.turn_timer || 0
   })) : [];
 
   return {
@@ -105,24 +118,33 @@ export const mapRoomData = (room: DatabaseRoom): GameRoom => {
     category: categoryData || undefined,
     secret_word: room.secret_word || undefined,
     chameleon_id: room.chameleon_id || undefined,
-    timer: room.timer || 0,
+    presenting_timer: room.presenting_timer || 0,
     discussion_timer: room.discussion_timer || 0,
+    voting_timer: room.voting_timer || 0,
     current_turn: room.current_turn || 0,
-    current_word: room.current_word || undefined,
     created_at: room.created_at,
     updated_at: room.updated_at,
     turn_order: room.turn_order || [],
     round: room.round || 1,
-    current_round: room.round || 1,
+    max_rounds: room.max_rounds || 1,
     round_outcome: room.round_outcome || null,
-    votes_tally: room.votes_tally || null,
+    votes_tally: room.votes_tally || {},
     votes: room.votes || {},
     results: room.results || [],
     revealed_player_id: room.revealed_player_id || null,
     revealed_role: room.revealed_role || null,
     last_updated: room.last_updated || new Date().toISOString(),
-    max_rounds: room.max_rounds || 1,
     host_id: room.host_id || '',
+    max_players: room.max_players || 10,
+    discussion_time: room.discussion_time || 30,
+    game_mode: room.game_mode || 'classic',
+    team_size: room.team_size || 2,
+    chaos_mode: room.chaos_mode || false,
+    presenting_time: room.presenting_time || 30,
+    voting_time: room.voting_time || 30,
+    chameleon_count: room.chameleon_count || 1,
+    player_count: room.players?.length || 0,
+    turn_timer: room.turn_timer || 0,
     current_phase: room.state === GameState.Lobby ? 'lobby' :
                   room.state === GameState.Selecting ? 'selecting' :
                   room.state === GameState.Presenting ? 'presenting' :
@@ -177,7 +199,8 @@ export const useGameRealtime = (roomId: string | undefined): { room: GameRoom | 
           isCurrentPlayer: false,
           isTurn: false,
           room_id: data.id,
-          team: player.team ? Number(player.team) : undefined
+          team: player.team ? Number(player.team) : undefined,
+          turn_timer: player.turn_timer || 0
         })) : [];
 
         const mappedRoom = {

@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { GameMode, PlayerRole, GameSettings as GameSettingsType } from '@/lib/types';
 import { X } from 'lucide-react';
 import { useGame } from '@/hooks/useGame';
+import { toast } from 'sonner';
 
 interface GameSettingsProps {
   onClose: () => void;
@@ -34,8 +35,18 @@ export default function GameSettings({ onClose }: GameSettingsProps) {
   });
 
   const handleSave = async () => {
-    await updateSettings(settings);
-    onClose();
+    try {
+      const success = await updateSettings(settings);
+      if (success) {
+        toast.success("Settings saved successfully!");
+        onClose();
+      } else {
+        toast.error("Failed to save settings. Please try again.");
+      }
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      toast.error("Failed to save settings. Please try again.");
+    }
   };
 
   const handleRoleToggle = (role: PlayerRole) => {
@@ -121,8 +132,8 @@ export default function GameSettings({ onClose }: GameSettingsProps) {
                 type="number"
                 min="3"
                 max="20"
-                value={settings.max_players}
-                onChange={(e) => setSettings({ ...settings, max_players: parseInt(e.target.value) })}
+                value={settings.max_players || ''}
+                onChange={(e) => setSettings({ ...settings, max_players: parseInt(e.target.value) || 0 })}
               />
             </div>
             <div className="space-y-2">
@@ -131,8 +142,8 @@ export default function GameSettings({ onClose }: GameSettingsProps) {
                 type="number"
                 min="2"
                 max="5"
-                value={settings.team_size}
-                onChange={(e) => setSettings({ ...settings, team_size: parseInt(e.target.value) })}
+                value={settings.team_size || ''}
+                onChange={(e) => setSettings({ ...settings, team_size: parseInt(e.target.value) || 0 })}
               />
             </div>
           </div>
@@ -145,8 +156,8 @@ export default function GameSettings({ onClose }: GameSettingsProps) {
                 type="number"
                 min="30"
                 max="300"
-                value={settings.discussion_time}
-                onChange={(e) => setSettings({ ...settings, discussion_time: parseInt(e.target.value) })}
+                value={settings.discussion_time || ''}
+                onChange={(e) => setSettings({ ...settings, discussion_time: parseInt(e.target.value) || 0 })}
               />
             </div>
             <div className="space-y-2">
@@ -155,8 +166,8 @@ export default function GameSettings({ onClose }: GameSettingsProps) {
                 type="number"
                 min="30"
                 max="180"
-                value={settings.presenting_time}
-                onChange={(e) => setSettings({ ...settings, presenting_time: parseInt(e.target.value) })}
+                value={settings.presenting_time || ''}
+                onChange={(e) => setSettings({ ...settings, presenting_time: parseInt(e.target.value) || 0 })}
               />
             </div>
           </div>
@@ -168,8 +179,8 @@ export default function GameSettings({ onClose }: GameSettingsProps) {
                 type="number"
                 min="10"
                 max="60"
-                value={settings.voting_time}
-                onChange={(e) => setSettings({ ...settings, voting_time: parseInt(e.target.value) })}
+                value={settings.voting_time || ''}
+                onChange={(e) => setSettings({ ...settings, voting_time: parseInt(e.target.value) || 0 })}
               />
             </div>
             <div className="space-y-2">
@@ -178,8 +189,8 @@ export default function GameSettings({ onClose }: GameSettingsProps) {
                 type="number"
                 min="1"
                 max="5"
-                value={settings.max_rounds}
-                onChange={(e) => setSettings({ ...settings, max_rounds: parseInt(e.target.value) })}
+                value={settings.max_rounds || ''}
+                onChange={(e) => setSettings({ ...settings, max_rounds: parseInt(e.target.value) || 0 })}
               />
             </div>
           </div>

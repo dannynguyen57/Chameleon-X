@@ -43,7 +43,6 @@ export interface DatabaseRoom {
   category?: string;
   secret_word?: string;
   chameleon_id?: string;
-  timer?: number;
   current_turn?: number;
   created_at: string;
   updated_at: string;
@@ -208,7 +207,6 @@ export const useGameRealtime = (roomId: string | undefined): { room: GameRoom | 
           players: mappedPlayers,
           category: data.category ? categories.find(c => c.name === data.category) : undefined,
           state: data.state,
-          timer: data.timer || 0,
           discussion_timer: data.discussion_timer || 0,
           current_turn: data.current_turn || 0,
           round: data.round || 1,

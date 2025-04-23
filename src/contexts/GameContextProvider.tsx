@@ -857,6 +857,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     updateSettings: async (newSettings: GameSettings) => {
       setSettings(newSettings);
       await fetchRoom();
+      return true;
     },
     checkNameExists: async (roomId: string, playerName: string) => {
       try {

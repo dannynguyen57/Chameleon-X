@@ -128,7 +128,6 @@ export type DatabaseRoom = {
   category?: string;
   secret_word?: string;
   chameleon_id?: string;
-  timer?: number;
   current_turn?: number;
   current_word?: string;
   created_at: string;

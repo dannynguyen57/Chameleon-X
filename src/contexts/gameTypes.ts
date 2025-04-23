@@ -84,7 +84,7 @@ export interface GameContextType {
   setPlayerRole: (playerId: string, role: PlayerRole) => Promise<boolean>;
   handleGameStateTransition: (newState: GameState) => Promise<void>;
   getPublicRooms: () => Promise<ExtendedGameRoom[]>;
-  updateSettings: (newSettings: GameSettings) => Promise<void>;
+  updateSettings: (newSettings: GameSettings) => Promise<boolean>;
   checkNameExists: (roomId: string, playerName: string) => Promise<boolean>;
   isPlayerChameleon: boolean;
   remainingTime: {

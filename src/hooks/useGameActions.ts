@@ -139,35 +139,120 @@ export const useGameActions = (
   }, [room, playerId, setRoom]);
 
   const updateSettings = async (newSettings: GameSettings) => {
-    if (!room) return;
+    if (!room) return false;
 
     try {
-      const { error } = await supabase
+      console.log('Updating settings:', newSettings);
+      
+      // First update the settings object
+      const { data: settingsData, error: settingsError } = await supabase
         .from('game_rooms')
         .update({
           settings: {
             ...room.settings,
             ...newSettings,
+            max_players: newSettings.max_players,
+            max_rounds: newSettings.max_rounds,
+            game_mode: newSettings.game_mode,
+            team_size: newSettings.team_size,
+            chaos_mode: newSettings.chaos_mode,
             discussion_time: newSettings.discussion_time,
             presenting_time: newSettings.presenting_time,
-            voting_time: newSettings.voting_time
-          },
+            voting_time: newSettings.voting_time,
+            roles: newSettings.roles,
+            special_abilities: newSettings.special_abilities
+          }
+        })
+        .eq('id', room.id)
+        .select();
+
+      if (settingsError) {
+        console.error('Error updating settings object:', settingsError);
+        throw settingsError;
+      }
+
+      console.log('Settings updated in database:', settingsData);
+
+      // Then update the individual fields
+      const { data: fieldsData, error: fieldsError } = await supabase
+        .from('game_rooms')
+        .update({
+          max_players: newSettings.max_players,
+          max_rounds: newSettings.max_rounds,
+          game_mode: newSettings.game_mode,
+          team_size: newSettings.team_size,
+          chaos_mode: newSettings.chaos_mode,
           discussion_time: newSettings.discussion_time,
           presenting_time: newSettings.presenting_time,
           voting_time: newSettings.voting_time,
-          timer: newSettings.discussion_time
+          last_updated: new Date().toISOString()
         })
-        .eq('id', room.id);
+        .eq('id', room.id)
+        .select();
 
-      if (error) throw error;
-      
-      const updatedRoom = await fetchRoom(room.id);
-      if (updatedRoom) {
-        setRoom(updatedRoom);
-        toast.success("Game settings updated successfully!");
+      if (fieldsError) {
+        console.error('Error updating individual fields:', fieldsError);
+        throw fieldsError;
       }
+
+      console.log('Fields updated in database:', fieldsData);
+
+      // Update local state immediately
+      if (room) {
+        const updatedRoom: ExtendedGameRoom = {
+          ...room,
+          settings: {
+            ...room.settings,
+            ...newSettings,
+            max_players: newSettings.max_players,
+            max_rounds: newSettings.max_rounds,
+            game_mode: newSettings.game_mode,
+            team_size: newSettings.team_size,
+            chaos_mode: newSettings.chaos_mode,
+            discussion_time: newSettings.discussion_time,
+            presenting_time: newSettings.presenting_time,
+            voting_time: newSettings.voting_time,
+            roles: newSettings.roles,
+            special_abilities: newSettings.special_abilities
+          },
+          max_players: newSettings.max_players,
+          max_rounds: newSettings.max_rounds,
+          game_mode: newSettings.game_mode,
+          team_size: newSettings.team_size,
+          chaos_mode: newSettings.chaos_mode,
+          discussion_time: newSettings.discussion_time,
+          presenting_time: newSettings.presenting_time,
+          voting_time: newSettings.voting_time,
+          last_updated: new Date().toISOString()
+        };
+        setRoom(updatedRoom);
+      }
+      
+      // Fetch the updated room data to ensure consistency
+      const { data: updatedRoomData, error: fetchError } = await supabase
+        .from('game_rooms')
+        .select('*, players!players_room_id_fkey (*)')
+        .eq('id', room.id)
+        .single();
+
+      if (fetchError) {
+        console.error('Error fetching updated room:', fetchError);
+        throw fetchError;
+      }
+
+      console.log('Final room data from database:', updatedRoomData);
+
+      if (updatedRoomData) {
+        const mappedRoom = mapRoomData(updatedRoomData as DatabaseRoom);
+        const extendedRoom = convertToExtendedRoom(mappedRoom);
+        setRoom(extendedRoom);
+        return true;
+      }
+      
+      return false;
     } catch (error) {
-      toast.error("Error updating settings");
+      console.error('Error updating settings:', error);
+      return false;
     }
   };
 

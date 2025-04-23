@@ -11,18 +11,18 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { RealtimeChannel } from '@supabase/supabase-js';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { ServerCrash } from 'lucide-react';
 
 export default function PublicRooms() {
-  const [rooms, setRooms] = useState<GameRoom[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [rooms, setRooms] = useState<GameRoom[] | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [isJoinDialogOpen, setIsJoinDialogOpen] = useState(false);
   const [playerName, setPlayerName] = useState('');
+  const [isJoining, setIsJoining] = useState(false);
   const { getPublicRooms, joinRoom, playerName: contextPlayerName, checkNameExists } = useGame();
   const navigate = useNavigate();
-  const lastFetchRef = useRef<number>(0);
-  const isFetchingRef = useRef<boolean>(false);
-  const roomsRef = useRef<GameRoom[]>([]);
   const channelRef = useRef<RealtimeChannel | null>(null);
 
   // Load player name from context or localStorage when component mounts
@@ -31,57 +31,67 @@ export default function PublicRooms() {
     setPlayerName(savedName);
   }, [contextPlayerName]);
 
-  // Define fetchRooms function with useCallback to prevent infinite loops
-  const fetchPublicRooms = useCallback(async () => {
-    // Prevent multiple simultaneous fetches
-    if (isFetchingRef.current) return;
-    
-    // Only fetch if at least 2 seconds have passed since last fetch
-    const now = Date.now();
-    if (now - lastFetchRef.current < 2000 && roomsRef.current.length > 0) return;
-
-    isFetchingRef.current = true;
-    lastFetchRef.current = now;
-
+  const fetchPublicRooms = useCallback(async (isInitial = false) => {
+    if (!isInitial) setIsLoading(true); // Show loader on subsequent fetches
     try {
-      setLoading(true);
       const data = await getPublicRooms();
-      
-      // Only update if there are actual changes
-      if (JSON.stringify(roomsRef.current) !== JSON.stringify(data)) {
-        roomsRef.current = data;
-        setRooms(data);
-      }
+      setRooms(data);
     } catch (error) {
       console.error('Error fetching rooms:', error);
+      setRooms([]); // Set to empty array on error
+      toast({ variant: "destructive", title: "Error", description: "Could not fetch public rooms." });
     } finally {
-      setLoading(false);
-      isFetchingRef.current = false;
+      setIsLoading(false);
     }
   }, [getPublicRooms]);
 
   // Set up real-time subscriptions
   useEffect(() => {
+    let isSubscribed = true;
+
+    // Initial fetch
+    fetchPublicRooms(true);
+
     // Clean up any existing subscription
     if (channelRef.current) {
       supabase.removeChannel(channelRef.current);
     }
 
-    const channel = supabase.channel('public_rooms');
-    
+    const channel = supabase.channel('public_rooms_list', {
+      config: {
+        broadcast: { self: true },
+        presence: { key: '' },
+      },
+    });
+
     // Subscribe to game_rooms changes
     channel
       .on('postgres_changes', 
         { 
-          event: '*', 
+          event: 'INSERT', 
           schema: 'public', 
           table: 'game_rooms',
           filter: 'state=eq.lobby'
         }, 
-        async (payload) => {
-          console.log('Room change detected:', payload);
-          // Force immediate fetch regardless of event type
-          await fetchPublicRooms();
+        (payload) => {
+          console.log('New room created:', payload);
+          if (isSubscribed) {
+            fetchPublicRooms();
+          }
+        }
+      )
+      .on('postgres_changes', 
+        { 
+          event: 'DELETE', 
+          schema: 'public', 
+          table: 'game_rooms',
+          filter: 'state=eq.lobby'
+        }, 
+        (payload) => {
+          console.log('Room deleted:', payload);
+          if (isSubscribed) {
+            fetchPublicRooms();
+          }
         }
       )
       .on('postgres_changes', 
@@ -91,36 +101,39 @@ export default function PublicRooms() {
           table: 'players',
           filter: 'room_id=not.is.null'
         }, 
-        async (payload) => {
+        (payload) => {
           console.log('Player change detected:', payload);
-          // Force immediate fetch
-          await fetchPublicRooms();
+          if (isSubscribed) {
+            fetchPublicRooms();
+          }
         }
       )
-      .on('broadcast', { event: 'sync' }, async (payload) => {
-        console.log('Sync broadcast received:', payload);
-        // Force immediate fetch for any sync event
-        await fetchPublicRooms();
-      })
       .subscribe((status) => {
-        console.log('Subscription status:', status);
+        console.log('PublicRooms Subscription status:', status);
         if (status === 'SUBSCRIBED') {
-          // Initial fetch when subscription is established
-          fetchPublicRooms();
+          console.log('Subscribed to public rooms channel');
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error('PublicRooms Subscription failed:', status);
+          if (isSubscribed) {
+            setIsLoading(false);
+            setRooms([]);
+            toast({ 
+              variant: "destructive", 
+              title: "Connection Error", 
+              description: "Could not connect to live room updates. Please refresh the page." 
+            });
+          }
         }
       });
 
     channelRef.current = channel;
 
-    // Set up periodic refresh
-    const intervalId = setInterval(fetchPublicRooms, 5000);
-
     return () => {
+      isSubscribed = false;
       if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
+        supabase.removeChannel(channelRef.current).catch(err => console.error("Error removing channel:", err));
         channelRef.current = null;
       }
-      clearInterval(intervalId);
     };
   }, [fetchPublicRooms]);
 
@@ -140,6 +153,7 @@ export default function PublicRooms() {
       return;
     }
 
+    setIsJoining(true);
     try {
       // Check if name exists in the room
       const nameExists = await checkNameExists(selectedRoomId, playerName);
@@ -201,14 +215,29 @@ export default function PublicRooms() {
     } catch (error) {
       console.error('Error joining room:', error);
       setIsJoinDialogOpen(false);
+    } finally {
+      setIsJoining(false);
     }
   };
 
-  if (loading && rooms.length === 0) {
+  if (isLoading) {
     return (
       <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <p className="ml-3 text-muted-foreground">Loading public rooms...</p>
       </div>
+    );
+  }
+
+  if (!rooms || rooms.length === 0) {
+    return (
+      <Alert className="border-amber-200 bg-amber-50 text-amber-800">
+        <ServerCrash className="h-4 w-4 !text-amber-600" />
+        <AlertTitle className="!text-amber-900">No Rooms Found</AlertTitle>
+        <AlertDescription className="!text-amber-700">
+          There are currently no public rooms available. Why not create one?
+        </AlertDescription>
+      </Alert>
     );
   }
 
@@ -218,43 +247,46 @@ export default function PublicRooms() {
     <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-6">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
         {rooms.map((room) => (
-          <Card key={room.id} className="hover:shadow-lg transition-all duration-200 w-full border-2 border-transparent hover:border-primary/20">
-            <CardHeader className="p-3 sm:p-4">
+          <Card 
+            key={room.id} 
+            className="hover:shadow-lg transition-all duration-200 w-full border-2 border-transparent hover:border-cyan-200 bg-white/90"
+          >
+            <CardHeader className="p-3 sm:p-4 bg-gradient-to-r from-cyan-50 to-teal-50">
               <CardTitle className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1.5 sm:gap-2">
-                <span className="text-base sm:text-lg font-semibold">Room {room.id}</span>
+                <span className="text-base sm:text-lg font-semibold text-cyan-600">Room {room.id}</span>
                 <Badge 
                   variant={room.players.length >= room.settings.max_players ? "destructive" : "default"}
-                  className="text-xs sm:text-sm"
+                  className="text-xs sm:text-sm bg-cyan-500 hover:bg-cyan-600 text-white"
                 >
                   {room.players.length}/{room.settings.max_players} Players
                 </Badge>
               </CardTitle>
-              <CardDescription className="text-xs sm:text-sm text-muted-foreground">
+              <CardDescription className="text-xs sm:text-sm text-cyan-600/70">
                 Created {new Date(room.created_at).toLocaleTimeString()}
               </CardDescription>
             </CardHeader>
             <CardContent className="p-3 sm:p-4">
               <div className="space-y-2.5 sm:space-y-3">
                 <div className="flex items-center gap-2">
-                  <Gamepad2 className="h-4 w-4 flex-shrink-0 text-primary" />
+                  <Gamepad2 className="h-4 w-4 flex-shrink-0 text-cyan-500" />
                   <p className="text-xs sm:text-sm truncate">
                     <span className="font-medium">Mode:</span> {room.settings.game_mode}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Settings2 className="h-4 w-4 flex-shrink-0 text-primary" />
+                  <Settings2 className="h-4 w-4 flex-shrink-0 text-cyan-500" />
                   <p className="text-xs sm:text-sm truncate">
                     <span className="font-medium">Rounds:</span> {room.settings.max_rounds}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 flex-shrink-0 text-primary" />
+                  <Clock className="h-4 w-4 flex-shrink-0 text-cyan-500" />
                   <p className="text-xs sm:text-sm truncate">
                     <span className="font-medium">Time:</span> {room.settings.discussion_time}s
                   </p>
                 </div>
                 <Button
-                  className="w-full mt-2 text-xs sm:text-sm h-8 sm:h-9"
+                  className="w-full mt-2 text-xs sm:text-sm h-8 sm:h-9 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-700 hover:to-teal-700 text-white transition-all duration-300"
                   onClick={() => openJoinDialog(room.id)}
                   disabled={room.players.length >= room.settings.max_players}
                 >
@@ -264,18 +296,13 @@ export default function PublicRooms() {
             </CardContent>
           </Card>
         ))}
-        {rooms.length === 0 && (
-          <div className="col-span-full text-center py-8">
-            <p className="text-sm sm:text-base text-muted-foreground">No public rooms available. Create one to get started!</p>
-          </div>
-        )}
       </div>
 
       {/* Join Room Dialog */}
       <Dialog open={isJoinDialogOpen} onOpenChange={setIsJoinDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Join Room</DialogTitle>
+            <DialogTitle className="text-cyan-600">Join Room</DialogTitle>
             <DialogDescription>
               Enter your name to join {selectedRoom?.id ? `Room ${selectedRoom.id}` : 'the room'}
             </DialogDescription>
@@ -286,20 +313,31 @@ export default function PublicRooms() {
               value={playerName}
               onChange={(e) => setPlayerName(e.target.value)}
               autoFocus
+              className="border-cyan-100 focus:border-cyan-300 focus:ring-cyan-200"
             />
           </div>
           <DialogFooter>
             <Button 
               variant="outline" 
               onClick={() => setIsJoinDialogOpen(false)}
+              disabled={isJoining}
+              className="border-cyan-200 hover:bg-cyan-50"
             >
               Cancel
             </Button>
             <Button 
               onClick={handleJoinRoom}
-              disabled={!playerName.trim()}
+              disabled={!playerName.trim() || isJoining}
+              className="bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-700 hover:to-teal-700 text-white transition-all duration-300"
             >
-              Join Room
+              {isJoining ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Joining Room...
+                </>
+              ) : (
+                "Join Room"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

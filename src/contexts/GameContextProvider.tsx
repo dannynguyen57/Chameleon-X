@@ -267,7 +267,15 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
   }, [room, fetchRoom]);
 
   useEffect(() => {
-    if (!room?.id) return;
+    if (!room?.id) {
+      // Clean up any existing subscription if there's no room
+      if (channelRef.current) {
+        console.log('Cleaning up subscription - no room');
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+      return;
+    }
     
     if (channelRef.current) {
       console.log('Cleaning up old subscription');
@@ -293,8 +301,10 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         }, 
         async (payload) => {
           console.log('Room change detected:', payload);
-          // Force immediate update for room changes
-          await fetchRoom();
+          // Only fetch if we still have a room
+          if (roomRef.current?.id === room.id) {
+            await fetchRoom();
+          }
         }
       )
       .on('postgres_changes', 
@@ -306,56 +316,61 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         }, 
         async (payload) => {
           console.log('Player change detected:', payload);
-          // Force immediate update for player changes
-          await fetchRoom();
+          // Only fetch if we still have a room
+          if (roomRef.current?.id === room.id) {
+            await fetchRoom();
+          }
         }
       )
       .on('broadcast', { event: 'sync' }, async (payload) => {
         console.log('Sync broadcast received:', payload);
-        if (payload.payload?.action === 'player_joined' || 
-            payload.payload?.action === 'player_left' ||
-            payload.payload?.action === 'game_state_changed' ||
-            payload.payload?.action === 'game_started' ||
-            payload.payload?.action === 'category_selected' ||
-            payload.payload?.action === 'description_submitted') {
-          
-          // Force immediate update
-          await fetchRoom();
-
-          // If game has started or state has changed, ensure we're on the game screen
-          if ((payload.payload?.action === 'game_started' || 
-               payload.payload?.action === 'game_state_changed' ||
-               payload.payload?.newState === GameState.Selecting ||
-               payload.payload?.newState === GameState.Presenting ||
-               payload.payload?.action === 'category_selected' ||
-               payload.payload?.action === 'description_submitted') && 
-              payload.payload?.roomId === room.id) {
+        // Only process if we still have a room
+        if (roomRef.current?.id === room.id) {
+          if (payload.payload?.action === 'player_joined' || 
+              payload.payload?.action === 'player_left' ||
+              payload.payload?.action === 'game_state_changed' ||
+              payload.payload?.action === 'game_started' ||
+              payload.payload?.action === 'category_selected' ||
+              payload.payload?.action === 'description_submitted') {
             
-            // Force a complete state update with all broadcast data
-            if (roomRef.current) {
-              // Find the full category object if we have a category name
-              const categoryName = payload.payload?.category;
-              const fullCategory = categoryName 
-                ? categories.find((c: WordCategory) => c.name === categoryName)
-                : roomRef.current.category;
+            // Force immediate update
+            await fetchRoom();
 
-              const updatedRoom = {
-                ...roomRef.current,
-                state: payload.payload?.newState || roomRef.current.state,
-                category: fullCategory,
-                secret_word: payload.payload?.secretWord || roomRef.current.secret_word,
-                current_turn: payload.payload?.currentTurn ?? roomRef.current.current_turn,
-                turn_order: payload.payload?.turnOrder || roomRef.current.turn_order,
-                timer: payload.payload?.timer ?? roomRef.current.timer,
-                last_updated: new Date().toISOString()
-              };
+            // If game has started or state has changed, ensure we're on the game screen
+            if ((payload.payload?.action === 'game_started' || 
+                 payload.payload?.action === 'game_state_changed' ||
+                 payload.payload?.newState === GameState.Selecting ||
+                 payload.payload?.newState === GameState.Presenting ||
+                 payload.payload?.action === 'category_selected' ||
+                 payload.payload?.action === 'description_submitted') && 
+                payload.payload?.roomId === room.id) {
               
-              console.log('Updating room state with broadcast data:', updatedRoom);
-              setRoom(updatedRoom);
+              // Force a complete state update with all broadcast data
+              if (roomRef.current) {
+                // Find the full category object if we have a category name
+                const categoryName = payload.payload?.category;
+                const fullCategory = categoryName 
+                  ? categories.find((c: WordCategory) => c.name === categoryName)
+                  : roomRef.current.category;
 
-              // Force a navigation to the game screen if needed
-              if (!window.location.pathname.includes(`/room/${room.id}`)) {
-                window.location.href = `/room/${room.id}`;
+                const updatedRoom = {
+                  ...roomRef.current,
+                  state: payload.payload?.newState || roomRef.current.state,
+                  category: fullCategory,
+                  secret_word: payload.payload?.secretWord || roomRef.current.secret_word,
+                  current_turn: payload.payload?.currentTurn ?? roomRef.current.current_turn,
+                  turn_order: payload.payload?.turnOrder || roomRef.current.turn_order,
+                  timer: payload.payload?.timer ?? roomRef.current.timer,
+                  last_updated: new Date().toISOString()
+                };
+                
+                console.log('Updating room state with broadcast data:', updatedRoom);
+                setRoom(updatedRoom);
+
+                // Force a navigation to the game screen if needed
+                if (!window.location.pathname.includes(`/room/${room.id}`)) {
+                  window.location.href = `/room/${room.id}`;
+                }
               }
             }
           }
@@ -364,8 +379,10 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
       .subscribe((status) => {
         console.log('Subscription status:', status);
         if (status === 'SUBSCRIBED') {
-          // Force an initial fetch when subscription is established
-          fetchRoom();
+          // Only fetch if we still have a room
+          if (roomRef.current?.id === room.id) {
+            fetchRoom();
+          }
         }
       });
 
@@ -477,6 +494,12 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
 
       if (nameExists) {
         console.error('Player name already exists in room');
+        // Add user-facing notification
+        toast({
+          variant: "destructive",
+          title: "Name Taken",
+          description: `The name "${playerName}" is already in use in this room. Please choose a different name.`
+        });
         return false;
       }
 
@@ -519,8 +542,23 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
   const leaveRoom = useCallback(async () => {
     if (!room?.id || !playerId) return;
 
+    const roomId = room.id;
+    let wasHost = false;
+    let newHostId: string | null = null;
+
     try {
-      // Delete the player
+      // 1. Fetch current players *before* deleting
+      const { data: playersInRoom, error: fetchPlayersError } = await supabase
+        .from('players')
+        .select('id, is_host')
+        .eq('room_id', roomId);
+
+      if (fetchPlayersError) throw fetchPlayersError;
+
+      const currentPlayer = playersInRoom?.find(p => p.id === playerId);
+      wasHost = currentPlayer?.is_host || false;
+
+      // 2. Delete the current player
       const { error: deleteError } = await supabase
         .from('players')
         .delete()
@@ -528,48 +566,40 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
 
       if (deleteError) throw deleteError;
 
-      // Update room's last_updated timestamp to trigger real-time updates
-      const { error: updateError } = await supabase
-        .from('game_rooms')
-        .update({ 
-          last_updated: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', room.id);
+      const remainingPlayers = playersInRoom?.filter(p => p.id !== playerId) || [];
 
-      if (updateError) throw updateError;
+      // 3. Handle Host Migration or Room Deletion
+      if (remainingPlayers.length === 0) {
+        // If no players left, delete the room
+        const { error: deleteRoomError } = await supabase
+          .from('game_rooms')
+          .delete()
+          .eq('id', roomId);
+        if (deleteRoomError) console.error('Error deleting room:', deleteRoomError);
+      } else if (wasHost) {
+        // If host left and others remain, assign a new host
+        // Simple logic: assign to the first remaining player
+        newHostId = remainingPlayers[0].id;
+        const { error: hostUpdateError } = await supabase
+          .from('players')
+          .update({ is_host: true })
+          .eq('id', newHostId);
+        if (hostUpdateError) console.error('Error updating host:', hostUpdateError);
+      }
 
-      // Fetch the latest room data before setting to null
-      const { data: updatedRoom, error: fetchError } = await supabase
-        .from('game_rooms')
-        .select(`
-          *,
-          players:players(*)
-        `)
-        .eq('id', room.id)
-        .single();
-
-      if (fetchError) throw fetchError;
-
-      // Generate a new player ID when leaving the room
-      try {
-        await generateNewPlayerId();
-      } catch (error) {
-        console.error('Failed to generate new player ID after leaving room:', error);
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: "Failed to leave room properly. Please refresh the page."
+      // 4. Broadcast the update to other clients
+      if (channelRef.current) {
+        await channelRef.current.send({
+          type: 'broadcast',
+          event: 'sync',
+          payload: { action: 'player_left', roomId: roomId, playerId: playerId, newHostId: newHostId },
         });
       }
 
-      // Update local state with the latest room data
-      setRoom(updatedRoom);
-      
-      // Then set to null after a short delay to ensure UI updates
-      setTimeout(() => {
-        setRoom(null);
-      }, 100);
+      // 5. Clean up local state
+      await generateNewPlayerId();
+      setRoom(null); // Immediately set room to null locally
+
     } catch (error) {
       console.error('Error leaving room:', error);
       toast({
@@ -577,6 +607,8 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         title: "Error",
         description: "Failed to leave room. Please try again."
       });
+      // Attempt to clean up local state even on error
+      setRoom(null);
     }
   }, [room?.id, playerId, setRoom, generateNewPlayerId]);
 
@@ -653,7 +685,12 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
           return [];
         }
 
-        return (rooms || []).map(room => mapRoomData(room as unknown as DatabaseRoom));
+        // Filter out rooms with no players client-side and map the data
+        const validRooms = (rooms || [])
+          .filter(room => room.players && room.players.length > 0)
+          .map(room => mapRoomData(room as unknown as DatabaseRoom));
+
+        return validRooms;
       } catch (error) {
         console.error('Error in getPublicRooms:', error);
         return [];

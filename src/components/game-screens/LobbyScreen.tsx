@@ -3,12 +3,14 @@ import { useGame } from "@/hooks/useGame";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ShieldCheck, UserCircle2, Settings, Copy, Users, Check, Clock } from "lucide-react";
+import { ShieldCheck, UserCircle2, Settings, Copy, Users, Check, Clock, Gamepad2, Trophy } from "lucide-react";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import GameSettings from './GameSettings';
 import { toast } from '@/components/ui/use-toast';
 import { Player } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
+import { motion } from 'framer-motion';
 
 const PlayerReadyStatus = ({ 
   player, 
@@ -144,23 +146,39 @@ export default function LobbyScreen() {
 
   return (
     <div className="space-y-6">
-      <Card className="border-2 border-primary/20 shadow-lg">
+      <Card className="border-2 border-primary/20 shadow-lg bg-gradient-to-br from-background to-background/80">
         <CardHeader>
           <div className="flex justify-between items-center">
             <div>
-              <CardTitle className="text-2xl">Game Lobby</CardTitle>
-              <CardDescription>
+              <CardTitle className="text-2xl flex items-center gap-2">
+                <Gamepad2 className="h-6 w-6 text-primary" />
+                Game Lobby
+              </CardTitle>
+              <CardDescription className="flex items-center gap-2 mt-2">
                 {isHost 
                   ? "You are the host. Start the game when everyone has joined." 
                   : "Waiting for the host to start the game..."}
+                <Badge variant="outline" className="ml-2">
+                  {room.players.length}/{room.settings.max_players} Players
+                </Badge>
               </CardDescription>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" size="icon" onClick={copyRoomCode}>
+              <Button 
+                variant="outline" 
+                size="icon" 
+                onClick={copyRoomCode}
+                className="hover:bg-primary/10 hover:text-primary transition-all duration-200"
+              >
                 <Copy className="h-4 w-4" />
               </Button>
               {isHost && (
-                <Button variant="outline" size="icon" onClick={() => setShowSettings(true)}>
+                <Button 
+                  variant="outline" 
+                  size="icon" 
+                  onClick={() => setShowSettings(true)}
+                  className="hover:bg-primary/10 hover:text-primary transition-all duration-200"
+                >
                   <Settings className="h-4 w-4" />
                 </Button>
               )}
@@ -169,18 +187,28 @@ export default function LobbyScreen() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <h3 className="font-medium mb-2">Players ({room.players.length}/{room.settings.max_players || 10})</h3>
+            <h3 className="font-medium mb-2 flex items-center gap-2">
+              <Users className="h-4 w-4 text-primary" />
+              Players
+            </h3>
             <div className="grid gap-2">
               {room.players.map((player: Player) => (
-                <div 
+                <motion.div 
                   key={player.id} 
-                  className={`flex items-center justify-between p-3 rounded-md ${
-                    player.id === playerId ? "bg-primary/10" : "bg-card/60"
-                  }`}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={cn(
+                    "flex items-center justify-between p-3 rounded-md transition-all duration-200",
+                    player.id === playerId ? "bg-primary/10" : "bg-card/60",
+                    "hover:shadow-md hover:scale-[1.01]"
+                  )}
                 >
                   <div className="flex items-center gap-2">
-                    <UserCircle2 className="h-5 w-5" />
-                    <span>{player.name}</span>
+                    <Avatar className="h-8 w-8">
+                      <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}`} />
+                      <AvatarFallback>{player.name[0]}</AvatarFallback>
+                    </Avatar>
+                    <span className="font-medium">{player.name}</span>
                     {player.id === playerId && (
                       <Badge variant="outline" className="ml-2">You</Badge>
                     )}
@@ -197,7 +225,7 @@ export default function LobbyScreen() {
                       onReadyToggle={handleReadyToggle}
                     />
                   </div>
-                </div>
+                </motion.div>
               ))}
             </div>
           </div>
@@ -207,7 +235,12 @@ export default function LobbyScreen() {
             <Button 
               onClick={startGame} 
               disabled={!canStartGame || !room.players.every(p => p.is_ready)}
-              className="w-full"
+              className={cn(
+                "w-full transition-all duration-200",
+                !canStartGame || !room.players.every(p => p.is_ready)
+                  ? "opacity-50"
+                  : "hover:scale-[1.02]"
+              )}
             >
               {!canStartGame 
                 ? "Need at least 3 players to start"
@@ -223,19 +256,37 @@ export default function LobbyScreen() {
         </CardFooter>
       </Card>
 
-      <Card className="border border-secondary/20">
+      <Card className="border border-secondary/20 bg-gradient-to-br from-background to-background/80">
         <CardHeader>
-          <CardTitle className="text-xl">Game Rules</CardTitle>
+          <CardTitle className="text-xl flex items-center gap-2">
+            <Trophy className="h-5 w-5 text-amber-500" />
+            Game Rules
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <ol className="list-decimal list-inside space-y-2">
-            <li>One player will be randomly chosen as the Chameleon.</li>
-            <li>Everyone except the Chameleon will see the secret word.</li>
-            <li>Take turns describing the secret word without saying it directly.</li>
-            <li>The Chameleon must pretend to know the word!</li>
-            <li>After everyone has spoken, vote on who you think is the Chameleon.</li>
-            <li>If caught, the Chameleon gets one chance to guess the word to win.</li>
-          </ol>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-4">
+              <h4 className="font-medium text-amber-500">How to Play</h4>
+              <ol className="list-decimal list-inside space-y-2">
+                <li>One player will be randomly chosen as the Chameleon.</li>
+                <li>Everyone except the Chameleon will see the secret word.</li>
+                <li>Take turns describing the secret word without saying it directly.</li>
+                <li>The Chameleon must pretend to know the word!</li>
+                <li>After everyone has spoken, vote on who you think is the Chameleon.</li>
+                <li>If caught, the Chameleon gets one chance to guess the word to win.</li>
+              </ol>
+            </div>
+            <div className="space-y-4">
+              <h4 className="font-medium text-amber-500">Tips & Strategies</h4>
+              <ul className="list-disc list-inside space-y-2">
+                <li>Give subtle hints that don't reveal the word directly</li>
+                <li>Watch for players who seem uncertain or hesitant</li>
+                <li>As the Chameleon, listen carefully to others' descriptions</li>
+                <li>Coordinate with other players to catch the Chameleon</li>
+                <li>Use your special abilities strategically</li>
+              </ul>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>

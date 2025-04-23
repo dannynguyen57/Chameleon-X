@@ -607,12 +607,17 @@ export const useGameActions = (
       const secretWord = getRandomWord(category);
       console.log('Generated secret word:', secretWord);
 
-      // Create completely random turn order (including host)
+      // Create completely random turn order for all players
       const shuffledPlayers = [...room.players];
+      // Fisher-Yates shuffle algorithm for true randomness
       for (let i = shuffledPlayers.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [shuffledPlayers[i], shuffledPlayers[j]] = [shuffledPlayers[j], shuffledPlayers[i]];
       }
+      
+      // Log the shuffled order for debugging
+      console.log('Shuffled players:', shuffledPlayers.map(p => ({ id: p.id, name: p.name, is_host: p.is_host })));
+      
       const turnOrder = shuffledPlayers.map(p => p.id);
       const currentTurn = 0;
       
@@ -625,7 +630,7 @@ export const useGameActions = (
           secret_word: secretWord,
           timer: settings.time_per_round,
           discussion_timer: settings.discussion_time,
-          current_turn: currentTurn,
+          current_turn: 0,
           turn_order: turnOrder,
           updated_at: new Date().toISOString(),
           last_updated: new Date().toISOString()
@@ -647,7 +652,7 @@ export const useGameActions = (
         secret_word: secretWord,
         timer: settings.time_per_round,
         discussion_timer: settings.discussion_time,
-        current_turn: currentTurn,
+        current_turn: 0,
         turn_order: turnOrder,
         updated_at: new Date().toISOString(),
         last_updated: new Date().toISOString()
@@ -1149,10 +1154,25 @@ export const useGameActions = (
           toast.success("Your mimic abilities are in effect.");
           break;
         case PlayerRole.Chameleon:
-          // Chameleon doesn't have a special ability to use
-          toast.error("As the Chameleon, you must blend in without special abilities.");
-          await updatePlayer(playerId, room.id, { special_ability_used: false });
-          return;
+          if (targetPlayerId) {
+            // View Roles ability - Show one random role
+            const targetPlayer = room.players.find(p => p.id === targetPlayerId);
+            if (targetPlayer) {
+              // Get a random role from the game's role pool
+              const rolePool = room.settings.roles[room.settings.game_mode];
+              const randomRole = rolePool[Math.floor(Math.random() * rolePool.length)];
+              toast.success(`You sense that ${targetPlayer.name} might be a ${randomRole}`);
+            }
+          } else {
+            // Blend In ability - Get a hint about the word
+            const category = room.category;
+            if (category) {
+              // Get a random word from the same category
+              const similarWord = getSimilarWord(room.secret_word || '', category.words);
+              toast.success(`You sense the word might be related to "${similarWord}"`);
+            }
+          }
+          break;
         default:
           console.log(`No special ability action defined for role: ${currentPlayer.role}`);
           // Revert the special_ability_used flag if no action was taken

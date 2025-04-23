@@ -104,11 +104,11 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
   const [isSwappingVotes, setIsSwappingVotes] = useState(false);
   const [isDoublingVote, setIsDoublingVote] = useState(false);
   const [targetPlayer, setTargetPlayer] = useState<string | null>(null);
-  const [isViewingRoles, setIsViewingRoles] = useState(false);
   const [isActingSuspicious, setIsActingSuspicious] = useState(false);
   const [isGuiding, setIsGuiding] = useState(false);
 
   const { handleRoleAbility } = useGameActions(playerId, room, room.settings, () => {});
+  const { theme } = getRoleStyle(currentPlayer.role);
 
   const isChameleon = currentPlayer.role === PlayerRole.Chameleon;
   const isMimic = currentPlayer.role === PlayerRole.Mimic;
@@ -149,10 +149,6 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
         if (targetPlayer) {
           await handleRoleAbility(targetPlayer);
         }
-        break;
-      case 'viewRoles':
-        setIsViewingRoles(true);
-        await handleRoleAbility();
         break;
       case 'actSuspicious':
         setIsActingSuspicious(true);
@@ -199,13 +195,6 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
                   : "Wait for your turn to describe the word"}
               </p>
             </div>
-            
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="text-lg">
-                <Timer className="w-4 h-4 mr-1" />
-                {formatTime(room.timer || 0)}
-              </Badge>
-            </div>
           </div>
         </CardHeader>
 
@@ -213,26 +202,15 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
           {/* Role Abilities Section */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {isChameleon && (
-              <>
-                <Button 
-                  onClick={() => handleAbilityUse('blendIn')}
-                  disabled={isBlendingIn || currentPlayer.special_ability_used}
-                  className="flex items-center gap-2"
-                  variant="secondary"
-                >
-                  <ShieldCheck className="w-4 h-4" />
-                  Blend In
-                </Button>
-                <Button 
-                  onClick={() => handleAbilityUse('viewRoles')}
-                  disabled={isViewingRoles || currentPlayer.special_ability_used}
-                  className="flex items-center gap-2"
-                  variant="secondary"
-                >
-                  <Eye className="w-4 h-4" />
-                  View Roles
-                </Button>
-              </>
+              <Button 
+                onClick={() => handleAbilityUse('blendIn')}
+                disabled={isBlendingIn || currentPlayer.special_ability_used}
+                className="flex items-center gap-2"
+                variant="secondary"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                Blend In
+              </Button>
             )}
             {isMimic && (
               <Button 
@@ -384,21 +362,41 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
           {/* Description Input */}
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="description">Your Description</Label>
-              <Textarea
-                id="description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Enter your description..."
-                disabled={!isWordVisible && !isChameleon}
-                className="min-h-[100px]"
-              />
+              <div className="flex items-center justify-between">
+                <Label htmlFor="description" className="text-sm font-medium">Your Description</Label>
+                <span className="text-xs text-muted-foreground">
+                  {description.length}/200 characters
+                </span>
+              </div>
+              <div className="relative">
+                <Textarea
+                  id="description"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value.slice(0, 200))}
+                  placeholder={isChameleon ? "Try to blend in with your description..." : "Describe the word without saying it directly..."}
+                  disabled={!isWordVisible && !isChameleon}
+                  className={cn(
+                    "min-h-[120px] resize-none transition-all duration-200",
+                    "focus:ring-2 focus:ring-primary/20 focus:border-primary/50",
+                    "placeholder:text-muted-foreground/50",
+                    !isWordVisible && !isChameleon && "opacity-50 cursor-not-allowed"
+                  )}
+                />
+                {!isWordVisible && !isChameleon && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-background/50 backdrop-blur-sm rounded-md">
+                    <p className="text-sm text-muted-foreground">Show the word to start describing</p>
+                  </div>
+                )}
+              </div>
             </div>
             <div className="flex gap-2">
               <Button 
                 onClick={handleSubmitDescription}
                 disabled={!description.trim() || !isCurrentPlayerTurn}
-                className="flex-1"
+                className={cn(
+                  "flex-1 transition-all duration-200",
+                  !description.trim() || !isCurrentPlayerTurn ? "opacity-50" : "hover:scale-[1.02]"
+                )}
               >
                 <CheckCircle className="w-4 h-4 mr-2" />
                 Submit Description
@@ -407,41 +405,16 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
                 onClick={onSkipTurn}
                 variant="outline"
                 disabled={!isCurrentPlayerTurn}
+                className={cn(
+                  "transition-all duration-200",
+                  !isCurrentPlayerTurn ? "opacity-50" : "hover:scale-[1.02]"
+                )}
               >
                 <XCircle className="w-4 h-4 mr-2" />
                 Skip Turn
               </Button>
             </div>
           </div>
-
-          {/* Role View */}
-          {isViewingRoles && (
-            <div className="space-y-2">
-              <h4 className="text-sm font-medium flex items-center gap-2">
-                <Users className="w-4 h-4" />
-                Player Roles
-              </h4>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {room.players.map((player: Player) => (
-                  <div 
-                    key={player.id}
-                    className="flex items-center gap-2 p-2 rounded-lg bg-muted"
-                  >
-                    <Avatar className="w-6 h-6">
-                      <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}`} />
-                      <AvatarFallback>{player.name[0]}</AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{player.name}</p>
-                      {shouldShowRole(room, player.id, currentPlayer?.id) && player.role && (
-                        <p className="text-xs text-muted-foreground">{player.role}</p>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </CardContent>
       </Card>
     </motion.div>
@@ -525,6 +498,7 @@ export default function GamePlay() {
   const hasVoted = Boolean(room?.votes?.[playerId]);
   const isDevMode = import.meta.env.VITE_ENABLE_DEV_MODE === 'false';
   const [isGameInfoOpen, setIsGameInfoOpen] = useState(true);
+  const [isStarting, setIsStarting] = useState(false);
 
   const truncateName = (name: string, maxLength: number = 12) => {
     if (name.length <= maxLength) return name;
@@ -616,6 +590,19 @@ export default function GamePlay() {
   const handleVote = () => {
     if (selectedVote && room) {
       submitVote(selectedVote);
+    }
+  };
+
+  const handleStartGame = async () => {
+    if (!room) return;
+    setIsStarting(true);
+    try {
+      await startGame();
+    } catch (error) {
+      console.error('Error starting game:', error);
+      toast.error("Failed to start game. Please try again.");
+    } finally {
+      setIsStarting(false);
     }
   };
 
@@ -761,7 +748,53 @@ export default function GamePlay() {
                       room={room}
                       currentPlayer={currentPlayer}
                       onDescriptionSubmit={submitWord}
-                      onSkipTurn={() => {}}
+                      onSkipTurn={async () => {
+                        if (room && currentPlayer) {
+                          try {
+                            // Update the player's description to indicate skipped turn
+                            const { error: updateError } = await supabase
+                              .from('players')
+                              .update({ 
+                                turn_description: "[Skipped Turn]",
+                                last_updated: new Date().toISOString()
+                              })
+                              .eq('id', currentPlayer.id)
+                              .eq('room_id', room.id);
+
+                            if (updateError) throw updateError;
+
+                            // Move to next turn
+                            const currentTurnIndex = room.current_turn ?? 0;
+                            const nextTurnIndex = (currentTurnIndex + 1) % (room.turn_order?.length ?? 0);
+                            const nextPlayerId = room.turn_order?.[nextTurnIndex];
+                            const nextPlayerRoomIndex = room.players.findIndex(p => p.id === nextPlayerId);
+
+                            const { error: roomError } = await supabase
+                              .from('game_rooms')
+                              .update({ 
+                                current_turn: nextPlayerRoomIndex >= 0 ? nextPlayerRoomIndex : 0,
+                                timer: settings.time_per_round,
+                                last_updated: new Date().toISOString()
+                              })
+                              .eq('id', room.id);
+
+                            if (roomError) throw roomError;
+
+                            // Update local state
+                            setRoom({
+                              ...room,
+                              current_turn: nextPlayerRoomIndex >= 0 ? nextPlayerRoomIndex : 0,
+                              timer: settings.time_per_round,
+                              last_updated: new Date().toISOString()
+                            });
+
+                            toast.success("Turn skipped successfully");
+                          } catch (error) {
+                            console.error('Error skipping turn:', error);
+                            toast.error("Failed to skip turn. Please try again.");
+                          }
+                        }
+                      }}
                     />
                   ) : (
                     <Card className="border shadow-sm bg-background/50 backdrop-blur-sm">
@@ -1031,59 +1064,53 @@ export default function GamePlay() {
                 <div className="grid grid-cols-2 gap-3 sm:gap-4">
                   <div className="space-y-1">
                     <h4 className="text-xs sm:text-sm font-medium text-muted-foreground">Round</h4>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline" className="text-sm sm:text-base">
-                        {room?.round || 1} / {room?.max_rounds || 3}
-                      </Badge>
-                    </div>
+                    <Badge variant="outline" className="text-sm sm:text-base">
+                      {room?.round || 1} / {room?.max_rounds || 3}
+                    </Badge>
                   </div>
                   <div className="space-y-1">
-                    <h4 className="text-xs sm:text-sm font-medium text-muted-foreground">Time</h4>
-                    <div className="flex items-center gap-2">
-                      <Badge 
-                        variant="outline" 
-                        className={cn(
-                          "text-sm sm:text-base transition-all duration-300",
-                          room.timer && room.timer <= 10 ? "text-red-500 animate-pulse" : ""
-                        )}
-                      >
-                        <Timer className={cn(
-                          "w-3 h-3 sm:w-4 sm:h-4 mr-1",
-                          room.timer && room.timer <= 10 ? "text-red-500" : ""
-                        )} />
-                        {formatTime(room.timer || 0)}
-                      </Badge>
-                    </div>
+                    <h4 className="text-xs sm:text-sm font-medium text-muted-foreground">
+                      {room?.state === GameState.Presenting ? "Time to Describe" :
+                       room?.state === GameState.Discussion ? "Discussion Time" :
+                       room?.state === GameState.Voting ? "Voting Time" :
+                       "Time"}
+                    </h4>
+                    <Badge 
+                      variant="outline" 
+                      className={cn(
+                        "text-sm sm:text-base transition-all duration-300",
+                        remainingTime.timeLeft <= 10 ? "text-red-500 animate-pulse" : ""
+                      )}
+                    >
+                      <Timer className={cn(
+                        "w-3 h-3 sm:w-4 sm:h-4 mr-1",
+                        remainingTime.timeLeft <= 10 ? "text-red-500" : ""
+                      )} />
+                      {formatTime(remainingTime.timeLeft)}
+                    </Badge>
                   </div>
                   <div className="col-span-2 space-y-1">
                     <h4 className="text-xs sm:text-sm font-medium text-muted-foreground">Category</h4>
                     <div className="flex items-center gap-2">
-                      <Badge variant="secondary" className="text-sm sm:text-base">
-                        {room?.category?.name || "Not selected"}
-                      </Badge>
-                      {room?.category?.emoji && (
-                        <span className="text-lg">{room.category.emoji}</span>
-                      )}
+                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-primary/10 border border-primary/20">
+                        {room?.category?.emoji && (
+                          <span className="text-lg">{room.category.emoji}</span>
+                        )}
+                        <span className="text-sm font-medium">
+                          {room?.category?.name || "Not selected"}
+                        </span>
+                      </div>
                     </div>
                   </div>
                   {room?.secret_word && room.state !== GameState.Selecting && !isPlayerChameleon && (
                     <div className="col-span-2 space-y-1">
                       <h4 className="text-xs sm:text-sm font-medium text-muted-foreground">Secret Word</h4>
                       <div className="flex items-center gap-2">
-                        <Badge variant="secondary" className="text-sm sm:text-base font-semibold px-3 py-1">
-                          {room.secret_word}
-                        </Badge>
-                      </div>
-                    </div>
-                  )}
-                  {room?.state === GameState.Discussion && (
-                    <div className="col-span-2 space-y-1">
-                      <h4 className="text-xs sm:text-sm font-medium text-muted-foreground">Voting Starts In</h4>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-sm sm:text-base">
-                          <Timer className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
-                          {formatTime(room.discussion_timer || 0)}
-                        </Badge>
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-secondary/10 border border-secondary/20">
+                          <span className="text-sm font-semibold tracking-wide">
+                            {room.secret_word}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1094,11 +1121,16 @@ export default function GamePlay() {
             {room?.state === GameState.Lobby && currentPlayer?.is_host && (
               <div className="mt-4 text-center">
                 <Button
-                  onClick={() => startGame()}
-                  disabled={!room.players.every(p => p.is_ready)}
+                  onClick={handleStartGame}
+                  disabled={!room.players.every(p => p.is_ready) || isStarting}
                   className="w-full max-w-xs"
                 >
-                  {room.players.every(p => p.is_ready) 
+                  {isStarting ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Starting Game...
+                    </>
+                  ) : room.players.every(p => p.is_ready) 
                     ? "Start Game" 
                     : "Waiting for players to be ready..."}
                 </Button>

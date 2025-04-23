@@ -1,16 +1,65 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useGame } from "@/hooks/useGame";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ShieldCheck, UserCircle2, Settings, Copy, Users } from "lucide-react";
+import { ShieldCheck, UserCircle2, Settings, Copy, Users, Check, Clock } from "lucide-react";
 import GameSettings from './GameSettings';
 import { toast } from '@/components/ui/use-toast';
 import { Player } from '@/lib/types';
+import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
+
+const PlayerReadyStatus = ({ 
+  player, 
+  isCurrentPlayer,
+  onReadyToggle
+}: { 
+  player: Player;
+  isCurrentPlayer: boolean;
+  onReadyToggle: () => void;
+}) => {
+  console.log('PlayerReadyStatus render:', { playerId: player.id, isCurrentPlayer, isReady: player.is_ready });
+  
+  return (
+    <Button 
+      size="sm" 
+      onClick={onReadyToggle}
+      disabled={!isCurrentPlayer}
+      className={cn(
+        "h-6 px-2 text-xs flex items-center gap-1 transition-colors",
+        player.is_ready 
+          ? "bg-green-500 hover:bg-green-600 text-white" 
+          : "bg-muted hover:bg-muted/80 text-muted-foreground",
+        !isCurrentPlayer && "opacity-50 cursor-not-allowed"
+      )}
+    >
+      {player.is_ready ? (
+        <>
+          <Check className="w-3 h-3" />
+          Ready
+        </>
+      ) : (
+        <>
+          <Clock className="w-3 h-3" />
+          Not Ready
+        </>
+      )}
+    </Button>
+  );
+};
 
 export default function LobbyScreen() {
-  const { room, startGame, playerId } = useGame();
+  const { room, startGame, playerId, setRoom } = useGame();
   const [showSettings, setShowSettings] = useState(false);
+
+  useEffect(() => {
+    console.log('LobbyScreen render:', { playerId, room: room ? {
+      id: room.id,
+      state: room.state,
+      players: room.players.map(p => ({ id: p.id, name: p.name, is_ready: p.is_ready }))
+    } : null });
+  }, [playerId, room]);
 
   if (!room) return null;
 
@@ -23,6 +72,70 @@ export default function LobbyScreen() {
       title: "Room code copied!",
       description: "Share this code with your friends to join the game.",
     });
+  };
+
+  const handleReadyToggle = async () => {
+    console.log('handleReadyToggle called', { 
+      room: room ? { id: room.id, state: room.state } : null,
+      playerId,
+      currentPlayer: room?.players.find(p => p.id === playerId)
+    });
+
+    if (!room || !playerId) {
+      console.error('handleReadyToggle: Missing room or playerId', { room, playerId });
+      return;
+    }
+
+    try {
+      const currentPlayer = room.players.find(p => p.id === playerId);
+      if (!currentPlayer) {
+        console.error('handleReadyToggle: Current player not found', { playerId, players: room.players });
+        return;
+      }
+
+      console.log('handleReadyToggle: Toggling ready status', { 
+        playerId, 
+        currentReadyStatus: currentPlayer.is_ready,
+        newReadyStatus: !currentPlayer.is_ready 
+      });
+
+      const { error } = await supabase
+        .from('players')
+        .update({ 
+          is_ready: !currentPlayer.is_ready,
+          last_updated: new Date().toISOString()
+        })
+        .eq('id', playerId)
+        .eq('room_id', room.id);
+
+      if (error) {
+        console.error('handleReadyToggle: Error updating player', error);
+        throw error;
+      }
+
+      // Update local state
+      setRoom({
+        ...room,
+        players: room.players.map(p => 
+          p.id === playerId 
+            ? { ...p, is_ready: !currentPlayer.is_ready }
+            : p
+        )
+      });
+
+      // Show toast
+      toast({
+        title: currentPlayer.is_ready ? "You are no longer ready" : "You are ready to play!",
+        description: currentPlayer.is_ready ? "You can toggle your ready status again." : "Waiting for other players...",
+      });
+    } catch (error) {
+      console.error('Error toggling ready status:', error);
+      toast({
+        title: "Failed to update ready status",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   if (showSettings) {
@@ -72,11 +185,18 @@ export default function LobbyScreen() {
                       <Badge variant="outline" className="ml-2">You</Badge>
                     )}
                   </div>
-                  {player.is_host && (
-                    <Badge variant="secondary" className="flex gap-1">
-                      <ShieldCheck className="h-3 w-3" /> Host
-                    </Badge>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {player.is_host && (
+                      <Badge variant="secondary" className="flex gap-1">
+                        <ShieldCheck className="h-3 w-3" /> Host
+                      </Badge>
+                    )}
+                    <PlayerReadyStatus 
+                      player={player} 
+                      isCurrentPlayer={player.id === playerId}
+                      onReadyToggle={handleReadyToggle}
+                    />
+                  </div>
                 </div>
               ))}
             </div>
@@ -86,12 +206,14 @@ export default function LobbyScreen() {
           {isHost ? (
             <Button 
               onClick={startGame} 
-              disabled={!canStartGame}
+              disabled={!canStartGame || !room.players.every(p => p.is_ready)}
               className="w-full"
             >
-              {canStartGame 
-                ? "Start Game" 
-                : "Need at least 3 players to start"}
+              {!canStartGame 
+                ? "Need at least 3 players to start"
+                : !room.players.every(p => p.is_ready)
+                ? "Waiting for all players to be ready..."
+                : "Start Game"}
             </Button>
           ) : (
             <p className="text-center w-full text-muted-foreground">

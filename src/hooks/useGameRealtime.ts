@@ -57,6 +57,8 @@ export interface DatabaseRoom {
   last_updated?: string;
   max_rounds?: number;
   host_id?: string;
+  turn_order: string[];
+  discussion_timer?: number;
 }
 
 // const DEFAULT_SETTINGS_REALTIME: GameSettings = {
@@ -80,32 +82,36 @@ export interface DatabaseRoom {
 export const mapRoomData = (room: DatabaseRoom): GameRoom => {
   const categoryData = room.category ? categories.find(c => c.name === room.category) : undefined;
 
+  // Ensure players array exists and is properly mapped
+  const mappedPlayers = Array.isArray(room.players) ? room.players.map(player => ({
+    ...player,
+    role: player.role || PlayerRole.Regular,
+    special_ability_used: player.special_ability_used || false,
+    special_word: player.special_word || undefined,
+    is_ready: player.is_ready || false,
+    isProtected: player.is_protected || false,
+    isInvestigated: false,
+    isCurrentPlayer: false,
+    isTurn: false,
+    room_id: room.id,
+    team: player.team ? Number(player.team) : undefined
+  })) : [];
+
   return {
     id: room.id,
     state: room.state,
     settings: room.settings,
-    players: room.players.map(player => ({
-      ...player,
-      role: player.role,
-      special_ability_used: player.special_ability_used || false,
-      special_word: player.special_word || undefined,
-      is_ready: player.is_ready || false,
-      isProtected: player.is_protected || false,
-      isInvestigated: false,
-      isCurrentPlayer: false,
-      isTurn: false,
-      room_id: room.id,
-      team: player.team ? Number(player.team) : undefined
-    })),
+    players: mappedPlayers,
     category: categoryData || undefined,
     secret_word: room.secret_word || undefined,
     chameleon_id: room.chameleon_id || undefined,
     timer: room.timer || 0,
+    discussion_timer: room.discussion_timer || 0,
     current_turn: room.current_turn || 0,
     current_word: room.current_word || undefined,
     created_at: room.created_at,
     updated_at: room.updated_at,
-    turn_order: [],
+    turn_order: room.turn_order || [],
     round: room.round || 1,
     current_round: room.round || 1,
     round_outcome: room.round_outcome || null,
@@ -123,14 +129,7 @@ export const mapRoomData = (room: DatabaseRoom): GameRoom => {
                   room.state === GameState.Discussion ? 'discussion' :
                   room.state === GameState.Voting ? 'voting' :
                   room.state === GameState.Results ? 'results' :
-                  'lobby',
-    phase: room.state === GameState.Lobby ? 'lobby' :
-           room.state === GameState.Selecting ? 'selecting' :
-           room.state === GameState.Presenting ? 'presenting' :
-           room.state === GameState.Discussion ? 'discussion' :
-           room.state === GameState.Voting ? 'voting' :
-           room.state === GameState.Results ? 'results' :
-           'lobby'
+                  'lobby'
   };
 };
 
@@ -145,19 +144,70 @@ export const useGameRealtime = (roomId: string | undefined): { room: GameRoom | 
     if (!roomId) return;
 
     try {
+      console.log('Fetching room data for room:', roomId);
       const { data, error: fetchErr } = await supabase
         .from('game_rooms')
         .select('*, players!players_room_id_fkey (*)')
         .eq('id', roomId)
         .single();
 
-      if (fetchErr) throw fetchErr;
+      if (fetchErr) {
+        console.error('Error fetching room:', fetchErr);
+        throw fetchErr;
+      }
 
       if (data) {
-        const mappedRoom = mapRoomData(data as DatabaseRoom);
+        console.log('Raw room data received:', {
+          id: data.id,
+          state: data.state,
+          players: data.players?.map((p: DatabasePlayer) => ({ id: p.id, name: p.name, is_host: p.is_host })),
+          category: data.category,
+          secret_word: data.secret_word
+        });
+
+        // Ensure players array exists and is properly mapped
+        const mappedPlayers = Array.isArray(data.players) ? data.players.map((player: DatabasePlayer) => ({
+          ...player,
+          role: player.role || PlayerRole.Regular,
+          special_ability_used: player.special_ability_used || false,
+          special_word: player.special_word || undefined,
+          is_ready: player.is_ready || false,
+          isProtected: player.is_protected || false,
+          isInvestigated: false,
+          isCurrentPlayer: false,
+          isTurn: false,
+          room_id: data.id,
+          team: player.team ? Number(player.team) : undefined
+        })) : [];
+
+        const mappedRoom = {
+          ...data,
+          players: mappedPlayers,
+          category: data.category ? categories.find(c => c.name === data.category) : undefined,
+          state: data.state,
+          timer: data.timer || 0,
+          discussion_timer: data.discussion_timer || 0,
+          current_turn: data.current_turn || 0,
+          round: data.round || 1,
+          max_rounds: data.max_rounds || 1,
+          votes: data.votes || {},
+          results: data.results || [],
+          last_updated: data.last_updated || new Date().toISOString()
+        };
+
+        console.log('Mapped room data:', {
+          id: mappedRoom.id,
+          state: mappedRoom.state,
+          players: mappedRoom.players.map((p: Player) => ({ id: p.id, name: p.name, is_host: p.is_host })),
+          category: mappedRoom.category,
+          secret_word: mappedRoom.secret_word
+        });
+
         setRoom(mappedRoom as unknown as GameRoom);
         setError(null);
         lastUpdateRef.current = Date.now();
+      } else {
+        console.log('No room data received');
       }
     } catch (err) {
       const error = err as Error;
@@ -170,14 +220,18 @@ export const useGameRealtime = (roomId: string | undefined): { room: GameRoom | 
 
   useEffect(() => {
     if (!roomId) {
+      console.log('No roomId provided, clearing state');
       setIsLoading(false);
       setRoom(null);
       return;
     }
+
+    console.log('Setting up realtime subscription for room:', roomId);
     setIsLoading(true);
     fetchRoomData();
 
     if (channelRef.current) {
+      console.log('Unsubscribing from previous channel');
       channelRef.current.unsubscribe();
     }
 
@@ -192,10 +246,13 @@ export const useGameRealtime = (roomId: string | undefined): { room: GameRoom | 
           filter: `id=eq.${roomId}`
         },
         async (payload) => {
-          console.log('Room change detected:', payload);
-          if (Date.now() - lastUpdateRef.current > 1000) {
-            await fetchRoomData();
-          }
+          console.log('Room change detected:', {
+            event: payload.eventType,
+            new: payload.new,
+            old: payload.old
+          });
+          // Force immediate update for room changes
+          await fetchRoomData();
         }
       )
       .on(
@@ -207,13 +264,70 @@ export const useGameRealtime = (roomId: string | undefined): { room: GameRoom | 
           filter: `room_id=eq.${roomId}`
         },
         async (payload) => {
-          console.log('Player change detected:', payload);
+          console.log('Player change detected:', {
+            event: payload.eventType,
+            new: payload.new,
+            old: payload.old
+          });
+          // Force immediate update for player changes
           await fetchRoomData();
         }
       )
-      .on('broadcast', { event: 'sync' }, () => {
-        console.log('Sync broadcast received');
-        fetchRoomData();
+      .on('broadcast', { event: 'sync' }, async (payload) => {
+        console.log('Sync broadcast received:', payload);
+        
+        // Define the actions that require immediate updates
+        const criticalActions = [
+          'category_selected',
+          'game_state_changed',
+          'game_started',
+          'player_joined',
+          'player_left'
+        ];
+
+        if (payload.payload?.action && criticalActions.includes(payload.payload.action)) {
+          // Force immediate update
+          await fetchRoomData();
+
+          // Only fetch room data again if we have broadcast data
+          if (payload.payload) {
+            const { data: roomData, error: fetchError } = await supabase
+              .from('game_rooms')
+              .select('*, players!players_room_id_fkey (*)')
+              .eq('id', roomId)
+              .single();
+
+            if (fetchError) {
+              console.error('Error fetching room after broadcast:', fetchError);
+              return;
+            }
+
+            if (roomData) {
+              const mappedRoom = mapRoomData(roomData as DatabaseRoom);
+              console.log('Updating room state with broadcast data:', {
+                id: mappedRoom.id,
+                state: mappedRoom.state,
+                category: mappedRoom.category,
+                currentTurn: mappedRoom.current_turn,
+                turnOrder: mappedRoom.turn_order,
+                players: mappedRoom.players.map(p => ({ id: p.id, name: p.name, role: p.role }))
+              });
+              
+              // Update room state
+              setRoom(mappedRoom);
+              
+              // Handle navigation for critical state changes
+              const { action, roomId: broadcastRoomId } = payload.payload;
+              if ((action === 'category_selected' || action === 'game_state_changed') && 
+                  broadcastRoomId === roomId) {
+                // Only navigate if not already on the game screen
+                if (!window.location.pathname.includes(`/room/${roomId}`)) {
+                  window.location.href = `/room/${roomId}`;
+                }
+              }
+            }
+          }
+        }
       })
       .subscribe((status) => {
         console.log('Subscription status:', status);
@@ -224,18 +338,12 @@ export const useGameRealtime = (roomId: string | undefined): { room: GameRoom | 
 
     channelRef.current = channel;
 
-    const syncInterval = setInterval(() => {
-      if (Date.now() - lastUpdateRef.current > 5000) {
-        fetchRoomData();
-      }
-    }, 5000);
-
     return () => {
+      console.log('Cleaning up realtime subscription');
       if (channelRef.current) {
         channelRef.current.unsubscribe();
         channelRef.current = null;
       }
-      clearInterval(syncInterval);
     };
   }, [roomId, fetchRoomData]);
 

@@ -162,6 +162,7 @@ export interface GameRoom {
   secret_word: string | undefined;
   chameleon_id: string | undefined;
   timer: number | undefined;
+  discussion_timer: number | undefined;
   current_turn: number | undefined;
   current_word: string | undefined;
   created_at: string;
@@ -179,7 +180,6 @@ export interface GameRoom {
   max_rounds: number;
   host_id: string;
   current_phase: GamePhase;
-  phase: GamePhase;
 }
 
 export interface ChatMessage {

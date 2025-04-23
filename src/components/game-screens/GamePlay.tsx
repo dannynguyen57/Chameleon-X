@@ -20,13 +20,14 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Check, Clock, Lightbulb, Trophy, Gamepad2, Users, MessageSquare, Vote, CheckCircle, XCircle, Smile, ShieldCheck, Award, Shield, Search, Laugh, Crown, Eye, EyeOff, Timer } from "lucide-react";
+import { Check, Clock, Lightbulb, Trophy, Gamepad2, Users, MessageSquare, Vote, CheckCircle, XCircle, Smile, ShieldCheck, Award, Shield, Search, Laugh, Crown, Eye, EyeOff, Timer, UserCircle2, ChevronDown, ChevronUp } from "lucide-react";
 
 import ChatSystem from "./ChatSystem";
 import DevModeSetup from '@/components/dev/DevModeSetup';
 import GameHeader from './GameHeader';
 import ResultsDisplay from './ResultsDisplay';
-import { toast } from "@/components/ui/use-toast";
+import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 
 interface RoleStyle {
   theme: RoleTheme;
@@ -94,6 +95,7 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
   onDescriptionSubmit, 
   onSkipTurn 
 }) => {
+  const { playerId } = useGame();
   const [description, setDescription] = useState('');
   const [isWordVisible, setIsWordVisible] = useState(false);
   const [isBlendingIn, setIsBlendingIn] = useState(false);
@@ -106,7 +108,7 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
   const [isActingSuspicious, setIsActingSuspicious] = useState(false);
   const [isGuiding, setIsGuiding] = useState(false);
 
-  const { handleRoleAbility } = useGameActions(currentPlayer.id, room, room.settings, () => {});
+  const { handleRoleAbility } = useGameActions(playerId, room, room.settings, () => {});
 
   const isChameleon = currentPlayer.role === PlayerRole.Chameleon;
   const isMimic = currentPlayer.role === PlayerRole.Mimic;
@@ -328,7 +330,14 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
                       <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}`} />
                       <AvatarFallback>{player.name[0]}</AvatarFallback>
                     </Avatar>
-                    {player.name}
+                    <div className="flex flex-col">
+                      <span className="font-medium">{player.name}</span>
+                      {shouldShowRole(room, player.id, currentPlayer?.id) && player.role && (
+                        <span className="text-xs text-muted-foreground">
+                          {player.role}
+                        </span>
+                      )}
+                    </div>
                   </Button>
                 ))}
               </div>
@@ -424,7 +433,9 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
                     </Avatar>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">{player.name}</p>
-                      <p className="text-xs text-muted-foreground">{player.role}</p>
+                      {shouldShowRole(room, player.id, currentPlayer?.id) && player.role && (
+                        <p className="text-xs text-muted-foreground">{player.role}</p>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -437,82 +448,45 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
   );
 };
 
-// Add these new components at the top level
-const GamePhaseIndicator = ({ room }: { room: GameRoom }) => {
-  const phases = [
-    { 
-      state: GameState.Presenting, 
-      label: "Presenting", 
-      icon: <MessageSquare className="w-4 h-4" />,
-      description: "Players take turns describing the word"
-    },
-    { 
-      state: GameState.Discussion, 
-      label: "Discussion", 
-      icon: <Users className="w-4 h-4" />,
-      description: "Discuss and identify the Chameleon"
-    },
-    { 
-      state: GameState.Voting, 
-      label: "Voting", 
-      icon: <Vote className="w-4 h-4" />,
-      description: "Vote for who you think is the Chameleon"
-    },
-    { 
-      state: GameState.Results, 
-      label: "Results", 
-      icon: <Trophy className="w-4 h-4" />,
-      description: "See who won the round"
+interface GamePhaseIndicatorProps {
+  room: GameRoom;
+}
+
+const GamePhaseIndicator: React.FC<GamePhaseIndicatorProps> = ({ room }) => {
+  const getPhaseColor = (state: GameState) => {
+    switch (state) {
+      case GameState.Presenting:
+        return "bg-blue-500";
+      case GameState.Discussion:
+        return "bg-yellow-500";
+      case GameState.Voting:
+        return "bg-purple-500";
+      case GameState.Results:
+        return "bg-green-500";
+      default:
+        return "bg-gray-500";
     }
-  ];
+  };
+
+  const getPhaseText = (state: GameState) => {
+    switch (state) {
+      case GameState.Presenting:
+        return "Presenting Phase";
+      case GameState.Discussion:
+        return "Discussion Phase";
+      case GameState.Voting:
+        return "Voting Phase";
+      case GameState.Results:
+        return "Results Phase";
+      default:
+        return "Unknown Phase";
+    }
+  };
 
   return (
-    <div className="relative">
-      <motion.div 
-        className="flex flex-col gap-4 p-4 bg-background/50 backdrop-blur-sm rounded-lg border border-primary/20"
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3 }}
-      >
-        <div className="flex items-center justify-center gap-2">
-          {phases.map((phase, index) => (
-            <motion.div
-              key={phase.state}
-              className={cn(
-                "flex items-center gap-1 px-3 py-1 rounded-full transition-all duration-300",
-                room.state === phase.state
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground"
-              )}
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ delay: index * 0.1 }}
-            >
-              {phase.icon}
-              <span className="text-sm font-medium">{phase.label}</span>
-            </motion.div>
-          ))}
-        </div>
-        
-        <div className="text-center">
-          <p className="text-sm text-muted-foreground">
-            {phases.find(p => p.state === room.state)?.description}
-          </p>
-        </div>
-      </motion.div>
-      
-      {/* Transition Overlay */}
-      <AnimatePresence>
-        {room.state === GameState.Discussion && (
-          <motion.div
-            className="absolute inset-0 bg-primary/5 backdrop-blur-sm rounded-lg"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-          />
-        )}
-      </AnimatePresence>
+    <div className="flex items-center justify-center gap-2">
+      <div className={`h-2 w-2 rounded-full ${getPhaseColor(room.state)}`} />
+      <span className="text-sm font-medium">{getPhaseText(room.state)}</span>
     </div>
   );
 };
@@ -523,22 +497,93 @@ const formatTime = (seconds: number) => {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
 
+const TurnIndicator = ({ isCurrentTurn }: { isCurrentTurn: boolean }) => (
+  <motion.div
+    className={cn(
+      "absolute top-0 right-0 p-1 rounded-bl-lg",
+      isCurrentTurn ? "bg-primary" : "bg-muted"
+    )}
+    initial={{ scale: 0 }}
+    animate={{ scale: 1 }}
+    transition={{ duration: 0.2 }}
+  >
+    <Timer className="w-4 h-4 text-primary-foreground" />
+  </motion.div>
+);
+
+// Helper function for role display
+const shouldShowRole = (room: GameRoom, playerId: string, currentPlayerId?: string) => {
+  return room.state === GameState.Results || playerId === currentPlayerId;
+};
+
 export default function GamePlay() {
-  const { room, isPlayerChameleon, remainingTime, settings, playerId, setRoom, resetGame } = useGame();
+  const { room, isPlayerChameleon, remainingTime, settings, playerId, setRoom, resetGame, startGame } = useGame();
   const { submitWord, submitVote, nextRound, resetGame: resetGameAction } = useGameActions(playerId, room, settings, setRoom);
   const [selectedVote, setSelectedVote] = useState<string | null>(null);
+  const [isPlayersPanelOpen, setIsPlayersPanelOpen] = useState(false);
+  const [isRolePanelOpen, setIsRolePanelOpen] = useState(false);
   const hasVoted = Boolean(room?.votes?.[playerId]);
   const isDevMode = import.meta.env.VITE_ENABLE_DEV_MODE === 'false';
+  const [isGameInfoOpen, setIsGameInfoOpen] = useState(true);
 
   const truncateName = (name: string, maxLength: number = 12) => {
     if (name.length <= maxLength) return name;
     return name.slice(0, maxLength) + '...';
   };
 
-  if (!room) return null;
+  // Add loading state
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (room && room.state === GameState.Presenting) {
+      setIsLoading(false);
+    }
+  }, [room]);
+
+  // Add detailed logging for debugging
+  useEffect(() => {
+    console.log('Current Room State:', {
+      roomId: room?.id,
+      state: room?.state,
+      players: room?.players?.map(p => ({ id: p.id, name: p.name })),
+      currentPlayerId: playerId
+    });
+  }, [room, playerId]);
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  if (!room) {
+    return (
+      <div className="flex justify-center items-center min-h-screen">
+        <p className="text-muted-foreground">Loading game data...</p>
+      </div>
+    );
+  }
 
   const currentPlayer = room.players.find((p: Player) => p.id === playerId);
-  if (!currentPlayer) return null;
+  
+  if (!currentPlayer) {
+    console.error('Player not found in room:', {
+      playerId,
+      roomPlayers: room.players.map(p => ({ id: p.id, name: p.name })),
+      roomId: room.id,
+      roomState: room.state
+    });
+    
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        <p className="text-muted-foreground">Connecting to game...</p>
+        <p className="text-sm text-muted-foreground">If this persists, try refreshing the page.</p>
+      </div>
+    );
+  }
 
   const currentTurnPlayer = room.players[room.current_turn || 0];
   if (!currentTurnPlayer) return null;
@@ -602,40 +647,66 @@ export default function GamePlay() {
           {/* Left Column - Player Info */}
           <div className="col-span-12 lg:col-span-3 space-y-4">
             <Card className="border shadow-sm bg-background/50 backdrop-blur-sm">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Users className="w-5 h-5" />
-                  Players
-                </CardTitle>
+              <CardHeader className="p-4">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <Users className="w-5 h-5" />
+                    Players
+                  </CardTitle>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="lg:hidden"
+                    onClick={() => setIsPlayersPanelOpen(!isPlayersPanelOpen)}
+                  >
+                    {isPlayersPanelOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </Button>
+                </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className={cn(
+                "p-4",
+                !isPlayersPanelOpen && "lg:block hidden"
+              )}>
                 <div className="space-y-2">
-                  {room?.players.map((player) => (
+                  {room.players.map((player) => (
                     <div
                       key={player.id}
                       className={cn(
-                        "flex items-center gap-3 p-2 rounded-lg",
-                        player.id === playerId ? "bg-primary/10" : "bg-muted/50"
+                        "flex items-center justify-between p-3 rounded-lg transition-all duration-200",
+                        player.id === currentTurnPlayer?.id ? "bg-primary/10" : "",
+                        player.id === playerId ? "ring-2 ring-primary" : "hover:bg-muted/50"
                       )}
                     >
-                      <Avatar className="flex-shrink-0">
-                        <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}`} />
-                        <AvatarFallback>{player.name[0]}</AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium truncate" title={player.name}>
-                            {truncateName(player.name)}
-                          </span>
+                      <div className="flex items-center gap-3">
+                        <div className="relative">
+                          <Avatar className="h-10 w-10 border-2 border-primary/20">
+                            <AvatarImage 
+                              src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}&backgroundColor=b6e3f4,c0aede,d1f4dd,ffd5dc,ffdfbf`}
+                              alt={player.name}
+                            />
+                            <AvatarFallback className="bg-primary/10">
+                              {player.name[0].toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
                           {player.id === playerId && (
-                            <Badge variant="outline" className="flex-shrink-0">You</Badge>
+                            <div className="absolute -bottom-1 -right-1 bg-primary text-primary-foreground rounded-full p-1">
+                              <UserCircle2 className="h-3 w-3" />
+                            </div>
+                          )}
+                          {player.is_host && (
+                            <div className="absolute -top-1 -right-1 bg-yellow-500 text-yellow-900 rounded-full p-1">
+                              <Crown className="h-3 w-3" />
+                            </div>
                           )}
                         </div>
-                        {player.turn_description && (
-                          <p className="text-sm text-muted-foreground mt-1 truncate">
-                            {player.turn_description}
-                          </p>
-                        )}
+                        <div className="flex flex-col">
+                          <span className="font-medium">{player.name}</span>
+                          {shouldShowRole(room, player.id, currentPlayer?.id) && player.role && (
+                            <span className="text-xs text-muted-foreground">
+                              {player.role}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -644,13 +715,26 @@ export default function GamePlay() {
             </Card>
 
             <Card className="border shadow-sm bg-background/50 backdrop-blur-sm">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Crown className="w-5 h-5" />
-                  Your Role
-                </CardTitle>
+              <CardHeader className="p-4">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <Crown className="w-5 h-5" />
+                    Your Role
+                  </CardTitle>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="lg:hidden"
+                    onClick={() => setIsRolePanelOpen(!isRolePanelOpen)}
+                  >
+                    {isRolePanelOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </Button>
+                </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className={cn(
+                "p-4",
+                !isRolePanelOpen && "lg:block hidden"
+              )}>
                 <PlayerRoleDisplay player={currentPlayer} />
                 <p className="mt-4 text-sm text-muted-foreground">
                   {getRoleTips(currentPlayer.role)}
@@ -663,25 +747,99 @@ export default function GamePlay() {
           <div className="col-span-12 lg:col-span-6 space-y-4">
             <AnimatePresence mode="sync">
               {/* Description Input */}
-              {room?.state === GameState.Presenting && (
+              {room.state === GameState.Presenting && (
                 <motion.div
                   key="description"
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -20 }}
                   transition={{ duration: 0.3 }}
+                  className="space-y-4"
                 >
-                  <CurrentTurnCard
-                    room={room}
-                    currentPlayer={currentPlayer}
-                    onDescriptionSubmit={submitWord}
-                    onSkipTurn={() => {}}
-                  />
+                  {isCurrentPlayerTurn ? (
+                    <CurrentTurnCard
+                      room={room}
+                      currentPlayer={currentPlayer}
+                      onDescriptionSubmit={submitWord}
+                      onSkipTurn={() => {}}
+                    />
+                  ) : (
+                    <Card className="border shadow-sm bg-background/50 backdrop-blur-sm">
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <Clock className="w-5 h-5" />
+                          Waiting for {currentTurnPlayer?.name}'s Turn
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-center text-muted-foreground">
+                          {currentTurnPlayer?.name} is describing the word. Please wait for your turn.
+                        </p>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Submitted Words Display */}
+                  <Card className="border shadow-sm bg-background/50 backdrop-blur-sm">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <MessageSquare className="w-5 h-5" />
+                        Submitted Descriptions
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid gap-3">
+                        {room.players
+                          .filter(p => p.turn_description)
+                          .map((player) => (
+                            <motion.div
+                              key={player.id}
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ duration: 0.3 }}
+                              className={cn(
+                                "p-3 rounded-lg border",
+                                player.id === playerId ? "border-primary/50 bg-primary/5" : "border-muted"
+                              )}
+                            >
+                              <div className="flex items-start gap-3">
+                                <Avatar className="h-8 w-8">
+                                  <AvatarImage 
+                                    src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}`}
+                                    alt={player.name}
+                                  />
+                                  <AvatarFallback>{player.name[0]}</AvatarFallback>
+                                </Avatar>
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <p className="font-medium">{player.name}</p>
+                                    {player.id === playerId && (
+                                      <Badge variant="outline" className="text-xs">You</Badge>
+                                    )}
+                                  </div>
+                                  <p className="mt-1 text-sm text-muted-foreground">
+                                    "{player.turn_description}"
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-1 text-green-500">
+                                  <CheckCircle className="h-4 w-4" />
+                                </div>
+                              </div>
+                            </motion.div>
+                          ))}
+                        {room.players.filter(p => !p.turn_description).length > 0 && (
+                          <div className="text-center text-sm text-muted-foreground">
+                            Waiting for {room.players.filter(p => !p.turn_description).length} more players to submit...
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
                 </motion.div>
               )}
 
               {/* Discussion Phase UI */}
-              {room?.state === GameState.Discussion && (
+              {room.state === GameState.Discussion && (
                 <motion.div
                   key="discussion"
                   initial={{ opacity: 0, y: 20 }}
@@ -739,7 +897,7 @@ export default function GamePlay() {
               )}
 
               {/* Voting UI */}
-              {room?.state === GameState.Voting && (
+              {room.state === GameState.Voting && (
                 <motion.div
                   key="voting"
                   initial={{ opacity: 0, y: 20 }}
@@ -800,7 +958,7 @@ export default function GamePlay() {
               )}
 
               {/* Results UI */}
-              {room?.state === GameState.Results && (
+              {room.state === GameState.Results && (
                 <motion.div
                   key="results"
                   initial={{ opacity: 0, y: 20 }}
@@ -828,23 +986,11 @@ export default function GamePlay() {
                           .sort(([, a], [, b]) => b.score - a.score);
 
                         // Show final scores in a toast
-                        toast({
-                          title: "Final Scores",
-                          description: (
-                            <div className="space-y-2">
-                              {sortedPlayers.map(([id, { name, score, role }]) => (
-                                <div key={id} className="flex justify-between items-center">
-                                  <span className="font-medium">{name}</span>
-                                  <span className="text-muted-foreground">
-                                    {score} points
-                                    {role && ` (${role})`}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          ),
-                          duration: 10000
-                        });
+                        toast(
+                          `Final Scores\n${sortedPlayers.map(([id, { name, score, role }]) => 
+                            `${name}: ${score} points${role ? ` (${role})` : ''}`
+                          ).join('\n')}`
+                        );
 
                         // Reset the game
                         await resetGameAction();
@@ -862,53 +1008,107 @@ export default function GamePlay() {
           {/* Right Column - Game Info */}
           <div className="col-span-12 lg:col-span-3 space-y-4">
             <Card className="border shadow-sm bg-background/50 backdrop-blur-sm">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Gamepad2 className="w-5 h-5" />
-                  Game Info
-                </CardTitle>
+              <CardHeader className="p-3 sm:p-4">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                    <Gamepad2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                    Game Info
+                  </CardTitle>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="lg:hidden"
+                    onClick={() => setIsGameInfoOpen(!isGameInfoOpen)}
+                  >
+                    {isGameInfoOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </Button>
+                </div>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="text-sm font-medium text-muted-foreground">Round</h4>
-                    <p className="text-2xl font-bold">{room?.round || 1} / {room?.max_rounds || 3}</p>
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-medium text-muted-foreground">Time Remaining</h4>
-                    <div className="flex items-center justify-center gap-2">
-                      <Timer className="w-5 h-5 text-primary" />
-                      <span className="text-lg font-semibold">
-                        {formatTime(room.timer || 0)}
-                      </span>
+              <CardContent className={cn(
+                "p-3 sm:p-4 space-y-4",
+                !isGameInfoOpen && "lg:block hidden"
+              )}>
+                <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                  <div className="space-y-1">
+                    <h4 className="text-xs sm:text-sm font-medium text-muted-foreground">Round</h4>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-sm sm:text-base">
+                        {room?.round || 1} / {room?.max_rounds || 3}
+                      </Badge>
                     </div>
                   </div>
-                  <div>
-                    <h4 className="text-sm font-medium text-muted-foreground">Category</h4>
-                    <p className="text-lg font-semibold">
-                      {room?.category?.name || "Not selected"}
-                    </p>
-                    {room?.category?.description && (
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {/* {room.category.description} */}
-                      </p>
-                    )}
+                  <div className="space-y-1">
+                    <h4 className="text-xs sm:text-sm font-medium text-muted-foreground">Time</h4>
+                    <div className="flex items-center gap-2">
+                      <Badge 
+                        variant="outline" 
+                        className={cn(
+                          "text-sm sm:text-base transition-all duration-300",
+                          room.timer && room.timer <= 10 ? "text-red-500 animate-pulse" : ""
+                        )}
+                      >
+                        <Timer className={cn(
+                          "w-3 h-3 sm:w-4 sm:h-4 mr-1",
+                          room.timer && room.timer <= 10 ? "text-red-500" : ""
+                        )} />
+                        {formatTime(room.timer || 0)}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div className="col-span-2 space-y-1">
+                    <h4 className="text-xs sm:text-sm font-medium text-muted-foreground">Category</h4>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="text-sm sm:text-base">
+                        {room?.category?.name || "Not selected"}
+                      </Badge>
+                      {room?.category?.emoji && (
+                        <span className="text-lg">{room.category.emoji}</span>
+                      )}
+                    </div>
                   </div>
                   {room?.secret_word && room.state !== GameState.Selecting && !isPlayerChameleon && (
-                    <div>
-                      <h4 className="text-sm font-medium text-muted-foreground">Secret Word</h4>
-                      <Badge variant="secondary" className="text-lg font-semibold px-3 py-1">
-                        {room.secret_word}
-                      </Badge>
+                    <div className="col-span-2 space-y-1">
+                      <h4 className="text-xs sm:text-sm font-medium text-muted-foreground">Secret Word</h4>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="text-sm sm:text-base font-semibold px-3 py-1">
+                          {room.secret_word}
+                        </Badge>
+                      </div>
+                    </div>
+                  )}
+                  {room?.state === GameState.Discussion && (
+                    <div className="col-span-2 space-y-1">
+                      <h4 className="text-xs sm:text-sm font-medium text-muted-foreground">Voting Starts In</h4>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-sm sm:text-base">
+                          <Timer className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
+                          {formatTime(room.discussion_timer || 0)}
+                        </Badge>
+                      </div>
                     </div>
                   )}
                 </div>
               </CardContent>
             </Card>
+
+            {room?.state === GameState.Lobby && currentPlayer?.is_host && (
+              <div className="mt-4 text-center">
+                <Button
+                  onClick={() => startGame()}
+                  disabled={!room.players.every(p => p.is_ready)}
+                  className="w-full max-w-xs"
+                >
+                  {room.players.every(p => p.is_ready) 
+                    ? "Start Game" 
+                    : "Waiting for players to be ready..."}
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       </div>
     </div>
   );
 }
+
 

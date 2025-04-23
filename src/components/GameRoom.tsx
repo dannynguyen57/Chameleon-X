@@ -9,11 +9,13 @@ import CategorySelection from "./game-screens/CategorySelection";
 import GamePlay from "./game-screens/GamePlay";
 import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
+import { GameState } from "@/lib/types";
 
 export default function GameRoom() {
   const { room, leaveRoom } = useGame();
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Redirect if not in a room
   useEffect(() => {
@@ -25,20 +27,27 @@ export default function GameRoom() {
       if (roomId && roomId !== 'room') {
         // If we have a room ID in the URL but no room in context,
         // it means we need to wait for the room data to load
+        setIsLoading(true);
         return;
       }
       
       // If no room ID in URL and no room in context, redirect to home
       navigate("/");
+    } else {
+      setIsLoading(false);
     }
   }, [room, navigate]);
 
-  if (!room) {
+  if (isLoading) {
     return (
       <div className="flex justify-center items-center min-h-screen">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
       </div>
     );
+  }
+
+  if (!room) {
+    return null;
   }
 
   const copyRoomId = () => {
@@ -105,9 +114,12 @@ export default function GameRoom() {
 
       {/* Game Content */}
       <div className="container mx-auto p-4">
-        {room.state === 'lobby' && <LobbyScreen />}
-        {room.state === 'selecting' && <CategorySelection />}
-        {(room.state === 'presenting' || room.state === 'discussion' || room.state === 'voting' || room.state === 'results') && (
+        {room.state === GameState.Lobby && <LobbyScreen />}
+        {room.state === GameState.Selecting && <CategorySelection />}
+        {(room.state === GameState.Presenting || 
+          room.state === GameState.Discussion || 
+          room.state === GameState.Voting || 
+          room.state === GameState.Results) && (
           <GamePlay />
         )}
       </div>

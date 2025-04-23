@@ -255,7 +255,9 @@ export const handleGameStateTransition = async (
          round_outcome: null,
          votes_tally: null,
          votes: {},
-         results: []
+         results: [],
+         last_updated: new Date().toISOString(),
+         updated_at: new Date().toISOString() // Force real-time update
        };
        break;
      }
@@ -272,7 +274,9 @@ export const handleGameStateTransition = async (
          votes_tally: null,
          votes: {},
          revealed_player_id: null,
-         revealed_role: null
+         revealed_role: null,
+         last_updated: new Date().toISOString(),
+         updated_at: new Date().toISOString() // Force real-time update
        };
        break;
      }
@@ -388,13 +392,32 @@ export const handleGameStateTransition = async (
          .from('game_rooms')
         .update({
           ...updateData,
-          last_updated: new Date().toISOString()
+          last_updated: new Date().toISOString(),
+          updated_at: new Date().toISOString() // Force real-time update
         })
          .eq('id', roomId);
        
        if (error) {
         console.error('Error updating game state:', error);
         throw error;
+       }
+
+       // Broadcast the state change to all players
+       const broadcastResponse = await supabase
+         .channel(`room:${roomId}`)
+         .send({
+           type: 'broadcast',
+           event: 'sync',
+           payload: {
+             action: 'game_state_changed',
+             roomId: roomId,
+             newState: determinedNextState,
+             timestamp: new Date().toISOString()
+           }
+         });
+
+       if (!broadcastResponse) {
+         console.error('Error broadcasting state change: No response received');
        }
    }
   

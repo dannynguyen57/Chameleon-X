@@ -10,6 +10,8 @@ import { nanoid } from 'nanoid';
 import { DEFAULT_SETTINGS } from '../lib/constants';
 import { GameContext } from './gameContext';
 import { GameContextType } from './gameTypes';
+import { categories } from '@/lib/word-categories';
+import { WordCategory } from '@/lib/types';
 
 // export const useGame = () => {
 //   const context = useContext(GameContext);
@@ -20,7 +22,42 @@ import { GameContextType } from './gameTypes';
 // };
 
 export const GameProvider = ({ children }: { children: React.ReactNode }) => {
-  const [playerId, setPlayerId] = useState(() => uuidv4());
+  const [playerId, setPlayerId] = useState(() => {
+    // First try to get from sessionStorage (tab-specific)
+    const sessionId = sessionStorage.getItem('playerId');
+    if (sessionId) {
+      return sessionId;
+    }
+    
+    // If no session ID, check localStorage (browser-wide)
+    const savedId = localStorage.getItem('playerId');
+    if (savedId) {
+      // Copy to sessionStorage for this tab
+      sessionStorage.setItem('playerId', savedId);
+      return savedId;
+    }
+    
+    // If no ID exists anywhere, generate a new one
+    const newPlayerId = uuidv4();
+    // Save to both session and local storage
+    sessionStorage.setItem('playerId', newPlayerId);
+    localStorage.setItem('playerId', newPlayerId);
+    return newPlayerId;
+  });
+
+  // Add effect to handle tab/window close
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // When tab/window closes, remove the session ID
+      sessionStorage.removeItem('playerId');
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, []);
+
   const [room, setRoom] = useState<GameRoom | null>(null);
   const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS);
   const [playerName, setPlayerName] = useState<string>('');
@@ -49,9 +86,83 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
   );
   const remainingTime = useGameTimer(room, settings, setRoom);
 
+  const fetchRoom = useCallback(async () => {
+    if (!room?.id) {
+      console.log('No room ID available for fetchRoom');
+      return;
+    }
+
+    try {
+      console.log('Fetching room data for:', room.id);
+      const { data, error } = await supabase
+        .from('game_rooms')
+        .select(`
+          *,
+          players (
+            id,
+            name,
+            is_host,
+            is_ready,
+            role,
+            vote,
+            turn_description,
+            special_ability_used,
+            is_protected,
+            vote_multiplier,
+            special_word,
+            last_active,
+            last_updated
+          )
+        `)
+        .eq('id', room.id)
+        .maybeSingle();  // Use maybeSingle instead of single to handle no results
+
+      if (error) {
+        console.error('Error fetching room:', error);
+        return;
+      }
+
+      if (data) {
+        console.log('Room data received:', data);
+        const mappedRoom = mapRoomData(data as unknown as DatabaseRoom);
+        
+        // Always update the room state to ensure real-time updates
+        console.log('Updating room state with:', mappedRoom);
+        setRoom(mappedRoom as unknown as GameRoom);
+        roomRef.current = mappedRoom as unknown as GameRoom;
+
+        // Force a re-render by updating the last_updated timestamp
+        if (mappedRoom) {
+          setRoom({
+            ...mappedRoom,
+            last_updated: new Date().toISOString()
+          } as GameRoom);
+        }
+      } else {
+        console.log('No room data received for ID:', room.id);
+        // If no room data is found, set room to null
+        setRoom(null);
+      }
+    } catch (error) {
+      console.error('Error in fetchRoom:', error);
+    }
+  }, [room?.id]);
+
   const handleGameStateTransition = useCallback(async (newState: GameState) => {
     if (!room) return;
 
+    // Get the current players data to preserve their roles and host status
+    const { data: currentPlayers, error: playersError } = await supabase
+      .from('players')
+      .select('*')
+      .eq('room_id', room.id);
+
+    if (playersError) {
+      console.error('Error fetching players:', playersError);
+      return;
+    }
+
+    // First update the room state
     const updates = {
       state: newState,
       timer: newState === 'selecting' ? 30 : undefined,
@@ -71,40 +182,42 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
       console.error('Error transitioning game state:', error);
       throw error;
     }
-  }, [room]);
 
-  const fetchRoom = useCallback(async () => {
-    if (!room?.id) return;
+    // Then ensure all players maintain their original roles and host status
+    if (currentPlayers) {
+      const updatePromises = currentPlayers.map(player => {
+        // Only update the necessary fields to preserve the player's state
+        return supabase
+          .from('players')
+          .update({
+            role: player.role,
+            is_host: player.is_host,
+            is_ready: player.is_ready,
+            vote: player.vote,
+            turn_description: player.turn_description,
+            special_ability_used: player.special_ability_used,
+            is_protected: player.is_protected,
+            vote_multiplier: player.vote_multiplier,
+            special_word: player.special_word,
+            last_updated: new Date().toISOString()
+          })
+          .eq('id', player.id);
+      });
 
-    try {
-      console.log('Fetching room data for:', room.id);
-      const { data, error } = await supabase
-        .from('game_rooms')
-        .select(`
-          *,
-          players!players_room_id_fkey (*)
-        `)
-        .eq('id', room.id)
-        .single();
-
-      if (error) {
-        console.error('Error fetching room:', error);
-        return;
-      }
-
-      if (data) {
-        const mappedRoom = mapRoomData(data as unknown as DatabaseRoom);
-        // Only update if there are actual changes
-        if (JSON.stringify(roomRef.current) !== JSON.stringify(mappedRoom)) {
-          console.log('Room data changed, updating state');
-          setRoom(mappedRoom as unknown as GameRoom);
-          roomRef.current = mappedRoom as unknown as GameRoom;
+      // Wait for all player updates to complete
+      const results = await Promise.all(updatePromises);
+      
+      // Log any errors that occurred during player updates
+      results.forEach((result, index) => {
+        if (result.error) {
+          console.error(`Error updating player ${currentPlayers[index].id}:`, result.error);
         }
-      }
-    } catch (error) {
-      console.error('Error in fetchRoom:', error);
+      });
     }
-  }, [room?.id]);
+
+    // Force a room data refresh to ensure all clients have the latest state
+    await fetchRoom();
+  }, [room, fetchRoom]);
 
   useEffect(() => {
     if (!room?.id) return;
@@ -152,13 +265,57 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
       )
       .on('broadcast', { event: 'sync' }, async (payload) => {
         console.log('Sync broadcast received:', payload);
-        if (payload.payload?.action === 'player_joined' || payload.payload?.action === 'player_left') {
+        if (payload.payload?.action === 'player_joined' || 
+            payload.payload?.action === 'player_left' ||
+            payload.payload?.action === 'game_state_changed' ||
+            payload.payload?.action === 'game_started' ||
+            payload.payload?.action === 'category_selected') {
+          
+          // Force immediate update
           await fetchRoom();
+
+          // If game has started or state has changed, ensure we're on the game screen
+          if ((payload.payload?.action === 'game_started' || 
+               payload.payload?.action === 'game_state_changed' ||
+               payload.payload?.newState === GameState.Selecting ||
+               payload.payload?.newState === GameState.Presenting ||
+               payload.payload?.action === 'category_selected') && 
+              payload.payload?.roomId === room.id) {
+            
+            // Force a complete state update with all broadcast data
+            if (roomRef.current) {
+              // Find the full category object if we have a category name
+              const categoryName = payload.payload?.category;
+              const fullCategory = categoryName 
+                ? categories.find((c: WordCategory) => c.name === categoryName)
+                : roomRef.current.category;
+
+              const updatedRoom = {
+                ...roomRef.current,
+                state: payload.payload?.newState || roomRef.current.state,
+                category: fullCategory,
+                secret_word: payload.payload?.secretWord || roomRef.current.secret_word,
+                current_turn: payload.payload?.currentTurn ?? roomRef.current.current_turn,
+                turn_order: payload.payload?.turnOrder || roomRef.current.turn_order,
+                timer: payload.payload?.timer ?? roomRef.current.timer,
+                last_updated: new Date().toISOString()
+              };
+              
+              console.log('Updating room state with broadcast data:', updatedRoom);
+              setRoom(updatedRoom);
+
+              // Force a navigation to the game screen if needed
+              if (!window.location.pathname.includes(`/room/${room.id}`)) {
+                window.location.href = `/room/${room.id}`;
+              }
+            }
+          }
         }
       })
       .subscribe((status) => {
         console.log('Subscription status:', status);
         if (status === 'SUBSCRIBED') {
+          // Force an initial fetch when subscription is established
           fetchRoom();
         }
       });
@@ -242,14 +399,46 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         roomId = cleanRoomId; // Use the sanitized ID for all operations
       }
       
-      console.log(`Attempting to join room: ${roomId} with player name: ${playerName}`);
+      console.log(`Attempting to join room: ${roomId} with player name: ${playerName} and playerId: ${playerId}`);
+      
+      // First check if the room exists and get current players
+      const { data: roomData, error: roomError } = await supabase
+        .from('game_rooms')
+        .select(`
+          *,
+          players:players_room_id_fkey (*)
+        `)
+        .eq('id', roomId)
+        .single();
+        
+      if (roomError) {
+        console.error('Error checking room:', roomError);
+        return false;
+      }
+
+      if (!roomData) {
+        console.error('Room not found:', roomId);
+        return false;
+      }
+
+      // Check if player name already exists in the room
+      const nameExists = roomData.players.some((p: Player) => 
+        p.name.toLowerCase().trim() === playerName.toLowerCase().trim()
+      );
+
+      if (nameExists) {
+        console.error('Player name already exists in room');
+        return false;
+      }
+
+      // Join the room with our existing playerId
       const success = await joinRoomAction(roomId, playerName);
       
       if (success) {
         console.log(`Successfully joined room ${roomId}, fetching room data`);
         
-        // Direct fetch of room data to ensure we have the latest
-        const { data: roomData, error: roomError } = await supabase
+        // Fetch the updated room data
+        const { data: updatedRoomData, error: updateError } = await supabase
           .from('game_rooms')
           .select(`
             *,
@@ -258,13 +447,13 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
           .eq('id', roomId)
           .single();
           
-        if (roomError) {
-          console.error('Error fetching room after join:', roomError);
+        if (updateError) {
+          console.error('Error fetching room after join:', updateError);
           return false;
         }
         
-        if (roomData) {
-          const mappedRoom = mapRoomData(roomData as unknown as DatabaseRoom);
+        if (updatedRoomData) {
+          const mappedRoom = mapRoomData(updatedRoomData as unknown as DatabaseRoom);
           setRoom(mappedRoom as unknown as GameRoom);
           console.log(`Room data loaded successfully after joining: ${roomId}`);
           return true;
@@ -276,7 +465,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
       console.error('Error in joinRoom wrapper:', error);
       return false;
     }
-  }, [joinRoomAction, setRoom, room?.id]);
+  }, [joinRoomAction, setRoom, room?.id, playerId, setPlayerName]);
 
   const leaveRoom = useCallback(async () => {
     if (!room?.id || !playerId) return;
@@ -327,8 +516,42 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
 
   const startGame = useCallback(async () => {
     if (!room) return;
-    await startGameAction(room);
-  }, [room, startGameAction]);
+
+    // Check if the current player is the host
+    const currentPlayer = room.players.find(p => p.id === playerId);
+    if (!currentPlayer?.is_host) {
+      console.log('Only the host can start the game');
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Only the host can start the game"
+      });
+      return;
+    }
+
+    // Check if all players are ready
+    const allPlayersReady = room.players.every(player => player.is_ready);
+    if (!allPlayersReady) {
+      console.log('Not all players are ready:', room.players.map(p => ({ id: p.id, name: p.name, is_ready: p.is_ready })));
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "All players must be ready to start the game"
+      });
+      return;
+    }
+
+    try {
+      await startGameAction(room);
+    } catch (error) {
+      console.error('Error starting game:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to start game. Please try again."
+      });
+    }
+  }, [room, playerId, startGameAction]);
 
   const value: GameContextType = useMemo(() => ({
     playerId,

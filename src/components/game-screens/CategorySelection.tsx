@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useGame } from "@/hooks/useGame";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,20 +8,47 @@ export default function CategorySelection() {
   const { selectCategory, room, playerId } = useGame();
   const [selectedCategory, setSelectedCategory] = useState<string>("");
   
-  if (!room) return null;
+  useEffect(() => {
+    console.log('CategorySelection mounted:', {
+      roomId: room?.id,
+      roomState: room?.state,
+      playerId,
+      isHost: playerId === room?.host_id
+    });
+  }, [room, playerId]);
+
+  if (!room) {
+    console.log('No room found in CategorySelection');
+    return null;
+  }
   
   const isHost = playerId === room.host_id;
   const canSelectCategory = isHost && !!selectedCategory;
   
   const handleCategorySelect = (categoryName: string) => {
+    console.log('Category selected:', {
+      categoryName,
+      isHost,
+      roomId: room.id
+    });
     setSelectedCategory(categoryName);
   };
   
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (selectedCategory) {
+      console.log('Confirming category selection:', {
+        categoryName: selectedCategory,
+        isHost,
+        roomId: room.id
+      });
       const category = categories.find(c => c.name === selectedCategory);
       if (category) {
-        selectCategory(category);
+        try {
+          await selectCategory(category);
+          console.log('Category selection successful');
+        } catch (error) {
+          console.error('Error selecting category:', error);
+        }
       }
     }
   };

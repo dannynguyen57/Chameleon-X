@@ -22,6 +22,51 @@ import { WordCategory } from '@/lib/types';
 // };
 
 export const GameProvider = ({ children }: { children: React.ReactNode }) => {
+  // Memoize the ID generation function with retry logic
+  const generateNewPlayerId = useCallback(async () => {
+    const MAX_RETRIES = 3;
+    let retries = 0;
+    
+    while (retries < MAX_RETRIES) {
+      try {
+        const newPlayerId = uuidv4();
+        
+        // Check if this ID already exists in the database
+        const { data: existingPlayer, error: checkError } = await supabase
+          .from('players')
+          .select('id')
+          .eq('id', newPlayerId)
+          .maybeSingle();
+
+        if (checkError) {
+          console.error('Error checking player ID:', checkError);
+          retries++;
+          continue;
+        }
+
+        // If ID doesn't exist, use it
+        if (!existingPlayer) {
+          setPlayerId(newPlayerId);
+          // Only update storage when necessary
+          if (sessionStorage.getItem('playerId') !== newPlayerId) {
+            sessionStorage.setItem('playerId', newPlayerId);
+            localStorage.setItem('playerId', newPlayerId);
+          }
+          return newPlayerId;
+        }
+
+        // If ID exists, try again
+        retries++;
+      } catch (error) {
+        console.error('Error generating new player ID:', error);
+        retries++;
+      }
+    }
+
+    // If we've exhausted retries, throw an error
+    throw new Error('Failed to generate a unique player ID after multiple attempts');
+  }, []);
+
   const [playerId, setPlayerId] = useState(() => {
     // First try to get from sessionStorage (tab-specific)
     const sessionId = sessionStorage.getItem('playerId');
@@ -38,25 +83,27 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     }
     
     // If no ID exists anywhere, generate a new one
-    const newPlayerId = uuidv4();
-    // Save to both session and local storage
-    sessionStorage.setItem('playerId', newPlayerId);
-    localStorage.setItem('playerId', newPlayerId);
-    return newPlayerId;
+    // Note: This will be updated when the component mounts
+    return uuidv4();
   });
 
-  // Add effect to handle tab/window close
+  // Add effect to handle initial ID generation
   useEffect(() => {
-    const handleBeforeUnload = () => {
-      // When tab/window closes, remove the session ID
-      sessionStorage.removeItem('playerId');
+    const initializePlayerId = async () => {
+      try {
+        await generateNewPlayerId();
+      } catch (error) {
+        console.error('Failed to initialize player ID:', error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to initialize player. Please refresh the page."
+        });
+      }
     };
 
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, []);
+    initializePlayerId();
+  }, [generateNewPlayerId]);
 
   const [room, setRoom] = useState<GameRoom | null>(null);
   const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS);
@@ -502,6 +549,18 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
 
       if (fetchError) throw fetchError;
 
+      // Generate a new player ID when leaving the room
+      try {
+        await generateNewPlayerId();
+      } catch (error) {
+        console.error('Failed to generate new player ID after leaving room:', error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to leave room properly. Please refresh the page."
+        });
+      }
+
       // Update local state with the latest room data
       setRoom(updatedRoom);
       
@@ -511,8 +570,13 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
       }, 100);
     } catch (error) {
       console.error('Error leaving room:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to leave room. Please try again."
+      });
     }
-  }, [room?.id, playerId, setRoom]);
+  }, [room?.id, playerId, setRoom, generateNewPlayerId]);
 
   const startGame = useCallback(async () => {
     if (!room) return;
@@ -628,6 +692,40 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     playerId, room, settings, createRoom, joinRoom, startGame, selectCategory, submitWord, submitVote, nextRound, leaveRoom, resetGame, handleRoleAbility, setPlayerRole,
     isPlayerChameleon, remainingTime, playerName, setSettings, setRoom, fetchRoom, handleGameStateTransition
   ]);
+
+  // Add effect to handle tab/window close
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // When tab/window closes, remove the session ID
+      sessionStorage.removeItem('playerId');
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, []);
+
+  // Add effect to generate new player ID when joining a new room
+  useEffect(() => {
+    const handleRoomChange = async () => {
+      // Only generate new ID when joining a new room (not when room state changes)
+      if (room?.id && !roomRef.current?.id) {
+        try {
+          await generateNewPlayerId();
+        } catch (error) {
+          console.error('Failed to generate new player ID for room:', error);
+          toast({
+            variant: "destructive",
+            title: "Error",
+            description: "Failed to join room. Please try again."
+          });
+        }
+      }
+    };
+
+    handleRoomChange();
+  }, [room?.id, generateNewPlayerId]);
 
   return (
     <GameContext.Provider value={value}>

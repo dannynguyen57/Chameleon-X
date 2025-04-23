@@ -24,6 +24,8 @@ export interface Player {
   isCurrentPlayer: boolean;
   isTurn: boolean;
   turn_description?: string;
+  turn_timer?: number | null;
+  turn_started_at?: string | null;
   protected_player_id?: string;
   investigated_player_id?: string;
   score: number;
@@ -155,6 +157,8 @@ export type GamePhase = 'lobby' | 'selecting' | 'presenting' | 'discussion' | 'v
 
 export interface GameRoom {
   id: string;
+  name: string;
+  host_id: string;
   state: GameState;
   settings: GameSettings;
   players: Player[];
@@ -162,9 +166,10 @@ export interface GameRoom {
   secret_word: string | undefined;
   chameleon_id: string | undefined;
   timer: number | undefined;
-  discussion_timer: number | undefined;
-  current_turn: number | undefined;
-  current_word: string | undefined;
+  discussion_timer?: number | null;
+  voting_timer?: number | null;
+  current_turn?: number;
+  current_word?: string;
   created_at: string;
   updated_at: string;
   turn_order: string[];
@@ -178,7 +183,6 @@ export interface GameRoom {
   revealed_role: PlayerRole | null;
   last_updated: string;
   max_rounds: number;
-  host_id: string;
   current_phase: GamePhase;
 }
 

@@ -239,203 +239,222 @@ export const handleGameStateTransition = async (
     let determinedNextState: GameState | null = null;
 
     switch (currentState) {
-     case GameState.Lobby: {
-       const nextStateConst = GameState.Selecting;
-       determinedNextState = nextStateConst;
-       
-       // Assign roles before transitioning to Selecting state
-       await assignRoles(roomId, room.players);
-       
-       // Create random turn order with improved randomization
-       const shuffledPlayers = [...room.players];
-       // Use a more robust shuffle algorithm
-       for (let i = shuffledPlayers.length - 1; i > 0; i--) {
-         // Use a cryptographically secure random number if available
-         const j = Math.floor((Math.random() * (i + 1)) * 1000) % (i + 1);
-         [shuffledPlayers[i], shuffledPlayers[j]] = [shuffledPlayers[j], shuffledPlayers[i]];
-       }
-       
-       // Log the shuffled order for debugging
-       console.log('Shuffled players for Lobby transition:', shuffledPlayers.map(p => ({ id: p.id, name: p.name, is_host: p.is_host })));
-       
-       updateData = { 
-         state: nextStateConst,
-         round: 1,
-         timer: settings.time_per_round,
-         current_turn: 0,
-         turn_order: shuffledPlayers.map(p => p.id),
-         round_outcome: null,
-         votes_tally: null,
-         votes: {},
-         results: [],
-         last_updated: new Date().toISOString(),
-         updated_at: new Date().toISOString() // Force real-time update
-       };
-       break;
-     }
+      case GameState.Lobby: {
+        const nextStateConst = GameState.Selecting;
+        determinedNextState = nextStateConst;
+        
+        // Assign roles before transitioning to Selecting state
+        await assignRoles(roomId, room.players);
+        
+        // Create random turn order with improved randomization
+        const shuffledPlayers = [...room.players];
+        // Use a more robust shuffle algorithm
+        for (let i = shuffledPlayers.length - 1; i > 0; i--) {
+          // Use a cryptographically secure random number if available
+          const j = Math.floor((Math.random() * (i + 1)) * 1000) % (i + 1);
+          [shuffledPlayers[i], shuffledPlayers[j]] = [shuffledPlayers[j], shuffledPlayers[i]];
+        }
+        
+        // Log the shuffled order for debugging
+        console.log('Shuffled players for Lobby transition:', shuffledPlayers.map(p => ({ id: p.id, name: p.name, is_host: p.is_host })));
+        
+        updateData = { 
+          state: nextStateConst,
+          round: 1,
+          timer: settings.time_per_round,
+          current_turn: 0,
+          turn_order: shuffledPlayers.map(p => p.id),
+          round_outcome: null,
+          votes_tally: null,
+          votes: {},
+          results: [],
+          last_updated: new Date().toISOString(),
+          updated_at: new Date().toISOString() // Force real-time update
+        };
+        break;
+      }
     
-     case GameState.Selecting: {
-       const nextStateConst = GameState.Presenting;
-       determinedNextState = nextStateConst;
-       
-       // Create random turn order
-       const shuffledPlayers = [...room.players];
-       // Fisher-Yates shuffle algorithm for true randomness
-       for (let i = shuffledPlayers.length - 1; i > 0; i--) {
-         const j = Math.floor(Math.random() * (i + 1));
-         [shuffledPlayers[i], shuffledPlayers[j]] = [shuffledPlayers[j], shuffledPlayers[i]];
-       }
-       
-       // Log the shuffled order for debugging
-       console.log('Shuffled players for Selecting transition:', shuffledPlayers.map(p => ({ id: p.id, name: p.name, is_host: p.is_host })));
-       
-       updateData = { 
-         state: nextStateConst,
-         timer: settings.time_per_round,
-         current_turn: 0,
-         turn_order: shuffledPlayers.map(p => p.id),
-         round_outcome: null, 
-         votes_tally: null,
-         votes: {},
-         revealed_player_id: null,
-         revealed_role: null,
-         last_updated: new Date().toISOString(),
-         updated_at: new Date().toISOString() // Force real-time update
-       };
-       break;
-     }
+      case GameState.Selecting: {
+        const nextStateConst = GameState.Presenting;
+        determinedNextState = nextStateConst;
+        
+        // Create random turn order with improved randomization
+        const shuffledPlayers = [...room.players];
+        // Use a more robust shuffle algorithm with better randomization
+        for (let i = shuffledPlayers.length - 1; i > 0; i--) {
+          // Use a more random number generation
+          const j = Math.floor(Math.random() * (i + 1));
+          [shuffledPlayers[i], shuffledPlayers[j]] = [shuffledPlayers[j], shuffledPlayers[i]];
+        }
+        
+        // Log the shuffled order for debugging
+        console.log('Shuffled players for Selecting transition:', shuffledPlayers.map(p => ({ 
+          id: p.id, 
+          name: p.name, 
+          is_host: p.is_host,
+          role: p.role 
+        })));
+        
+        // Reset all player turn descriptions first
+        await supabase
+          .from('players')
+          .update({ 
+            turn_description: null,
+            last_updated: new Date().toISOString()
+          })
+          .eq('room_id', roomId);
+        
+        updateData = { 
+          state: nextStateConst,
+          timer: settings.time_per_round,
+          current_turn: 0,
+          turn_order: shuffledPlayers.map(p => p.id),
+          round_outcome: null, 
+          votes_tally: null,
+          votes: {},
+          revealed_player_id: null,
+          revealed_role: null,
+          last_updated: new Date().toISOString(),
+          updated_at: new Date().toISOString() // Force real-time update
+        };
+        break;
+      }
     
-     case GameState.Presenting: {
-       const allPlayersSubmitted = room.players.every(p => p.turn_description);
-       if (allPlayersSubmitted) {
-         const nextStateConst = GameState.Discussion;
-         determinedNextState = nextStateConst;
-         updateData = { 
-           state: nextStateConst,
-           timer: settings.discussion_time,
-           current_turn: 0,
-           last_updated: new Date().toISOString(),
-           updated_at: new Date().toISOString() // Force real-time update
-         };
-       } else {
-         // Get the current turn index
-         const currentTurnIndex = room.current_turn ?? 0;
-         
-         // Get the next turn index using the turn_order array length
-         const nextTurnIndex = (currentTurnIndex + 1) % (room.turn_order?.length ?? 0);
-         
-         // Get the player ID for the next turn directly from turn_order
-         const nextPlayerId = room.turn_order?.[nextTurnIndex];
-         
-         // Find the player's index in the room.players array
-         const nextPlayerRoomIndex = room.players.findIndex(p => p.id === nextPlayerId);
-         
-         console.log('Turn progression:', {
-           currentTurnIndex,
-           nextTurnIndex,
-           nextPlayerId,
-           nextPlayerRoomIndex,
-           turnOrder: room.turn_order,
-           players: room.players.map(p => ({ id: p.id, name: p.name }))
-         });
-         
-         updateData = { 
-           current_turn: nextPlayerRoomIndex >= 0 ? nextPlayerRoomIndex : 0,
-           timer: settings.time_per_round,
-           last_updated: new Date().toISOString(),
-           updated_at: new Date().toISOString() // Force real-time update
-         };
-       }
-       break;
-     }
+      case GameState.Presenting: {
+        const allPlayersSubmitted = room.players.every(p => p.turn_description);
+        if (allPlayersSubmitted) {
+          const nextStateConst = GameState.Discussion;
+          determinedNextState = nextStateConst;
+          updateData = { 
+            state: nextStateConst,
+            timer: settings.discussion_time,
+            current_turn: 0,
+            last_updated: new Date().toISOString(),
+            updated_at: new Date().toISOString() // Force real-time update
+          };
+        } else {
+          // Get the current turn index
+          const currentTurnIndex = room.current_turn ?? 0;
+          
+          // Get the next turn index using the turn_order array length
+          const nextTurnIndex = (currentTurnIndex + 1) % (room.turn_order?.length ?? 0);
+          
+          // Get the player ID for the next turn directly from turn_order
+          const nextPlayerId = room.turn_order?.[nextTurnIndex];
+          
+          // Find the player's index in the room.players array
+          const nextPlayerRoomIndex = room.players.findIndex(p => p.id === nextPlayerId);
+          
+          console.log('Turn progression:', {
+            currentTurnIndex,
+            nextTurnIndex,
+            nextPlayerId,
+            nextPlayerRoomIndex,
+            turnOrder: room.turn_order,
+            players: room.players.map(p => ({ id: p.id, name: p.name }))
+          });
+          
+          updateData = { 
+            current_turn: nextPlayerRoomIndex >= 0 ? nextPlayerRoomIndex : 0,
+            timer: settings.time_per_round,
+            last_updated: new Date().toISOString(),
+            updated_at: new Date().toISOString() // Force real-time update
+          };
+        }
+        break;
+      }
     
-     case GameState.Discussion: {
-       const nextStateConst = GameState.Voting;
-       determinedNextState = nextStateConst;
-       updateData = { 
-         state: nextStateConst,
-         timer: settings.voting_time,
-         current_turn: 0,
-         votes_tally: null,
-         votes: {},
-         last_updated: new Date().toISOString(),
-         updated_at: new Date().toISOString() // Force real-time update
-       };
-       await supabase.from('players').update({ vote: null }).eq('room_id', roomId);
-       break;
-     }
+      case GameState.Discussion: {
+        const nextStateConst = GameState.Voting;
+        determinedNextState = nextStateConst;
+        updateData = { 
+          state: nextStateConst,
+          timer: settings.voting_time,
+          current_turn: 0,
+          votes_tally: null,
+          votes: {},
+          last_updated: new Date().toISOString(),
+          updated_at: new Date().toISOString() // Force real-time update
+        };
+        await supabase.from('players').update({ vote: null }).eq('room_id', roomId);
+        break;
+      }
     
-     case GameState.Voting: {
-       const nextStateConst = GameState.Results;
-       determinedNextState = nextStateConst;
-       
-       // Calculate vote results
-       const votes = room.players.reduce((acc, player) => {
-         if (player.vote) {
-           acc[player.vote] = (acc[player.vote] || 0) + 1;
-         }
-         return acc;
-       }, {} as Record<string, number>);
-       
-       // Find the player with the most votes
-       const maxVotes = Math.max(...Object.values(votes));
-       const votedPlayers = Object.entries(votes)
-         .filter(([_, count]) => count === maxVotes)
-         .map(([id]) => id);
-       
-       // If there's a tie, no one is eliminated
-       const eliminatedPlayerId = votedPlayers.length === 1 ? votedPlayers[0] : null;
-       
-       // Determine if the Chameleon was caught
-       const isChameleonCaught = eliminatedPlayerId === room.chameleon_id;
-       
-       updateData = { 
-         state: nextStateConst,
-         timer: 0,
-         current_turn: 0,
-         votes_tally: votes,
-         round_outcome: isChameleonCaught ? GameResultType.ImposterCaught : GameResultType.InnocentVoted,
-         revealed_player_id: eliminatedPlayerId,
-         revealed_role: eliminatedPlayerId ? room.players.find(p => p.id === eliminatedPlayerId)?.role : null
-       };
-       break;
-     }
+      case GameState.Voting: {
+        const nextStateConst = GameState.Results;
+        determinedNextState = nextStateConst;
+        
+        // Calculate vote results
+        const votes = room.players.reduce((acc, player) => {
+          if (player.vote) {
+            acc[player.vote] = (acc[player.vote] || 0) + 1;
+          }
+          return acc;
+        }, {} as Record<string, number>);
+        
+        // Find the player with the most votes
+        const maxVotes = Math.max(...Object.values(votes));
+        const votedPlayers = Object.entries(votes)
+          .filter(([_, count]) => count === maxVotes)
+          .map(([id]) => id);
+        
+        // If there's a tie, no one is eliminated
+        const eliminatedPlayerId = votedPlayers.length === 1 ? votedPlayers[0] : null;
+        
+        // Determine if the Chameleon was caught
+        const isChameleonCaught = eliminatedPlayerId === room.chameleon_id;
+        
+        updateData = { 
+          state: nextStateConst,
+          timer: 0,
+          current_turn: 0,
+          votes_tally: votes,
+          round_outcome: isChameleonCaught ? GameResultType.ImposterCaught : GameResultType.InnocentVoted,
+          revealed_player_id: eliminatedPlayerId,
+          revealed_role: eliminatedPlayerId ? room.players.find(p => p.id === eliminatedPlayerId)?.role : null,
+          last_updated: new Date().toISOString(),
+          updated_at: new Date().toISOString() // Force real-time update
+        };
+        break;
+      }
     
-     case GameState.Results: {
-       const nextStateConst = GameState.Lobby;
-       determinedNextState = nextStateConst;
-       
-       // Reset all player states
-       await supabase
-         .from('players')
-         .update({ 
-           vote: null,
-           turn_description: null,
-           role: null,
-           is_protected: false,
-           vote_multiplier: 1,
-           special_word: null,
-           special_ability_used: false
-         })
-         .eq('room_id', roomId);
-       
-       updateData = { 
-         state: nextStateConst,
-         timer: 0,
-         current_turn: 0,
-         turn_order: [],
-         round: 1,
-         category: undefined,
-         secret_word: undefined,
-         chameleon_id: undefined,
-         round_outcome: null,
-         votes_tally: null,
-         votes: {},
-         revealed_player_id: null,
-         revealed_role: null
-       };
-       break;
-     }
+      case GameState.Results: {
+        const nextStateConst = GameState.Lobby;
+        determinedNextState = nextStateConst;
+        
+        // Reset all player states
+        await supabase
+          .from('players')
+          .update({ 
+            vote: null,
+            turn_description: null,
+            role: null,
+            is_protected: false,
+            vote_multiplier: 1,
+            special_word: null,
+            special_ability_used: false
+          })
+          .eq('room_id', roomId);
+        
+        updateData = { 
+          state: nextStateConst,
+          timer: 0,
+          current_turn: 0,
+          turn_order: [],
+          round: 1,
+          category: undefined,
+          secret_word: undefined,
+          chameleon_id: undefined,
+          round_outcome: null,
+          votes_tally: null,
+          votes: {},
+          revealed_player_id: null,
+          revealed_role: null,
+          last_updated: new Date().toISOString(),
+          updated_at: new Date().toISOString() // Force real-time update
+        };
+        break;
+      }
     }
 
     if (determinedNextState) {

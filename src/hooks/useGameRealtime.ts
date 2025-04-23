@@ -99,6 +99,7 @@ export const mapRoomData = (room: DatabaseRoom): GameRoom => {
 
   return {
     id: room.id,
+    name: room.id,
     state: room.state,
     settings: room.settings,
     players: mappedPlayers,

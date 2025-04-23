@@ -625,6 +625,7 @@ export default function GamePlay() {
           playerRole={currentPlayer?.role}
           word={room.secret_word}
           roleTheme={getRoleTheme(currentPlayer?.role || PlayerRole.Regular)}
+          timeLeft={remainingTime.timeLeft}
         />
         
         {/* Game Phase Indicator */}

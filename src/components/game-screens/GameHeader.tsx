@@ -13,6 +13,7 @@ interface GameHeaderProps {
   playerRole?: PlayerRole;
   word?: string;
   roleTheme: RoleTheme;
+  timeLeft?: number;
 }
 
 export default function GameHeader({ 
@@ -20,7 +21,8 @@ export default function GameHeader({
   category, 
   playerRole,
   word,
-  roleTheme
+  roleTheme,
+  timeLeft
 }: GameHeaderProps) {
   const getRoleDisplayName = (role: PlayerRole) => {
     switch (role) {
@@ -91,6 +93,15 @@ export default function GameHeader({
               <p className="text-xs sm:text-sm md:text-base text-muted-foreground text-center sm:text-left w-full sm:w-auto">
                 {category?.description || "Select a category to begin"}
               </p>
+              {/* Timer Display - Moved below category description */}
+              {typeof timeLeft === 'number' && (
+                <div className="flex items-center gap-2 bg-primary/10 px-3 py-1.5 rounded-full self-center sm:self-start mt-1">
+                  <Timer className="w-4 h-4 text-primary animate-pulse" />
+                  <span className="text-base font-semibold text-primary">
+                    {Math.max(0, Math.floor(timeLeft))}s
+                  </span>
+                </div>
+              )}
             </div>
             
             <div className="flex flex-col items-center sm:items-end gap-2 w-full sm:w-auto">

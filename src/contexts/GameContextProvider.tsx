@@ -152,13 +152,21 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     settings,
     setRoom
   );
-  const remainingTime = useGameTimer(room, settings, setRoom);
+  const remainingTime = useGameTimer();
 
   const fetchRoom = useCallback(async () => {
     if (!room?.id) {
       console.log('No room ID available for fetchRoom');
       return;
     }
+
+    // Add debouncing to prevent rapid consecutive fetches
+    const now = Date.now();
+    if (now - lastUpdateRef.current < 100) { // 100ms debounce
+      console.log('Skipping fetch - too soon since last update');
+      return;
+    }
+    lastUpdateRef.current = now;
 
     try {
       console.log('Fetching room data for:', room.id);
@@ -183,7 +191,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
           )
         `)
         .eq('id', room.id)
-        .maybeSingle();  // Use maybeSingle instead of single to handle no results
+        .maybeSingle();
 
       if (error) {
         console.error('Error fetching room:', error);
@@ -194,27 +202,22 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         console.log('Room data received:', data);
         const mappedRoom = mapRoomData(data as unknown as DatabaseRoom);
         
-        // Always update the room state to ensure real-time updates
-        console.log('Updating room state with:', mappedRoom);
-        setRoom(mappedRoom as unknown as GameRoom);
-        roomRef.current = mappedRoom as unknown as GameRoom;
-
-        // Force a re-render by updating the last_updated timestamp
-        if (mappedRoom) {
-          setRoom({
-            ...mappedRoom,
-            last_updated: new Date().toISOString()
-          } as GameRoom);
+        // Only update if the data has actually changed
+        if (JSON.stringify(mappedRoom) !== JSON.stringify(room)) {
+          console.log('Updating room state with:', mappedRoom);
+          setRoom(mappedRoom as unknown as GameRoom);
+          roomRef.current = mappedRoom as unknown as GameRoom;
+        } else {
+          console.log('Room data unchanged, skipping update');
         }
       } else {
         console.log('No room data received for ID:', room.id);
-        // If no room data is found, set room to null
         setRoom(null);
       }
     } catch (error) {
       console.error('Error in fetchRoom:', error);
     }
-  }, [room?.id]);
+  }, [room]);
 
   const handleGameStateTransition = useCallback(async (newState: GameState) => {
     if (!room) return;
@@ -307,7 +310,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         } : null
       });
       
-      // Update local state immediately
+      // Update local state immediately without triggering a fetch
       setRoom(prevRoom => {
         if (!prevRoom) return null;
         
@@ -324,10 +327,12 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         };
       });
 
-      // Force a re-fetch after a short delay to ensure consistency
-      setTimeout(async () => {
+      // Only fetch if we're the host and all players are ready
+      const isHost = room.players.find(p => p.id === playerId)?.is_host;
+      const allPlayersReady = room.players.every(p => p.is_ready);
+      if (isHost && allPlayersReady) {
         await fetchRoom();
-      }, 100);
+      }
       return;
     }
 
@@ -403,7 +408,20 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         }, 
         async (payload) => {
           console.log('Room change detected:', payload);
-          // Only fetch if we still have a room
+          if (roomRef.current?.id === room.id) {
+            await fetchRoom();
+          }
+        }
+      )
+      .on('postgres_changes', 
+        { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'players',
+          filter: `room_id=eq.${room.id}`
+        }, 
+        async (payload) => {
+          console.log('New player joined:', payload);
           if (roomRef.current?.id === room.id) {
             await fetchRoom();
           }
@@ -418,7 +436,6 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         }, 
         async (payload) => {
           console.log('Player change detected:', payload);
-          // Only fetch if we still have a room
           if (roomRef.current?.id === room.id) {
             await fetchRoom();
           }
@@ -428,7 +445,6 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
       .subscribe((status) => {
         console.log('Subscription status:', status);
         if (status === 'SUBSCRIBED') {
-          // Only fetch if we still have a room
           if (roomRef.current?.id === room.id) {
             fetchRoom();
           }

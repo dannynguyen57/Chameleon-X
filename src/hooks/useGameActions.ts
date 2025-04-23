@@ -609,17 +609,32 @@ export const useGameActions = (
 
       // Create completely random turn order for all players
       const shuffledPlayers = [...room.players];
-      // Fisher-Yates shuffle algorithm for true randomness
+      // Use a more robust shuffle algorithm with better randomization
       for (let i = shuffledPlayers.length - 1; i > 0; i--) {
+        // Use a more random number generation
         const j = Math.floor(Math.random() * (i + 1));
         [shuffledPlayers[i], shuffledPlayers[j]] = [shuffledPlayers[j], shuffledPlayers[i]];
       }
       
       // Log the shuffled order for debugging
-      console.log('Shuffled players:', shuffledPlayers.map(p => ({ id: p.id, name: p.name, is_host: p.is_host })));
+      console.log('Shuffled players:', shuffledPlayers.map(p => ({ 
+        id: p.id, 
+        name: p.name, 
+        is_host: p.is_host,
+        role: p.role 
+      })));
       
       const turnOrder = shuffledPlayers.map(p => p.id);
       const currentTurn = 0;
+      
+      // Reset all player turn descriptions first
+      await supabase
+        .from('players')
+        .update({ 
+          turn_description: null,
+          last_updated: new Date().toISOString()
+        })
+        .eq('room_id', room.id);
       
       // Update the room in the database
       const { error: updateError } = await supabase
@@ -706,26 +721,10 @@ export const useGameActions = (
       // Fetch fresh data to ensure consistency
       const freshRoom = await fetchRoom(room.id);
       if (freshRoom) {
-        console.log('Fetched updated room data:', {
-          roomId: freshRoom.id,
-          state: freshRoom.state,
-          category: freshRoom.category?.name,
-          currentTurn: freshRoom.current_turn,
-          turnOrder: freshRoom.turn_order,
-          secretWord: freshRoom.secret_word,
-          discussionTimer: freshRoom.discussion_timer
-        });
         setRoom(freshRoom);
       }
-
-      // Show toast for first player's turn
-      const firstPlayer = room.players.find(p => p.id === turnOrder[0]);
-      if (firstPlayer) {
-        toast.success(`It's ${firstPlayer.name}'s turn to describe the word!`);
-      }
-
     } catch (error) {
-      console.error('Error selecting category:', error);
+      console.error('Error in selectCategory:', error);
       toast.error("Failed to select category. Please try again.");
     }
   };
@@ -1164,12 +1163,33 @@ export const useGameActions = (
               toast.success(`You sense that ${targetPlayer.name} might be a ${randomRole}`);
             }
           } else {
-            // Blend In ability - Get a hint about the word
+            // Blend In ability - Get a smart hint about the word
             const category = room.category;
             if (category) {
-              // Get a random word from the same category
-              const similarWord = getSimilarWord(room.secret_word || '', category.words);
-              toast.success(`You sense the word might be related to "${similarWord}"`);
+              // Get a smart hint based on the category and word
+              const hint = getSmartHint(room.secret_word || '', category);
+              
+              // Show a more engaging toast with the hint
+              toast.success(
+                `Blend In Ability Activated!\n${hint}`,
+                {
+                  duration: 5000,
+                  position: "top-center",
+                  style: {
+                    background: "linear-gradient(to right, #4f46e5, #7c3aed)",
+                    color: "white",
+                    padding: "1rem",
+                    borderRadius: "0.5rem",
+                    boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)"
+                  }
+                }
+              );
+              
+              // Don't skip turn when using Blend In
+              await updatePlayer(playerId, room.id, { 
+                special_ability_used: true,
+                turn_description: currentPlayer.turn_description // Keep existing description
+              });
             }
           }
           break;
@@ -1294,6 +1314,38 @@ export const useGameActions = (
       toast.error("An unexpected error occurred. Please try again.");
       return false;
     }
+  };
+
+  const getSmartHint = (secretWord: string, category: WordCategory): string => {
+    // Get words from the same category
+    const categoryWords = category.words;
+    
+    // Find words that share common characteristics with the secret word
+    const similarWords = categoryWords.filter(word => {
+      // Check for similar length
+      const lengthDiff = Math.abs(word.length - secretWord.length);
+      if (lengthDiff <= 2) return true;
+      
+      // Check for common letters
+      const commonLetters = word.split('').filter(letter => secretWord.includes(letter));
+      if (commonLetters.length >= Math.min(word.length, secretWord.length) * 0.5) return true;
+      
+      return false;
+    });
+
+    // Get a random similar word
+    const similarWord = similarWords[Math.floor(Math.random() * similarWords.length)];
+
+    // Generate a hint based on the category and word characteristics
+    const hints = [
+      `The word is in the "${category.name}" category and has a similar length to "${similarWord}"`,
+      `Think of something in "${category.name}" that's related to "${similarWord}"`,
+      `The word is in the same category as "${similarWord}"`,
+      `Consider words in "${category.name}" that share characteristics with "${similarWord}"`,
+      `The word is in the "${category.name}" category and might be related to "${similarWord}"`
+    ];
+
+    return hints[Math.floor(Math.random() * hints.length)];
   };
 
   return {

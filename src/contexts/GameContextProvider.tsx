@@ -12,6 +12,7 @@ import { GameContext } from './gameContext';
 import { GameContextType } from './gameTypes';
 import { categories } from '@/lib/word-categories';
 import { WordCategory } from '@/lib/types';
+import { Room } from '@/types/Room';
 
 // export const useGame = () => {
 //   const context = useContext(GameContext);
@@ -651,6 +652,23 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, [room, playerId, startGameAction]);
 
+  const handleRoomUpdate = useCallback(async (room: GameRoom) => {
+    console.log('Room update received:', room);
+    
+    // Always update the room state if we have a valid room
+    if (room) {
+      setRoom(room);
+      
+      // If this is the current room, also update the game state
+      if (roomRef.current?.id === room.id) {
+        // Use a small delay to ensure state updates are processed
+        setTimeout(async () => {
+          await fetchRoom();
+        }, 50);
+      }
+    }
+  }, [setRoom, fetchRoom]);
+
   const value: GameContextType = useMemo(() => ({
     playerId,
     room,
@@ -670,6 +688,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     handleRoleAbility,
     setPlayerRole,
     handleGameStateTransition,
+    handleRoomUpdate,
     getPublicRooms: async (): Promise<GameRoom[]> => {
       try {
         const { data: rooms, error } = await supabase
@@ -729,7 +748,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     error: null
   }), [
     playerId, room, settings, createRoom, joinRoom, startGame, selectCategory, submitWord, submitVote, nextRound, leaveRoom, resetGame, handleRoleAbility, setPlayerRole,
-    isPlayerChameleon, remainingTime, playerName, setSettings, setRoom, fetchRoom, handleGameStateTransition
+    isPlayerChameleon, remainingTime, playerName, setSettings, setRoom, fetchRoom, handleGameStateTransition, handleRoomUpdate
   ]);
 
   // Add effect to handle tab/window close

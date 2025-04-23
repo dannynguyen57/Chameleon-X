@@ -173,6 +173,36 @@ export default function Home() {
           >
             A thrilling social deduction game where you must describe words without saying them directly. Can you spot the chameleon?
           </motion.p>
+          <motion.div 
+            className="mt-8 flex flex-col sm:flex-row justify-center gap-4"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.6 }}
+          >
+            <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
+              <Input
+                placeholder="Enter your name"
+                value={playerName}
+                onChange={(e) => setPlayerName(e.target.value)}
+                className="bg-white border-blue-100 focus:border-blue-300 focus:ring-blue-200"
+              />
+              <Button 
+                size="lg" 
+                className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white"
+                onClick={handleQuickJoin}
+                disabled={!playerName.trim() || isQuickJoining}
+              >
+                {isQuickJoining ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Finding Room...
+                  </>
+                ) : (
+                  "Quick Play"
+                )}
+              </Button>
+            </div>
+          </motion.div>
         </motion.div>
 
         {/* Game Actions */}

@@ -269,7 +269,53 @@ export const useGameRealtime = (roomId: string | undefined): { room: GameRoom | 
             new: payload.new,
             old: payload.old
           });
-          // Force immediate update for player changes
+          
+          // If this is a ready status change, update immediately
+          if (payload.eventType === 'UPDATE' && 
+              'is_ready' in payload.new && 
+              'is_ready' in payload.old && 
+              payload.new.is_ready !== payload.old.is_ready) {
+            console.log('Ready status change detected in postgres:', {
+              playerId: payload.new.id,
+              newStatus: payload.new.is_ready,
+              oldStatus: payload.old.is_ready
+            });
+            
+            // Update local state immediately
+            setRoom(prevRoom => {
+              if (!prevRoom) return null;
+              
+              const updatedPlayers = prevRoom.players.map(player => 
+                player.id === payload.new.id 
+                  ? { ...player, is_ready: payload.new.is_ready }
+                  : player
+              );
+              
+              console.log('Updated players from postgres:', updatedPlayers.map(p => ({ id: p.id, name: p.name, is_ready: p.is_ready })));
+              
+              return {
+                ...prevRoom,
+                players: updatedPlayers,
+                last_updated: new Date().toISOString()
+              };
+            });
+
+            // Send broadcast to all clients
+            const channel = supabase.channel(`room:${roomId}`);
+            await channel.send({
+              type: 'broadcast',
+              event: 'sync',
+              payload: {
+                action: 'player_ready_changed',
+                roomId: roomId,
+                playerId: payload.new.id,
+                isReady: payload.new.is_ready,
+                timestamp: new Date().toISOString()
+              }
+            });
+          }
+          
+          // Always fetch the latest data for any player change
           await fetchRoomData();
         }
       )
@@ -282,50 +328,67 @@ export const useGameRealtime = (roomId: string | undefined): { room: GameRoom | 
           'game_state_changed',
           'game_started',
           'player_joined',
-          'player_left'
+          'player_left',
+          'player_ready_changed'
         ];
 
         if (payload.payload?.action && criticalActions.includes(payload.payload.action)) {
-          // Force immediate update
-          await fetchRoomData();
-
-          // Only fetch room data again if we have broadcast data
-          if (payload.payload) {
-            const { data: roomData, error: fetchError } = await supabase
-              .from('game_rooms')
-              .select('*, players!players_room_id_fkey (*)')
-              .eq('id', roomId)
-              .single();
-
-            if (fetchError) {
-              console.error('Error fetching room after broadcast:', fetchError);
+          console.log('Critical action detected, forcing update:', payload.payload.action);
+          
+          // For player ready status changes, update immediately
+          if (payload.payload.action === 'player_ready_changed') {
+            const { playerId, isReady, timestamp } = payload.payload;
+            console.log('Updating player ready status from broadcast:', { playerId, isReady, timestamp });
+            
+            // Check if this is a newer update than what we have
+            const currentTimestamp = room?.last_updated;
+            if (currentTimestamp && timestamp && new Date(timestamp) <= new Date(currentTimestamp)) {
+              console.log('Ignoring older update:', { currentTimestamp, newTimestamp: timestamp });
               return;
             }
+            
+            // Update local state immediately
+            setRoom(prevRoom => {
+              if (!prevRoom) return null;
+              
+              const updatedPlayers = prevRoom.players.map(player => 
+                player.id === playerId 
+                  ? { ...player, is_ready: isReady }
+                  : player
+              );
+              
+              console.log('Updated players from broadcast:', updatedPlayers.map(p => ({ id: p.id, name: p.name, is_ready: p.is_ready })));
+              
+              return {
+                ...prevRoom,
+                players: updatedPlayers,
+                last_updated: timestamp || new Date().toISOString()
+              };
+            });
 
-            if (roomData) {
-              const mappedRoom = mapRoomData(roomData as DatabaseRoom);
-              console.log('Updating room state with broadcast data:', {
-                id: mappedRoom.id,
-                state: mappedRoom.state,
-                category: mappedRoom.category,
-                currentTurn: mappedRoom.current_turn,
-                turnOrder: mappedRoom.turn_order,
-                players: mappedRoom.players.map(p => ({ id: p.id, name: p.name, role: p.role }))
-              });
-              
-              // Update room state
-              setRoom(mappedRoom);
-              
-              // Handle navigation for critical state changes
-              const { action, roomId: broadcastRoomId } = payload.payload;
-              if ((action === 'category_selected' || action === 'game_state_changed') && 
-                  broadcastRoomId === roomId) {
-                // Only navigate if not already on the game screen
-                if (!window.location.pathname.includes(`/room/${roomId}`)) {
-                  window.location.href = `/room/${roomId}`;
-                }
+            // Force a re-fetch after a short delay to ensure consistency
+            setTimeout(async () => {
+              console.log('Forcing re-fetch after ready status change');
+              const { data: roomData, error: fetchError } = await supabase
+                .from('game_rooms')
+                .select('*, players!players_room_id_fkey (*)')
+                .eq('id', roomId)
+                .single();
+
+              if (fetchError) {
+                console.error('Error fetching room after ready status change:', fetchError);
+                return;
               }
-            }
+
+              if (roomData) {
+                console.log('Room data after ready status change:', roomData);
+                const mappedRoom = mapRoomData(roomData as DatabaseRoom);
+                setRoom(mappedRoom);
+              }
+            }, 100);
+          } else {
+            // For other actions, fetch the latest data
+            await fetchRoomData();
           }
         }
       })

@@ -91,6 +91,20 @@ export default function LobbyScreen() {
     }
   }, [room]);
 
+  // Add effect to handle player ready status changes
+  useEffect(() => {
+    if (room) {
+      const currentPlayer = room.players.find(p => p.id === playerId);
+      if (currentPlayer) {
+        console.log('Current player ready status:', {
+          playerId: currentPlayer.id,
+          name: currentPlayer.name,
+          is_ready: currentPlayer.is_ready
+        });
+      }
+    }
+  }, [room, playerId]);
+
   if (!room) return null;
 
   const isHost = playerId === room.host_id;

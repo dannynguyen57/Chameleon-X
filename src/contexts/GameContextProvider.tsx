@@ -22,6 +22,26 @@ import { Room } from '@/types/Room';
 //   return context;
 // };
 
+interface BroadcastPayload {
+  action: string;
+  playerId?: string;
+  isReady?: boolean;
+  timestamp?: string;
+  roomId?: string;
+  newState?: GameState;
+  category?: string;
+  secretWord?: string;
+  currentTurn?: number;
+  turnOrder?: string[];
+  timer?: number;
+}
+
+interface BroadcastMessage {
+  event: string;
+  payload: BroadcastPayload;
+  type: string;
+}
+
 export const GameProvider = ({ children }: { children: React.ReactNode }) => {
   // Memoize the ID generation function with retry logic
   const generateNewPlayerId = useCallback(async () => {
@@ -267,6 +287,87 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     await fetchRoom();
   }, [room, fetchRoom]);
 
+  const handleBroadcast = useCallback(async (payload: BroadcastMessage) => {
+    console.log('Sync broadcast received:', payload);
+    
+    // Only process if we still have a room
+    if (!roomRef.current?.id || !room) return;
+
+    const { action, playerId, isReady, timestamp, roomId } = payload.payload;
+    
+    // Handle ready status changes
+    if (action === 'player_ready_changed') {
+      console.log('Updating player ready status from broadcast:', { 
+        playerId, 
+        isReady, 
+        timestamp,
+        currentRoom: room ? {
+          id: room.id,
+          players: room.players.map(p => ({ id: p.id, name: p.name, is_ready: p.is_ready }))
+        } : null
+      });
+      
+      // Update local state immediately
+      setRoom(prevRoom => {
+        if (!prevRoom) return null;
+        
+        const updatedPlayers = prevRoom.players.map(player => 
+          player.id === playerId 
+            ? { ...player, is_ready: isReady || false }
+            : player
+        );
+        
+        return {
+          ...prevRoom,
+          players: updatedPlayers,
+          last_updated: timestamp || new Date().toISOString()
+        };
+      });
+
+      // Force a re-fetch after a short delay to ensure consistency
+      setTimeout(async () => {
+        await fetchRoom();
+      }, 100);
+      return;
+    }
+
+    // Handle other game state changes
+    if (action === 'game_state_changed' || 
+        action === 'game_started' || 
+        action === 'category_selected' || 
+        action === 'description_submitted') {
+      
+      // Force immediate update
+      await fetchRoom();
+
+      // If game has started or state has changed, ensure we're on the game screen
+      if (roomId === room.id) {
+        // Force a complete state update with all broadcast data
+        if (roomRef.current) {
+          const updatedRoom = {
+            ...roomRef.current,
+            state: payload.payload?.newState || roomRef.current.state,
+            category: payload.payload?.category 
+              ? categories.find((c: WordCategory) => c.name === payload.payload.category)
+              : roomRef.current.category,
+            secret_word: payload.payload?.secretWord || roomRef.current.secret_word,
+            current_turn: payload.payload?.currentTurn ?? roomRef.current.current_turn,
+            turn_order: payload.payload?.turnOrder || roomRef.current.turn_order,
+            timer: payload.payload?.timer ?? roomRef.current.timer,
+            last_updated: new Date().toISOString()
+          };
+          
+          setRoom(updatedRoom);
+
+          // Force a navigation to the game screen if needed
+          if (!window.location.pathname.includes(`/room/${room.id}`)) {
+            window.location.href = `/room/${room.id}`;
+          }
+        }
+      }
+    }
+  }, [room, fetchRoom]);
+
   useEffect(() => {
     if (!room?.id) {
       // Clean up any existing subscription if there's no room
@@ -323,60 +424,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
           }
         }
       )
-      .on('broadcast', { event: 'sync' }, async (payload) => {
-        console.log('Sync broadcast received:', payload);
-        // Only process if we still have a room
-        if (roomRef.current?.id === room.id) {
-          if (payload.payload?.action === 'player_joined' || 
-              payload.payload?.action === 'player_left' ||
-              payload.payload?.action === 'game_state_changed' ||
-              payload.payload?.action === 'game_started' ||
-              payload.payload?.action === 'category_selected' ||
-              payload.payload?.action === 'description_submitted') {
-            
-            // Force immediate update
-            await fetchRoom();
-
-            // If game has started or state has changed, ensure we're on the game screen
-            if ((payload.payload?.action === 'game_started' || 
-                 payload.payload?.action === 'game_state_changed' ||
-                 payload.payload?.newState === GameState.Selecting ||
-                 payload.payload?.newState === GameState.Presenting ||
-                 payload.payload?.action === 'category_selected' ||
-                 payload.payload?.action === 'description_submitted') && 
-                payload.payload?.roomId === room.id) {
-              
-              // Force a complete state update with all broadcast data
-              if (roomRef.current) {
-                // Find the full category object if we have a category name
-                const categoryName = payload.payload?.category;
-                const fullCategory = categoryName 
-                  ? categories.find((c: WordCategory) => c.name === categoryName)
-                  : roomRef.current.category;
-
-                const updatedRoom = {
-                  ...roomRef.current,
-                  state: payload.payload?.newState || roomRef.current.state,
-                  category: fullCategory,
-                  secret_word: payload.payload?.secretWord || roomRef.current.secret_word,
-                  current_turn: payload.payload?.currentTurn ?? roomRef.current.current_turn,
-                  turn_order: payload.payload?.turnOrder || roomRef.current.turn_order,
-                  timer: payload.payload?.timer ?? roomRef.current.timer,
-                  last_updated: new Date().toISOString()
-                };
-                
-                console.log('Updating room state with broadcast data:', updatedRoom);
-                setRoom(updatedRoom);
-
-                // Force a navigation to the game screen if needed
-                if (!window.location.pathname.includes(`/room/${room.id}`)) {
-                  window.location.href = `/room/${room.id}`;
-                }
-              }
-            }
-          }
-        }
-      })
+      .on('broadcast', { event: 'sync' }, handleBroadcast)
       .subscribe((status) => {
         console.log('Subscription status:', status);
         if (status === 'SUBSCRIBED') {
@@ -396,7 +444,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         channelRef.current = null;
       }
     };
-  }, [room?.id, fetchRoom]);
+  }, [room?.id, fetchRoom, handleBroadcast]);
 
   const createRoom = useCallback(async (playerName: string, settings: GameSettings): Promise<string> => {
     try {

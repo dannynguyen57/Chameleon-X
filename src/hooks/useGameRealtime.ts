@@ -338,7 +338,15 @@ export const useGameRealtime = (roomId: string | undefined): { room: GameRoom | 
           // For player ready status changes, update immediately
           if (payload.payload.action === 'player_ready_changed') {
             const { playerId, isReady, timestamp } = payload.payload;
-            console.log('Updating player ready status from broadcast:', { playerId, isReady, timestamp });
+            console.log('Updating player ready status from broadcast:', { 
+              playerId, 
+              isReady, 
+              timestamp,
+              currentRoom: room ? {
+                id: room.id,
+                players: room.players.map(p => ({ id: p.id, name: p.name, is_ready: p.is_ready }))
+              } : null
+            });
             
             // Check if this is a newer update than what we have
             const currentTimestamp = room?.last_updated;
@@ -349,21 +357,46 @@ export const useGameRealtime = (roomId: string | undefined): { room: GameRoom | 
             
             // Update local state immediately
             setRoom(prevRoom => {
-              if (!prevRoom) return null;
+              if (!prevRoom) {
+                console.log('No previous room state to update');
+                return null;
+              }
               
-              const updatedPlayers = prevRoom.players.map(player => 
-                player.id === playerId 
+              const updatedPlayers = prevRoom.players.map(player => {
+                const isUpdated = player.id === playerId;
+                console.log('Updating player:', { 
+                  playerId: player.id, 
+                  isUpdated, 
+                  currentReady: player.is_ready,
+                  newReady: isUpdated ? isReady : player.is_ready
+                });
+                return isUpdated 
                   ? { ...player, is_ready: isReady }
-                  : player
-              );
+                  : player;
+              });
               
-              console.log('Updated players from broadcast:', updatedPlayers.map(p => ({ id: p.id, name: p.name, is_ready: p.is_ready })));
+              console.log('Updated players from broadcast:', updatedPlayers.map(p => ({ 
+                id: p.id, 
+                name: p.name, 
+                is_ready: p.is_ready 
+              })));
               
-              return {
+              const updatedRoom = {
                 ...prevRoom,
                 players: updatedPlayers,
                 last_updated: timestamp || new Date().toISOString()
               };
+              
+              console.log('New room state:', {
+                id: updatedRoom.id,
+                players: updatedRoom.players.map(p => ({ 
+                  id: p.id, 
+                  name: p.name, 
+                  is_ready: p.is_ready 
+                }))
+              });
+              
+              return updatedRoom;
             });
 
             // Force a re-fetch after a short delay to ensure consistency
@@ -381,7 +414,14 @@ export const useGameRealtime = (roomId: string | undefined): { room: GameRoom | 
               }
 
               if (roomData) {
-                console.log('Room data after ready status change:', roomData);
+                console.log('Room data after ready status change:', {
+                  id: roomData.id,
+                  players: roomData.players.map((p: DatabasePlayer) => ({ 
+                    id: p.id, 
+                    name: p.name, 
+                    is_ready: p.is_ready 
+                  }))
+                });
                 const mappedRoom = mapRoomData(roomData as DatabaseRoom);
                 setRoom(mappedRoom);
               }
@@ -408,7 +448,7 @@ export const useGameRealtime = (roomId: string | undefined): { room: GameRoom | 
         channelRef.current = null;
       }
     };
-  }, [roomId, fetchRoomData]);
+  }, [roomId, fetchRoomData, room]);
 
   return { room, isLoading, error };
 };

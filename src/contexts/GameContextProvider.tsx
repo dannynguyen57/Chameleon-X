@@ -25,6 +25,7 @@ import { Room } from '@/types/Room';
 interface BroadcastPayload {
   action: string;
   playerId?: string;
+  playerName?: string;
   isReady?: boolean;
   timestamp?: string;
   roomId?: string;
@@ -136,6 +137,10 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
   const reconnectAttempts = useRef<number>(0);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const lastUpdateRef = useRef<number>(0);
+  const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isFetchingRef = useRef<boolean>(false);
+  const retryCountRef = useRef<number>(0);
+  const MAX_RETRIES = 3;
 
   useEffect(() => {
     roomRef.current = room;
@@ -160,60 +165,88 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
       return;
     }
 
-    try {
-      console.log('Fetching room data for:', room.id);
-      const { data, error } = await supabase
-        .from('game_rooms')
-        .select(`
-          *,
-          players (
-            id,
-            name,
-            is_host,
-            is_ready,
-            role,
-            vote,
-            turn_description,
-            special_ability_used,
-            is_protected,
-            vote_multiplier,
-            special_word,
-            last_active,
-            last_updated
-          )
-        `)
-        .eq('id', room.id)
-        .maybeSingle();  // Use maybeSingle instead of single to handle no results
-
-      if (error) {
-        console.error('Error fetching room:', error);
-        return;
-      }
-
-      if (data) {
-        console.log('Room data received:', data);
-        const mappedRoom = mapRoomData(data as unknown as DatabaseRoom);
-        
-        // Always update the room state to ensure real-time updates
-        console.log('Updating room state with:', mappedRoom);
-        setRoom(mappedRoom as unknown as GameRoom);
-        roomRef.current = mappedRoom as unknown as GameRoom;
-
-        // Force a re-render by updating the last_updated timestamp
-        if (mappedRoom) {
-          setRoom({
-            ...mappedRoom,
-            last_updated: new Date().toISOString()
-          } as GameRoom);
-        }
-      } else {
-        console.log('No room data received for ID:', room.id);
-        // If no room data is found, set room to null
-        setRoom(null);
-      }
-    } catch (error) {
-      console.error('Error in fetchRoom:', error);
+    // Prevent concurrent fetches
+    if (isFetchingRef.current) {
+      return;
     }
+
+    // Clear any existing timeout
+    if (fetchTimeoutRef.current) {
+      clearTimeout(fetchTimeoutRef.current);
+    }
+
+    // Set a new timeout to debounce the fetch
+    fetchTimeoutRef.current = setTimeout(async () => {
+      try {
+        isFetchingRef.current = true;
+        console.log('Fetching room data for:', room.id);
+        
+        const { data, error } = await supabase
+          .from('game_rooms')
+          .select(`
+            *,
+            players (
+              id,
+              name,
+              is_host,
+              is_ready,
+              role,
+              vote,
+              turn_description,
+              special_ability_used,
+              is_protected,
+              vote_multiplier,
+              special_word,
+              last_active,
+              last_updated
+            )
+          `)
+          .eq('id', room.id)
+          .maybeSingle();
+
+        if (error) {
+          console.error('Error fetching room:', error);
+          // Implement retry logic
+          if (retryCountRef.current < MAX_RETRIES) {
+            retryCountRef.current++;
+            setTimeout(() => fetchRoom(), 1000 * retryCountRef.current);
+            return;
+          }
+          throw error;
+        }
+
+        // Reset retry count on successful fetch
+        retryCountRef.current = 0;
+
+        if (data) {
+          console.log('Room data received:', data);
+          const mappedRoom = mapRoomData(data as unknown as DatabaseRoom);
+          
+          // Only update if the data has actually changed
+          const currentRoomStr = JSON.stringify(roomRef.current);
+          const newRoomStr = JSON.stringify(mappedRoom);
+          
+          if (currentRoomStr !== newRoomStr) {
+            console.log('Updating room state with:', mappedRoom);
+            setRoom(mappedRoom as unknown as GameRoom);
+            roomRef.current = mappedRoom as unknown as GameRoom;
+            lastUpdateRef.current = Date.now();
+          }
+        } else {
+          console.log('No room data received for ID:', room.id);
+          setRoom(null);
+        }
+      } catch (error) {
+        console.error('Error in fetchRoom:', error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to update room. Please try again."
+        });
+      } finally {
+        isFetchingRef.current = false;
+      }
+    }, 100); // 100ms debounce
   }, [room?.id]);
 
   const handleGameStateTransition = useCallback(async (newState: GameState) => {
@@ -293,8 +326,54 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     // Only process if we still have a room
     if (!roomRef.current?.id || !room) return;
 
-    const { action, playerId, isReady, timestamp, roomId } = payload.payload;
+    const { action, playerId, playerName, roomId, isReady, timestamp } = payload.payload;
     
+    // Handle player joined events
+    if (action === 'player_joined' && playerId && playerName) {
+      console.log('Player joined broadcast received:', { playerId, playerName, roomId });
+      
+      // Force immediate room update
+      await fetchRoom();
+      
+      // Update local state immediately
+      setRoom(prevRoom => {
+        if (!prevRoom) return null;
+        
+        // Check if player already exists
+        const playerExists = prevRoom.players.some(p => p.id === playerId);
+        
+        if (!playerExists) {
+          // Add new player to the room
+          const newPlayer: Player = {
+            id: playerId,
+            name: playerName,
+            role: 'regular' as PlayerRole,
+            isProtected: false,
+            isInvestigated: false,
+            isCurrentPlayer: false,
+            isTurn: false,
+            is_host: false,
+            is_ready: false,
+            score: 0,
+            last_active: new Date().toISOString(),
+            last_updated: new Date().toISOString(),
+            room_id: roomId || '',
+            created_at: new Date().toISOString()
+          };
+          
+          return {
+            ...prevRoom,
+            players: [...prevRoom.players, newPlayer],
+            last_updated: timestamp || new Date().toISOString()
+          };
+        }
+        
+        return prevRoom;
+      });
+      
+      return;
+    }
+
     // Handle ready status changes
     if (action === 'player_ready_changed') {
       console.log('Updating player ready status from broadcast:', { 
@@ -370,7 +449,6 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     if (!room?.id) {
-      // Clean up any existing subscription if there's no room
       if (channelRef.current) {
         console.log('Cleaning up subscription - no room');
         supabase.removeChannel(channelRef.current);
@@ -403,10 +481,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         }, 
         async (payload) => {
           console.log('Room change detected:', payload);
-          // Only fetch if we still have a room
-          if (roomRef.current?.id === room.id) {
-            await fetchRoom();
-          }
+          await fetchRoom();
         }
       )
       .on('postgres_changes', 
@@ -418,20 +493,14 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         }, 
         async (payload) => {
           console.log('Player change detected:', payload);
-          // Only fetch if we still have a room
-          if (roomRef.current?.id === room.id) {
-            await fetchRoom();
-          }
+          await fetchRoom();
         }
       )
       .on('broadcast', { event: 'sync' }, handleBroadcast)
       .subscribe((status) => {
         console.log('Subscription status:', status);
         if (status === 'SUBSCRIBED') {
-          // Only fetch if we still have a room
-          if (roomRef.current?.id === room.id) {
-            fetchRoom();
-          }
+          fetchRoom();
         }
       });
 

@@ -69,9 +69,6 @@ export default function LobbyScreen() {
   useEffect(() => {
     if (!room?.id) return;
 
-    let isSubscribed = true;
-    let channel: RealtimeChannel | null = null;
-
     const setupChannel = async () => {
       try {
         // Clean up any existing subscription
@@ -81,7 +78,7 @@ export default function LobbyScreen() {
         }
 
         // Create a new channel for this room
-        channel = supabase.channel(`room:${room.id}`, {
+        const channel = supabase.channel(`room:${room.id}`, {
           config: {
             broadcast: { self: true },
             presence: { key: '' },
@@ -98,7 +95,6 @@ export default function LobbyScreen() {
               filter: `room_id=eq.${room.id}`
             }, 
             async (payload) => {
-              if (!isSubscribed) return;
               // Fetch fresh room data
               const { data: freshData, error: fetchError } = await supabase
                 .from('game_rooms')
@@ -121,7 +117,6 @@ export default function LobbyScreen() {
             }
           )
           .on('broadcast', { event: 'sync' }, async (payload) => {
-            if (!isSubscribed) return;
             if (payload.payload.action === 'player_left' || 
                 payload.payload.action === 'room_deleted' ||
                 payload.payload.action === 'player_joined') {
@@ -148,12 +143,8 @@ export default function LobbyScreen() {
           });
 
         // Subscribe to the channel
-        try {
-          channel.subscribe();
-          channelRef.current = channel;
-        } catch (error) {
-          console.error('Room channel subscription failed:', error);
-        }
+        await channel.subscribe();
+        channelRef.current = channel;
       } catch (error) {
         console.error('Error setting up channel:', error);
       }
@@ -162,7 +153,6 @@ export default function LobbyScreen() {
     setupChannel();
 
     return () => {
-      isSubscribed = false;
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current).catch(err => console.error("Error removing channel:", err));
         channelRef.current = null;

@@ -353,6 +353,30 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
 
     const { action, playerId, playerName, roomId, isReady, timestamp, turnOrder, currentTurn } = payload.payload;
     
+    // Handle player left events
+    if (action === 'player_left') {
+      console.log('Player left broadcast received:', { playerId, roomId });
+      
+      // Force immediate room update
+      await fetchRoom();
+      
+      // Update local state immediately
+      setRoom(prevRoom => {
+        if (!prevRoom) return null;
+        
+        // Remove the player from the list
+        const updatedPlayers = prevRoom.players.filter(p => p.id !== playerId);
+        
+        return {
+          ...prevRoom,
+          players: updatedPlayers,
+          last_updated: timestamp || new Date().toISOString()
+        };
+      });
+      
+      return;
+    }
+
     // Handle player joined events
     if (action === 'player_joined' && playerId && playerName) {
       console.log('Player joined broadcast received:', { playerId, playerName, roomId });

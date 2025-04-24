@@ -165,37 +165,74 @@ export default function LobbyScreen() {
     if (!room?.id) return;
 
     const fetchRoomData = async () => {
-      // First check if we're already in the room
-      const { data: playerData, error: playerError } = await supabase
-        .from('players')
-        .select('*')
-        .eq('id', playerId)
-        .eq('room_id', room.id)
-        .single();
+      try {
+        // First check if we're already in the room
+        const { data: playerData, error: playerError } = await supabase
+          .from('players')
+          .select('*')
+          .eq('id', playerId)
+          .eq('room_id', room.id)
+          .maybeSingle(); // Use maybeSingle instead of single
 
-      if (playerError || !playerData) {
-        console.error('Player not found in room:', playerError);
-        return;
-      }
+        if (playerError) {
+          console.error('Error checking player:', playerError);
+          return;
+        }
 
-      // Then fetch the full room data
-      const { data: freshData, error: fetchError } = await supabase
-        .from('game_rooms')
-        .select(`
-          *,
-          players:players(*)
-        `)
-        .eq('id', room.id)
-        .single();
+        // If player not found, try to rejoin the room
+        if (!playerData) {
+          console.log('Player not found in room, attempting to rejoin...');
+          const { data: roomData, error: roomError } = await supabase
+            .from('game_rooms')
+            .select('*')
+            .eq('id', room.id)
+            .single();
 
-      if (fetchError) {
-        console.error('Error fetching initial room data:', fetchError);
-        return;
-      }
+          if (roomError || !roomData) {
+            console.error('Error fetching room data:', roomError);
+            return;
+          }
 
-      if (freshData) {
-        const mappedRoom = mapRoomData(freshData as DatabaseRoom);
-        setRoom(convertToExtendedRoom(mappedRoom));
+          // Try to rejoin the room
+          const { error: joinError } = await supabase
+            .from('players')
+            .insert({
+              id: playerId,
+              room_id: room.id,
+              name: localStorage.getItem('playerName') || 'Player',
+              is_host: false,
+              is_ready: false,
+              last_active: new Date().toISOString(),
+              last_updated: new Date().toISOString()
+            });
+
+          if (joinError) {
+            console.error('Error rejoining room:', joinError);
+            return;
+          }
+        }
+
+        // Then fetch the full room data
+        const { data: freshData, error: fetchError } = await supabase
+          .from('game_rooms')
+          .select(`
+            *,
+            players:players(*)
+          `)
+          .eq('id', room.id)
+          .single();
+
+        if (fetchError) {
+          console.error('Error fetching initial room data:', fetchError);
+          return;
+        }
+
+        if (freshData) {
+          const mappedRoom = mapRoomData(freshData as DatabaseRoom);
+          setRoom(convertToExtendedRoom(mappedRoom));
+        }
+      } catch (error) {
+        console.error('Error in fetchRoomData:', error);
       }
     };
 

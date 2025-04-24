@@ -779,41 +779,105 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         return false;
       }
 
-      // Join the room with our existing playerId
-      const success = await joinRoomAction(roomId, playerName);
-      
-      if (success) {
-        console.log(`Successfully joined room ${roomId}, fetching room data`);
-        
-        // Fetch the updated room data
-        const { data: updatedRoomData, error: updateError } = await supabase
-          .from('game_rooms')
-          .select(`
-            *,
-            players:players_room_id_fkey (*)
-          `)
-          .eq('id', roomId)
-          .single();
-          
+      // Check if player already exists in the room
+      const existingPlayer = roomData.players.find((p: Player) => p.id === playerId);
+      if (existingPlayer) {
+        // If player exists, update their name and last_active
+        const { error: updateError } = await supabase
+          .from('players')
+          .update({ 
+            name: playerName,
+            last_active: new Date().toISOString(),
+            last_updated: new Date().toISOString()
+          })
+          .eq('id', playerId)
+          .eq('room_id', roomId);
+
         if (updateError) {
-          console.error('Error fetching room after join:', updateError);
+          console.error('Error updating existing player:', updateError);
           return false;
         }
-        
-        if (updatedRoomData) {
-          const mappedRoom = mapRoomWithTimers(updatedRoomData as DatabaseRoom);
-          setRoom(mappedRoom as unknown as ExtendedGameRoom);
-          console.log(`Room data loaded successfully after joining: ${roomId}`);
-          return true;
+      } else {
+        // If player doesn't exist, try to join the room
+        try {
+          const { error: joinError } = await supabase
+            .from('players')
+            .insert({
+              id: playerId,
+              room_id: roomId,
+              name: playerName,
+              is_host: false,
+              is_ready: false,
+              last_active: new Date().toISOString(),
+              last_updated: new Date().toISOString()
+            });
+
+          if (joinError) {
+            console.error('Error joining room:', joinError);
+            return false;
+          }
+        } catch (error) {
+          console.error('Error in join attempt:', error);
+          return false;
         }
+      }
+      
+      console.log(`Successfully joined room ${roomId}, fetching room data`);
+      
+      // Fetch the updated room data
+      const { data: updatedRoomData, error: updateError } = await supabase
+        .from('game_rooms')
+        .select(`
+          *,
+          players:players_room_id_fkey (*)
+        `)
+        .eq('id', roomId)
+        .single();
+        
+      if (updateError) {
+        console.error('Error fetching room after join:', updateError);
         return false;
+      }
+      
+      if (updatedRoomData) {
+        const mappedRoom = mapRoomWithTimers(updatedRoomData as DatabaseRoom);
+        setRoom(mappedRoom as unknown as ExtendedGameRoom);
+        console.log(`Room data loaded successfully after joining: ${roomId}`);
+
+        // Broadcast the player joined event to all clients
+        await Promise.all([
+          supabase.channel(`room:${roomId}`).send({
+            type: 'broadcast',
+            event: 'sync',
+            payload: { 
+              action: 'player_joined', 
+              playerId: playerId,
+              playerName: playerName,
+              roomId: roomId,
+              timestamp: new Date().toISOString()
+            }
+          }),
+          supabase.channel('public_rooms_list').send({
+            type: 'broadcast',
+            event: 'sync',
+            payload: { 
+              action: 'player_joined', 
+              playerId: playerId,
+              playerName: playerName,
+              roomId: roomId,
+              timestamp: new Date().toISOString()
+            }
+          })
+        ]);
+
+        return true;
       }
       return false;
     } catch (error) {
       console.error('Error in joinRoom wrapper:', error);
       return false;
     }
-  }, [joinRoomAction, setRoom, room?.id, playerId, setPlayerName, mapRoomWithTimers]);
+  }, [setRoom, room?.id, playerId, setPlayerName, mapRoomWithTimers]);
 
   const leaveRoom = useCallback(async () => {
     if (!room?.id || !playerId) return;

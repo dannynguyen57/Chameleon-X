@@ -27,6 +27,14 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
     let initialTime = 0;
     let shouldCountdownLocally = false;
 
+    // Check if all players have submitted their descriptions
+    const allPlayersSubmitted = room.players.every(p => p.turn_description);
+    if (allPlayersSubmitted && room.state === GameState.Presenting) {
+      console.log('[Timer] All players have submitted, transitioning to discussion phase');
+      handleStateTransition(GameState.Discussion);
+      return;
+    }
+
     switch (room.state) {
       case GameState.Presenting:
         if (isCurrentPlayer) {
@@ -106,6 +114,7 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
     room?.voting_timer,
     room?.current_turn,
     room?.turn_order,
+    room?.players,
     settings.presenting_time,
     settings.discussion_time,
     settings.voting_time,

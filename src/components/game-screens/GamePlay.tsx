@@ -86,8 +86,7 @@ const PlayerRoleDisplay = memo(({ player }: { player: Player }) => {
 interface CurrentTurnCardProps {
   room: GameRoom;
   currentPlayer: Player;
-  onDescriptionSubmit: (description: string) => void;
-  onSkipTurn: () => void;
+  onDescriptionSubmit: (description: string) => Promise<void>;
   remainingTime: { isActive: boolean; timeLeft: number };
   formatTime: (seconds: number) => string;
 }
@@ -96,7 +95,6 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
   room, 
   currentPlayer, 
   onDescriptionSubmit, 
-  onSkipTurn, 
   remainingTime,
   formatTime
 }) => {
@@ -124,9 +122,7 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
   const isIllusionist = currentPlayer.role === PlayerRole.Illusionist;
 
   const currentTurnPlayer = room.players.find(p => p.id === room.turn_order?.[room.current_turn || 0]);
-  if (!currentTurnPlayer) return null;
-
-  const isCurrentPlayerTurn = currentPlayer?.id === currentTurnPlayer?.id;
+  const isCurrentPlayerTurn = currentPlayer.id === currentTurnPlayer?.id;
 
   const handleAbilityUse = async (ability: string) => {
     switch (ability) {
@@ -175,6 +171,18 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
     if (description.trim() && isCurrentPlayerTurn) {
       onDescriptionSubmit(description);
       setDescription('');
+    }
+  };
+
+  const handleSkipTurn = async () => {
+    if (isCurrentPlayerTurn) {
+      try {
+        onDescriptionSubmit("skip");
+        toast.success("Turn skipped successfully");
+      } catch (error) {
+        console.error('Error skipping turn:', error);
+        toast.error("Failed to skip turn. Please try again.");
+      }
     }
   };
 
@@ -445,7 +453,7 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
               Submit Description
             </Button>
             <Button 
-              onClick={onSkipTurn}
+              onClick={handleSkipTurn}
               variant="outline"
               disabled={!isCurrentPlayerTurn}
               className={cn(
@@ -793,18 +801,6 @@ export default function GamePlay() {
                       room={room}
                       currentPlayer={currentPlayer}
                       onDescriptionSubmit={submitWord}
-                      onSkipTurn={async () => {
-                        if (room && currentPlayer) {
-                          try {
-                            // Submit an empty string to trigger timeout
-                            await submitWord("");
-                            toast.success("Turn skipped successfully");
-                          } catch (error) {
-                            console.error('Error skipping turn:', error);
-                            toast.error("Failed to skip turn. Please try again.");
-                          }
-                        }
-                      }}
                       remainingTime={remainingTime}
                       formatTime={formatTime}
                     />

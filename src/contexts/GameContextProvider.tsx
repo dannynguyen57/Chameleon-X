@@ -558,27 +558,83 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
       )
       .on('broadcast', { event: 'sync' }, handleBroadcast);
 
-    // Subscribe to the channel
-    channel.subscribe((status) => {
-      console.log('Subscription status:', status);
-      if (status === 'SUBSCRIBED') {
-        setIsConnected(true);
-        // Initial fetch after subscription
-        fetchRoom();
-      } else if (status === 'CLOSED') {
-        setIsConnected(false);
-        // Attempt to reconnect if connection is lost
-        if (reconnectAttempts.current < MAX_RETRIES) {
-          reconnectAttempts.current++;
-          setTimeout(() => {
-            console.log('Attempting to reconnect...');
-            channel.subscribe();
-          }, 1000 * reconnectAttempts.current);
-        }
-      }
-    });
+    // Subscribe to the channel only if not already subscribed
+    if (!channelRef.current) {
+      channel.subscribe((status) => {
+        console.log('Subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          setIsConnected(true);
+          // Initial fetch after subscription
+          fetchRoom();
+        } else if (status === 'CLOSED') {
+          setIsConnected(false);
+          // Attempt to reconnect if connection is lost
+          if (reconnectAttempts.current < MAX_RETRIES) {
+            reconnectAttempts.current++;
+            setTimeout(() => {
+              console.log('Attempting to reconnect...');
+              // Create a new channel for reconnection
+              const newChannel = supabase
+                .channel(`room:${room.id}`, {
+                  config: {
+                    broadcast: { self: true },
+                    presence: { key: '' },
+                  },
+                })
+                .on('postgres_changes', 
+                  { 
+                    event: '*', 
+                    schema: 'public', 
+                    table: 'game_rooms',
+                    filter: `id=eq.${room.id}`
+                  }, 
+                  async (payload) => {
+                    if (fetchTimeoutRef.current) {
+                      clearTimeout(fetchTimeoutRef.current);
+                    }
+                    fetchTimeoutRef.current = setTimeout(() => {
+                      fetchRoom();
+                    }, 100);
+                  }
+                )
+                .on('postgres_changes', 
+                  { 
+                    event: '*', 
+                    schema: 'public', 
+                    table: 'players',
+                    filter: `room_id=eq.${room.id}`
+                  }, 
+                  async (payload) => {
+                    if (fetchTimeoutRef.current) {
+                      clearTimeout(fetchTimeoutRef.current);
+                    }
+                    fetchTimeoutRef.current = setTimeout(() => {
+                      fetchRoom();
+                    }, 100);
+                  }
+                )
+                .on('broadcast', { event: 'sync' }, handleBroadcast);
 
-    channelRef.current = channel;
+              // Clean up old channel before subscribing to new one
+              if (channelRef.current) {
+                supabase.removeChannel(channelRef.current);
+              }
+              
+              // Subscribe to new channel
+              newChannel.subscribe((newStatus) => {
+                if (newStatus === 'SUBSCRIBED') {
+                  channelRef.current = newChannel;
+                  setIsConnected(true);
+                  fetchRoom();
+                }
+              });
+            }, 1000 * reconnectAttempts.current);
+          }
+        }
+      });
+
+      channelRef.current = channel;
+    }
 
     return () => {
       if (channelRef.current) {

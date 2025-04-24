@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { useGame } from '@/hooks/useGame';
 import { GameRoom } from '@/lib/types';
 import { useNavigate } from 'react-router-dom';
-import { Clock, Users, Gamepad2, Settings2 } from 'lucide-react';
+import { Clock, Users, Gamepad2, Settings2, PlusCircle, Search } from 'lucide-react';
 import { toast } from '@/components/ui/use-toast';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -13,8 +13,13 @@ import { supabase } from '@/integrations/supabase/client';
 import { RealtimeChannel } from '@supabase/supabase-js';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ServerCrash } from 'lucide-react';
+import { motion } from 'framer-motion';
 
-export default function PublicRooms() {
+interface PublicRoomsProps {
+  onSwitchTab?: (tab: string) => void;
+}
+
+export default function PublicRooms({ onSwitchTab }: PublicRoomsProps) {
   const [rooms, setRooms] = useState<GameRoom[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
@@ -24,6 +29,7 @@ export default function PublicRooms() {
   const { getPublicRooms, joinRoom, playerName: contextPlayerName, checkNameExists } = useGame();
   const navigate = useNavigate();
   const channelRef = useRef<RealtimeChannel | null>(null);
+  const isSubscribedRef = useRef(false);
 
   // Load player name from context or localStorage when component mounts
   useEffect(() => {
@@ -32,104 +38,114 @@ export default function PublicRooms() {
   }, [contextPlayerName]);
 
   const fetchPublicRooms = useCallback(async (isInitial = false) => {
-    if (!isInitial) setIsLoading(true); // Show loader on subsequent fetches
+    if (!isInitial) setIsLoading(true);
     try {
-      const data = await getPublicRooms();
-      setRooms(data);
+      const { data: freshData, error: fetchError } = await supabase
+        .from('game_rooms')
+        .select(`
+          *,
+          players:players(*)
+        `)
+        .eq('state', 'lobby')
+        .order('created_at', { ascending: false });
+
+      if (fetchError) {
+        throw fetchError;
+      }
+
+      if (freshData) {
+        setRooms(freshData);
+      } else {
+        setRooms([]);
+      }
     } catch (error) {
       console.error('Error fetching rooms:', error);
-      setRooms([]); // Set to empty array on error
+      setRooms([]);
       toast({ variant: "destructive", title: "Error", description: "Could not fetch public rooms." });
     } finally {
       setIsLoading(false);
     }
-  }, [getPublicRooms]);
+  }, []);
 
   // Set up real-time subscriptions
   useEffect(() => {
-    let isSubscribed = true;
+    const setupChannel = async () => {
+      try {
+        // Clean up any existing subscription
+        if (channelRef.current) {
+          await supabase.removeChannel(channelRef.current);
+          channelRef.current = null;
+          isSubscribedRef.current = false;
+        }
 
-    // Initial fetch
+        // Create a new channel
+        const channel = supabase.channel('public_rooms_list', {
+          config: {
+            broadcast: { self: true },
+            presence: { key: '' },
+          },
+        });
+
+        // Set up event handlers
+        channel
+          .on('postgres_changes', 
+            { 
+              event: '*', 
+              schema: 'public', 
+              table: 'game_rooms',
+              filter: 'state=eq.lobby'
+            }, 
+            () => {
+              if (isSubscribedRef.current) {
+                fetchPublicRooms();
+              }
+            }
+          )
+          .on('postgres_changes', 
+            { 
+              event: '*', 
+              schema: 'public', 
+              table: 'players',
+              filter: 'room_id=not.is.null'
+            }, 
+            () => {
+              if (isSubscribedRef.current) {
+                fetchPublicRooms();
+              }
+            }
+          )
+          .on('broadcast', { event: 'sync' }, async (payload) => {
+            if (isSubscribedRef.current && (
+              payload.payload.action === 'player_left' || 
+              payload.payload.action === 'room_deleted' ||
+              payload.payload.action === 'player_joined'
+            )) {
+              fetchPublicRooms();
+            }
+          });
+
+        // Subscribe to the channel only if not already subscribed
+        if (!isSubscribedRef.current) {
+          await channel.subscribe();
+          channelRef.current = channel;
+          isSubscribedRef.current = true;
+        }
+      } catch (error) {
+        console.error('Error setting up channel:', error);
+        toast({ 
+          variant: "destructive", 
+          title: "Connection Error", 
+          description: "Could not connect to live room updates. Please refresh the page." 
+        });
+      }
+    };
+
+    // Initial fetch and setup
     fetchPublicRooms(true);
-
-    // Clean up any existing subscription
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current);
-    }
-
-    const channel = supabase.channel('public_rooms_list', {
-      config: {
-        broadcast: { self: true },
-        presence: { key: '' },
-      },
-    });
-
-    // Subscribe to game_rooms changes
-    channel
-      .on('postgres_changes', 
-        { 
-          event: 'INSERT', 
-          schema: 'public', 
-          table: 'game_rooms',
-          filter: 'state=eq.lobby'
-        }, 
-        (payload) => {
-          console.log('New room created:', payload);
-          if (isSubscribed) {
-            fetchPublicRooms();
-          }
-        }
-      )
-      .on('postgres_changes', 
-        { 
-          event: 'DELETE', 
-          schema: 'public', 
-          table: 'game_rooms',
-          filter: 'state=eq.lobby'
-        }, 
-        (payload) => {
-          console.log('Room deleted:', payload);
-          if (isSubscribed) {
-            fetchPublicRooms();
-          }
-        }
-      )
-      .on('postgres_changes', 
-        { 
-          event: '*', 
-          schema: 'public', 
-          table: 'players',
-          filter: 'room_id=not.is.null'
-        }, 
-        (payload) => {
-          console.log('Player change detected:', payload);
-          if (isSubscribed) {
-            fetchPublicRooms();
-          }
-        }
-      )
-      .subscribe((status) => {
-        console.log('PublicRooms Subscription status:', status);
-        if (status === 'SUBSCRIBED') {
-          console.log('Subscribed to public rooms channel');
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          console.error('PublicRooms Subscription failed:', status);
-          if (isSubscribed) {
-            setIsLoading(false);
-            setRooms([]);
-            toast({ 
-              variant: "destructive", 
-              title: "Connection Error", 
-              description: "Could not connect to live room updates. Please refresh the page." 
-            });
-          }
-        }
-      });
-
-    channelRef.current = channel;
+    setupChannel();
 
     return () => {
-      isSubscribed = false;
+      isSubscribedRef.current = false;
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current).catch(err => console.error("Error removing channel:", err));
         channelRef.current = null;
@@ -222,81 +238,80 @@ export default function PublicRooms() {
 
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-        <p className="ml-3 text-muted-foreground">Loading public rooms...</p>
+      <div className="flex items-center justify-center p-8">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-400"></div>
       </div>
     );
   }
 
   if (!rooms || rooms.length === 0) {
     return (
-      <Alert className="border-amber-200 bg-amber-50 text-amber-800">
-        <ServerCrash className="h-4 w-4 !text-amber-600" />
-        <AlertTitle className="!text-amber-900">No Rooms Found</AlertTitle>
-        <AlertDescription className="!text-amber-700">
-          There are currently no public rooms available. Why not create one?
-        </AlertDescription>
-      </Alert>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="flex flex-col items-center justify-center p-8 text-center"
+      >
+        <div className="p-4 rounded-full bg-green-500/20 mb-4">
+          <Gamepad2 className="h-12 w-12 text-green-400" />
+        </div>
+        <h3 className="text-xl font-semibold text-green-200 mb-2">No Public Rooms Available</h3>
+        <p className="text-green-300 mb-6">Be the first to create a room and invite your friends!</p>
+        <Button
+          className="bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600 text-white"
+          onClick={() => onSwitchTab?.('create')}
+        >
+          <PlusCircle className="h-4 w-4 mr-2" />
+          Create Room
+        </Button>
+      </motion.div>
     );
   }
 
   const selectedRoom = selectedRoomId ? rooms.find(room => room.id === selectedRoomId) : null;
 
   return (
-    <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-6">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-        {rooms.map((room) => (
-          <Card 
-            key={room.id} 
-            className="hover:shadow-lg transition-all duration-200 w-full border-2 border-transparent hover:border-cyan-200 bg-white/90"
-          >
-            <CardHeader className="p-3 sm:p-4 bg-gradient-to-r from-cyan-50 to-teal-50">
-              <CardTitle className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1.5 sm:gap-2">
-                <span className="text-base sm:text-lg font-semibold text-cyan-600">Room {room.id}</span>
-                <Badge 
-                  variant={room.players.length >= room.settings.max_players ? "destructive" : "default"}
-                  className="text-xs sm:text-sm bg-cyan-500 hover:bg-cyan-600 text-white"
-                >
-                  {room.players.length}/{room.settings.max_players} Players
-                </Badge>
-              </CardTitle>
-              <CardDescription className="text-xs sm:text-sm text-cyan-600/70">
-                Created {new Date(room.created_at).toLocaleTimeString()}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-3 sm:p-4">
-              <div className="space-y-2.5 sm:space-y-3">
-                <div className="flex items-center gap-2">
-                  <Gamepad2 className="h-4 w-4 flex-shrink-0 text-cyan-500" />
-                  <p className="text-xs sm:text-sm truncate">
-                    <span className="font-medium">Mode:</span> {room.settings.game_mode}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Settings2 className="h-4 w-4 flex-shrink-0 text-cyan-500" />
-                  <p className="text-xs sm:text-sm truncate">
-                    <span className="font-medium">Rounds:</span> {room.settings.max_rounds}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 flex-shrink-0 text-cyan-500" />
-                  <p className="text-xs sm:text-sm truncate">
-                    <span className="font-medium">Time:</span> {room.settings.discussion_time}s
-                  </p>
+    <div className="space-y-4">
+      {rooms.map((room) => (
+        <motion.div
+          key={room.id}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+        >
+          <Card className="bg-green-900/50 border-green-500/20 shadow-lg hover:shadow-xl transition-all duration-300">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-green-500/20">
+                    <Gamepad2 className="h-5 w-5 text-green-400" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-green-200">Room {room.id}</h3>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Badge variant="outline" className="bg-green-500/20 text-green-300 border-green-500/30">
+                        <Users className="h-3 w-3 mr-1" />
+                        {room.players.length}/{room.settings.max_players}
+                      </Badge>
+                      <Badge variant="outline" className="bg-teal-500/20 text-teal-300 border-teal-500/30">
+                        <Clock className="h-3 w-3 mr-1" />
+                        {room.settings.discussion_time}s
+                      </Badge>
+                    </div>
+                  </div>
                 </div>
                 <Button
-                  className="w-full mt-2 text-xs sm:text-sm h-8 sm:h-9 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-700 hover:to-teal-700 text-white transition-all duration-300"
+                  className="bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600 text-white"
                   onClick={() => openJoinDialog(room.id)}
-                  disabled={room.players.length >= room.settings.max_players}
                 >
-                  {room.players.length >= room.settings.max_players ? 'Room Full' : 'Join Room'}
+                  <Search className="h-4 w-4 mr-2" />
+                  Join
                 </Button>
               </div>
             </CardContent>
           </Card>
-        ))}
-      </div>
+        </motion.div>
+      ))}
 
       {/* Join Room Dialog */}
       <Dialog open={isJoinDialogOpen} onOpenChange={setIsJoinDialogOpen}>

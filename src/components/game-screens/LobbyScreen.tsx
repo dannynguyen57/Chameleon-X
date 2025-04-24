@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useGame } from "@/hooks/useGame";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +14,7 @@ import { motion } from 'framer-motion';
 import { mapRoomData } from '@/hooks/useGameRealtime';
 import { DatabaseRoom } from '@/hooks/useGameRealtime';
 import { convertToExtendedRoom } from '@/lib/roomUtils';
+import { RealtimeChannel } from '@supabase/supabase-js';
 
 const PlayerReadyStatus = ({ 
   player, 
@@ -62,46 +63,168 @@ const PlayerReadyStatus = ({
 export default function LobbyScreen() {
   const { room, startGame, playerId, setRoom } = useGame();
   const [showSettings, setShowSettings] = useState(false);
+  const channelRef = useRef<RealtimeChannel | null>(null);
 
+  // Set up real-time subscriptions
   useEffect(() => {
-    console.log('LobbyScreen render:', { 
-      playerId, 
-      room: room ? {
-        id: room.id,
-        state: room.state,
-        players: room.players.map(p => ({ 
-          id: p.id, 
-          name: p.name, 
-          is_ready: p.is_ready 
-        }))
-      } : null 
-    });
-  }, [playerId, room]);
+    if (!room?.id) return;
 
-  // Add effect to handle room updates
+    let isSubscribed = true;
+    let channel: RealtimeChannel | null = null;
+
+    const setupChannel = async () => {
+      try {
+        // Clean up any existing subscription
+        if (channelRef.current) {
+          await supabase.removeChannel(channelRef.current);
+          channelRef.current = null;
+        }
+
+        // Create a new channel for this room
+        channel = supabase.channel(`room:${room.id}`, {
+          config: {
+            broadcast: { self: true },
+            presence: { key: '' },
+          },
+        });
+
+        // Set up event handlers
+        channel
+          .on('postgres_changes', 
+            { 
+              event: '*', 
+              schema: 'public', 
+              table: 'players',
+              filter: `room_id=eq.${room.id}`
+            }, 
+            async (payload) => {
+              if (!isSubscribed) return;
+              // Fetch fresh room data
+              const { data: freshData, error: fetchError } = await supabase
+                .from('game_rooms')
+                .select(`
+                  *,
+                  players:players(*)
+                `)
+                .eq('id', room.id)
+                .single();
+
+              if (fetchError) {
+                console.error('Error fetching fresh room data:', fetchError);
+                return;
+              }
+
+              if (freshData) {
+                const mappedRoom = mapRoomData(freshData as DatabaseRoom);
+                setRoom(convertToExtendedRoom(mappedRoom));
+              }
+            }
+          )
+          .on('broadcast', { event: 'sync' }, async (payload) => {
+            if (!isSubscribed) return;
+            if (payload.payload.action === 'player_left' || 
+                payload.payload.action === 'room_deleted' ||
+                payload.payload.action === 'player_joined') {
+              // Fetch fresh room data
+              const { data: freshData, error: fetchError } = await supabase
+                .from('game_rooms')
+                .select(`
+                  *,
+                  players:players(*)
+                `)
+                .eq('id', room.id)
+                .single();
+
+              if (fetchError) {
+                console.error('Error fetching fresh room data:', fetchError);
+                return;
+              }
+
+              if (freshData) {
+                const mappedRoom = mapRoomData(freshData as DatabaseRoom);
+                setRoom(convertToExtendedRoom(mappedRoom));
+              }
+            }
+          });
+
+        // Subscribe to the channel
+        try {
+          channel.subscribe();
+          channelRef.current = channel;
+        } catch (error) {
+          console.error('Room channel subscription failed:', error);
+        }
+      } catch (error) {
+        console.error('Error setting up channel:', error);
+      }
+    };
+
+    setupChannel();
+
+    return () => {
+      isSubscribed = false;
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current).catch(err => console.error("Error removing channel:", err));
+        channelRef.current = null;
+      }
+    };
+  }, [room?.id, setRoom]);
+
+  // Add effect to handle initial room data fetch
   useEffect(() => {
-    if (room) {
-      console.log('Room state updated:', {
-        id: room.id,
-        players: room.players.map(p => ({
-          id: p.id,
-          name: p.name,
-          is_ready: p.is_ready
-        }))
-      });
-    }
-  }, [room]);
+    if (!room?.id) return;
 
-  // Add effect to handle player ready status changes
+    const fetchRoomData = async () => {
+      // First check if we're already in the room
+      const { data: playerData, error: playerError } = await supabase
+        .from('players')
+        .select('*')
+        .eq('id', playerId)
+        .eq('room_id', room.id)
+        .single();
+
+      if (playerError || !playerData) {
+        console.error('Player not found in room:', playerError);
+        return;
+      }
+
+      // Then fetch the full room data
+      const { data: freshData, error: fetchError } = await supabase
+        .from('game_rooms')
+        .select(`
+          *,
+          players:players(*)
+        `)
+        .eq('id', room.id)
+        .single();
+
+      if (fetchError) {
+        console.error('Error fetching initial room data:', fetchError);
+        return;
+      }
+
+      if (freshData) {
+        const mappedRoom = mapRoomData(freshData as DatabaseRoom);
+        setRoom(convertToExtendedRoom(mappedRoom));
+      }
+    };
+
+    fetchRoomData();
+  }, [room?.id, playerId, setRoom]);
+
+  // Remove unnecessary console logs
   useEffect(() => {
     if (room) {
       const currentPlayer = room.players.find(p => p.id === playerId);
       if (currentPlayer) {
-        console.log('Current player ready status:', {
-          playerId: currentPlayer.id,
-          name: currentPlayer.name,
-          is_ready: currentPlayer.is_ready
-        });
+        // Only log if there's an issue
+        if (!currentPlayer.is_ready && room.players.every(p => p.is_ready)) {
+          console.warn('Current player not ready but others are:', {
+            playerId: currentPlayer.id,
+            name: currentPlayer.name,
+            is_ready: currentPlayer.is_ready
+          });
+        }
       }
     }
   }, [room, playerId]);

@@ -26,6 +26,23 @@ import { DEFAULT_ROLES } from '@/lib/constants';
 // const handleGameStateTransition = ...
 // const updatePlayer = ...
 
+const DEBUG = import.meta.env.DEV;
+
+const log = {
+  debug: (...args: unknown[]) => {
+    if (DEBUG) console.log('[DEBUG]', ...args);
+  },
+  info: (...args: unknown[]) => {
+    if (DEBUG) console.info('[INFO]', ...args);
+  },
+  warn: (...args: unknown[]) => {
+    if (DEBUG) console.warn('[WARN]', ...args);
+  },
+  error: (...args: unknown[]) => {
+    console.error('[ERROR]', ...args);
+  }
+};
+
 export const useGameActions = (
   playerId: string,
   room: ExtendedGameRoom | null,
@@ -47,7 +64,7 @@ export const useGameActions = (
       const { error: playerUpdateError } = await supabase
         .from('players')
         .update({
-          turn_description: word || "[Time Out]",
+          turn_description: word === "" ? "[Time Out]" : word === "skip" ? "[Skipped Turn]" : word,
           last_updated: new Date().toISOString()
         })
         .eq('id', playerId)
@@ -70,10 +87,11 @@ export const useGameActions = (
       const broadcastPayload = {
         action: 'description_submitted',
         playerId,
-        description: word || "[Time Out]",
+        description: word === "" ? "[Time Out]" : word === "skip" ? "[Skipped Turn]" : word,
         timestamp: new Date().toISOString(),
         roomId: room.id,
-        isTimeout: !word,
+        isTimeout: word === "",
+        isSkipped: word === "skip",
         currentTurn: nextPlayerIndex,
         turnOrder: room.turn_order
       };
@@ -106,7 +124,7 @@ export const useGameActions = (
         setRoom(convertToExtendedRoom(mappedRoom));
       }
     } catch (error) {
-      console.error('Error submitting word:', error);
+      log.error('Error submitting word:', error);
       toast.error("Failed to submit description. Please try again.");
     }
   }, [room, playerId, setRoom]);
@@ -115,8 +133,8 @@ export const useGameActions = (
     if (!room) return false;
 
     try {
-      console.log('Current room settings:', room.settings);
-      console.log('New settings to apply:', newSettings);
+      log.info('Current room settings:', room.settings);
+      log.info('New settings to apply:', newSettings);
       
       // First, validate the settings
       if (!newSettings || typeof newSettings !== 'object') {
@@ -158,11 +176,11 @@ export const useGameActions = (
         .single();
 
       if (updateError) {
-        console.error('Error updating settings:', updateError);
+        log.error('Error updating settings:', updateError);
         throw updateError;
       }
 
-      console.log('Settings updated in database:', updatedData);
+      log.info('Settings updated in database:', updatedData);
 
       if (updatedData) {
         // Force a fresh fetch of the room data
@@ -173,7 +191,7 @@ export const useGameActions = (
           .single();
 
         if (fetchError) {
-          console.error('Error fetching fresh room data:', fetchError);
+          log.error('Error fetching fresh room data:', fetchError);
           throw new Error('Failed to verify settings update');
         }
 
@@ -184,7 +202,7 @@ export const useGameActions = (
           
           // Verify the settings were actually updated
           if (JSON.stringify(freshData.settings) !== JSON.stringify(validatedSettings)) {
-            console.warn('Settings mismatch detected:', {
+            log.warn('Settings mismatch detected:', {
               expected: validatedSettings,
               actual: freshData.settings
             });
@@ -197,7 +215,7 @@ export const useGameActions = (
       
       return false;
     } catch (error) {
-      console.error('Error updating settings:', error);
+      log.error('Error updating settings:', error);
       if (error instanceof Error) {
         toast.error(error.message);
       } else {
@@ -209,7 +227,7 @@ export const useGameActions = (
 
   const createRoom = async (playerName: string, settings: GameSettings, roomId: string): Promise<string | null> => {
     try {
-      console.log('Creating room with ID:', roomId, 'and player:', playerName);
+      log.info('Creating room with ID:', roomId, 'and player:', playerName);
       
       // Check if room already exists
       const { data: existingRoom, error: fetchError } = await supabase
@@ -219,28 +237,28 @@ export const useGameActions = (
         .maybeSingle();
 
       if (fetchError) {
-        console.error('Error checking room:', fetchError);
+        log.error('Error checking room:', fetchError);
         throw new Error(`Failed to check room: ${fetchError.message}`);
       }
 
       // If room exists, check if it's full
       if (existingRoom) {
-        console.log('Room already exists, checking if full');
+        log.info('Room already exists, checking if full');
         const { data: players, error: playersError } = await supabase
           .from('players')
           .select('*')
           .eq('room_id', roomId);
           
         if (playersError) {
-          console.error('Error checking players:', playersError);
+          log.error('Error checking players:', playersError);
           throw new Error(`Failed to check players: ${playersError.message}`);
         }
         
         const playerCount = players ? players.length : 0;
-        console.log('Player count:', playerCount, 'Max players:', settings.max_players);
+        log.info('Player count:', playerCount, 'Max players:', settings.max_players);
         
         if (playerCount >= settings.max_players) {
-          console.log('Room is full');
+          log.info('Room is full');
           toast.error("Room is full");
           return null;
         }
@@ -254,20 +272,20 @@ export const useGameActions = (
         .maybeSingle();
 
       if (playerCheckError) {
-        console.error('Error checking existing player:', playerCheckError);
+        log.error('Error checking existing player:', playerCheckError);
         throw new Error(`Failed to check existing player: ${playerCheckError.message}`);
       }
 
       // If player exists, delete their old record
       if (existingPlayer) {
-        console.log('Player exists in another room, deleting old record');
+        log.info('Player exists in another room, deleting old record');
         const { error: deleteError } = await supabase
           .from('players')
           .delete()
           .eq('id', playerId);
 
         if (deleteError) {
-          console.error('Error deleting old player record:', deleteError);
+          log.error('Error deleting old player record:', deleteError);
           throw new Error(`Failed to delete old player record: ${deleteError.message}`);
         }
       }
@@ -294,11 +312,11 @@ export const useGameActions = (
         });
 
       if (roomError) {
-        console.error('Error creating room:', roomError);
+        log.error('Error creating room:', roomError);
         throw new Error(`Failed to create room: ${roomError.message}`);
       }
       
-      console.log('Room created successfully, adding player:', playerId);
+      log.info('Room created successfully, adding player:', playerId);
 
       // Then create the host player
       const { error: playerError } = await supabase
@@ -314,7 +332,7 @@ export const useGameActions = (
         });
 
       if (playerError) {
-        console.error('Error creating player:', playerError);
+        log.error('Error creating player:', playerError);
         // Clean up the room if player creation fails
         await supabase
           .from('game_rooms')
@@ -323,12 +341,12 @@ export const useGameActions = (
         throw new Error(`Failed to create player: ${playerError.message}`);
       }
       
-      console.log('Player added successfully:', playerId);
+      log.info('Player added successfully:', playerId);
 
       // Return the room ID
       return roomId;
     } catch (error) {
-      console.error('Error in createRoom:', error);
+      log.error('Error in createRoom:', error);
       if (error instanceof Error) {
         toast.error(`Failed to create room: ${error.message}`);
       } else {
@@ -375,7 +393,7 @@ export const useGameActions = (
         .single();
 
       if (roomError) {
-        console.error('Error fetching room:', roomError);
+        log.error('Error fetching room:', roomError);
         toast.error("Failed to join room. Please try again.");
         return false;
       }
@@ -407,21 +425,21 @@ export const useGameActions = (
         .maybeSingle();
 
       if (playerCheckError) {
-        console.error('Error checking existing player:', playerCheckError);
+        log.error('Error checking existing player:', playerCheckError);
         toast.error("Failed to check existing player. Please try again.");
         return false;
       }
 
       // If player exists in another room, delete their old record
       if (existingPlayer && existingPlayer.room_id !== roomId) {
-        console.log('Player exists in another room, deleting old record');
+        log.info('Player exists in another room, deleting old record');
         const { error: deleteError } = await supabase
           .from('players')
           .delete()
           .eq('id', playerId);
 
         if (deleteError) {
-          console.error('Error deleting old player record:', deleteError);
+          log.error('Error deleting old player record:', deleteError);
           toast.error("Failed to delete old player record. Please try again.");
           return false;
         }
@@ -441,7 +459,7 @@ export const useGameActions = (
         });
 
       if (playerError) {
-        console.error('Error creating player:', playerError);
+        log.error('Error creating player:', playerError);
         toast.error("Failed to join room. Please try again.");
         return false;
       }
@@ -457,7 +475,7 @@ export const useGameActions = (
         .eq('id', roomId);
 
       if (roomUpdateError) {
-        console.error('Error updating room timestamp:', roomUpdateError);
+        log.error('Error updating room timestamp:', roomUpdateError);
       }
 
       // Send a broadcast message to force immediate updates for all players
@@ -497,7 +515,7 @@ export const useGameActions = (
         .single();
 
       if (fetchError || !updatedRoom) {
-        console.error('Error fetching updated room:', fetchError);
+        log.error('Error fetching updated room:', fetchError);
         toast.error("Failed to join room. Please try again.");
         return false;
       }
@@ -506,7 +524,7 @@ export const useGameActions = (
       setRoom(updatedRoom as ExtendedGameRoom);
       return true;
     } catch (error) {
-      console.error('Error in joinRoom:', error);
+      log.error('Error in joinRoom:', error);
       toast.error("An unexpected error occurred. Please try again.");
       return false;
     }
@@ -514,7 +532,7 @@ export const useGameActions = (
 
   const startGame = async (room: ExtendedGameRoom) => {
     try {
-      console.log('startGame called', { roomId: room?.id, playerId });
+      log.debug('startGame called', { roomId: room?.id, playerId });
 
       if (!room) {
         throw new Error('No room provided');
@@ -523,7 +541,7 @@ export const useGameActions = (
       // First, check if all players are ready
       const allPlayersReady = room.players.every(player => player.is_ready);
       if (!allPlayersReady) {
-        console.log('Not all players are ready:', room.players.map(p => ({ id: p.id, name: p.name, is_ready: p.is_ready })));
+        log.info('Not all players are ready:', room.players.map(p => ({ id: p.id, name: p.name, is_ready: p.is_ready })));
         toast.error("All players must be ready to start the game");
         return;
       }
@@ -539,7 +557,7 @@ export const useGameActions = (
       const turnOrder = shuffledPlayers.map(p => p.id);
       const firstPlayerId = turnOrder[0];
 
-      console.log('Starting game with turn order:', {
+      log.info('Starting game with turn order:', {
         turnOrder,
         firstPlayerId,
         players: shuffledPlayers.map(p => ({ id: p.id, name: p.name }))
@@ -560,7 +578,7 @@ export const useGameActions = (
         .eq('room_id', room.id);
 
       if (resetError) {
-        console.error('Error resetting player states:', resetError);
+        log.error('Error resetting player states:', resetError);
         throw resetError;
       }
 
@@ -572,7 +590,7 @@ export const useGameActions = (
         .eq('room_id', room.id);
 
       if (firstPlayerError) {
-        console.error('Error setting first player turn:', firstPlayerError);
+        log.error('Error setting first player turn:', firstPlayerError);
         throw firstPlayerError;
       }
 
@@ -594,20 +612,20 @@ export const useGameActions = (
         .eq('host_id', playerId);
 
       if (stateUpdateError) {
-        console.error('Error updating room state:', stateUpdateError);
+        log.error('Error updating room state:', stateUpdateError);
         throw stateUpdateError;
       }
 
-      console.log('Assigning roles to players');
+      log.info('Assigning roles to players');
 
       // Assign roles to all players
       await assignRoles(room.id, room.players);
 
-      console.log('Sending broadcast messages');
+      log.info('Sending broadcast messages');
 
       // Force a broadcast to all players
       const channel = supabase.channel(`room:${room.id}`);
-      console.log('Sending broadcast to room channel:', room.id);
+      log.info('Sending broadcast to room channel:', room.id);
       await channel.send({
         type: 'broadcast',
         event: 'sync',
@@ -623,7 +641,7 @@ export const useGameActions = (
 
       // Also send to public_rooms channel
       const publicChannel = supabase.channel('public_rooms');
-      console.log('Sending broadcast to public rooms channel');
+      log.info('Sending broadcast to public rooms channel');
       await publicChannel.send({
         type: 'broadcast',
         event: 'sync',
@@ -638,12 +656,12 @@ export const useGameActions = (
         }
       });
 
-      console.log('Fetching updated room data');
+      log.info('Fetching updated room data');
 
       // Fetch the updated room data
       const updatedRoom = await fetchRoom(room.id);
       if (updatedRoom) {
-        console.log('Updating local room state with:', updatedRoom);
+        log.info('Updating local room state with:', updatedRoom);
         setRoom(updatedRoom);
         
         // Only navigate if we're not already on the correct page
@@ -651,14 +669,14 @@ export const useGameActions = (
           window.location.href = `/room/${room.id}`;
         }
       } else {
-        console.error('Failed to fetch updated room data');
+        log.error('Failed to fetch updated room data');
         toast.error("Failed to start game. Please try again.");
       }
 
       // Show success toast
       toast.success("Game started! Host is selecting a category.");
     } catch (error) {
-      console.error('Error starting game:', error);
+      log.error('Error starting game:', error);
       toast.error("Failed to start game. Please try again.");
       throw error;
     }
@@ -666,19 +684,19 @@ export const useGameActions = (
 
   const selectCategory = async (category: WordCategory) => {
     if (!room) {
-      console.log('No room found in selectCategory');
+      log.error('No room found in selectCategory');
       return;
     }
 
     try {
-      console.log('Starting category selection:', {
+      log.debug('Starting category selection:', {
         roomId: room.id,
         category: category.name,
         currentState: room.state
       });
 
       const secretWord = getRandomWord(category);
-      console.log('Generated secret word:', secretWord);
+      log.debug('Generated secret word:', secretWord);
 
       // Use the existing turn order instead of creating a new one
       const turnOrder = room.turn_order || [];
@@ -705,11 +723,11 @@ export const useGameActions = (
         .eq('id', room.id);
 
       if (updateError) {
-        console.error('Error updating room:', updateError);
+        log.error('Error updating room:', updateError);
         throw updateError;
       }
 
-      console.log('Room updated successfully with turn order:', turnOrder);
+      log.info('Room updated successfully with turn order:', turnOrder);
 
       // Update local state immediately with the full category object
       setRoom({
@@ -747,7 +765,7 @@ export const useGameActions = (
         })
       ]);
 
-      console.log('Broadcasts sent successfully');
+      log.info('Broadcasts sent successfully');
 
       // Add a small delay to ensure the database update has propagated
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -755,7 +773,7 @@ export const useGameActions = (
       // Fetch fresh data to ensure consistency
       const freshRoom = await fetchRoom(room.id);
       if (freshRoom) {
-        console.log('Fetched updated room data:', {
+        log.info('Fetched updated room data:', {
           roomId: freshRoom.id,
           state: freshRoom.state,
           category: freshRoom.category?.name,
@@ -776,7 +794,7 @@ export const useGameActions = (
       }
 
     } catch (error) {
-      console.error('Error selecting category:', error);
+      log.error('Error selecting category:', error);
       toast.error("Failed to select category. Please try again.");
     }
   };
@@ -814,7 +832,7 @@ export const useGameActions = (
       if (error instanceof Error) {
           errorMessage = error.message;
       }
-      console.error('Error submitting vote:', error);
+      log.error('Error submitting vote:', error);
       toast.error(errorMessage);
     }
   };
@@ -831,7 +849,7 @@ export const useGameActions = (
         if (error instanceof Error) {
             errorMessage = error.message;
         }
-        console.error("Error starting next round:", error);
+        log.error("Error starting next round:", error);
         toast.error(errorMessage);
     }
   };
@@ -844,7 +862,7 @@ export const useGameActions = (
         .eq('room_id', roomId);
 
       if (playersError) {
-        console.error('Error checking room players:', playersError);
+        log.error('Error checking room players:', playersError);
         return;
       }
 
@@ -855,24 +873,24 @@ export const useGameActions = (
           .eq('id', roomId);
 
         if (deleteError) {
-          console.error('Error deleting empty room:', deleteError);
+          log.error('Error deleting empty room:', deleteError);
           toast.error("Failed to clean up empty room");
         }
       }
     } catch (error) {
-      console.error('Error in cleanupRoom:', error);
+      log.error('Error in cleanupRoom:', error);
       toast.error("An error occurred while cleaning up the room");
     }
   };
 
   const leaveRoom = useCallback(async (): Promise<void> => {
     if (!room?.id || !playerId) {
-      console.error('leaveRoom: Missing room or playerId', { room, playerId });
+      log.error('leaveRoom: Missing room or playerId', { room, playerId });
       return;
     }
 
     try {
-      console.log('leaveRoom: Starting room leave process', { roomId: room.id, playerId });
+      log.debug('leaveRoom: Starting room leave process', { roomId: room.id, playerId });
 
       // First check if the room is in a valid state for leaving
       const { data: roomData, error: roomError } = await supabase
@@ -882,18 +900,18 @@ export const useGameActions = (
         .single();
 
       if (roomError) {
-        console.error('leaveRoom: Error checking room state:', roomError);
+        log.error('leaveRoom: Error checking room state:', roomError);
         toast("Failed to leave room. Please try again.");
         return;
       }
 
       if (roomData?.state !== GameState.Lobby) {
-        console.log('leaveRoom: Cannot leave - game has started', { roomState: roomData?.state });
+        log.info('leaveRoom: Cannot leave - game has started', { roomState: roomData?.state });
         toast("You cannot leave once the game has started");
         return;
       }
 
-      console.log('leaveRoom: Deleting player', { playerId, roomId: room.id });
+      log.debug('leaveRoom: Deleting player', { playerId, roomId: room.id });
 
       // Delete the player
       const { error: deleteError } = await supabase
@@ -903,7 +921,7 @@ export const useGameActions = (
         .eq('room_id', room.id);
 
       if (deleteError) {
-        console.error('leaveRoom: Error deleting player:', deleteError);
+        log.error('leaveRoom: Error deleting player:', deleteError);
         toast("Failed to leave room. Please try again.");
         return;
       }
@@ -912,7 +930,7 @@ export const useGameActions = (
       const remainingPlayers = room.players.filter(p => p.id !== playerId);
 
       if (leavingPlayerIsHost && remainingPlayers.length > 0) {
-        console.log('leaveRoom: Assigning new host', { 
+        log.debug('leaveRoom: Assigning new host', { 
           newHostId: remainingPlayers[0].id,
           remainingPlayers: remainingPlayers.length 
         });
@@ -929,7 +947,7 @@ export const useGameActions = (
           .eq('id', room.id);
 
         if (hostUpdateError || roomHostUpdateError) {
-          console.error('leaveRoom: Error assigning new host:', hostUpdateError || roomHostUpdateError);
+          log.error('leaveRoom: Error assigning new host:', hostUpdateError || roomHostUpdateError);
         }
       }
 
@@ -940,13 +958,13 @@ export const useGameActions = (
         .eq('room_id', room.id);
 
       if (remainingPlayersError) {
-        console.error('leaveRoom: Error checking remaining players:', remainingPlayersError);
+        log.error('leaveRoom: Error checking remaining players:', remainingPlayersError);
         return;
       }
 
       // If no players left, delete the room
       if (!remainingPlayersData || remainingPlayersData.length === 0) {
-        console.log('leaveRoom: No players remaining, deleting room', { roomId: room.id });
+        log.debug('leaveRoom: No players remaining, deleting room', { roomId: room.id });
 
         const { error: deleteRoomError } = await supabase
           .from('game_rooms')
@@ -954,25 +972,48 @@ export const useGameActions = (
           .eq('id', room.id);
 
         if (deleteRoomError) {
-          console.error('leaveRoom: Error deleting empty room:', deleteRoomError);
+          log.error('leaveRoom: Error deleting empty room:', deleteRoomError);
           toast("Failed to clean up empty room");
           return;
         }
 
-        // Send a broadcast message to force immediate updates
-        const channel = supabase.channel(`room:${room.id}`);
-        await channel.send({
-          type: 'broadcast',
-          event: 'sync',
-          payload: { action: 'room_deleted', roomId: room.id }
-        });
+        // Send broadcast messages to force immediate updates
+        await Promise.all([
+          supabase.channel(`room:${room.id}`).send({
+            type: 'broadcast',
+            event: 'sync',
+            payload: { 
+              action: 'room_deleted', 
+              roomId: room.id,
+              timestamp: new Date().toISOString()
+            }
+          }),
+          supabase.channel('public_rooms_list').send({
+            type: 'broadcast',
+            event: 'sync',
+            payload: { 
+              action: 'room_deleted', 
+              roomId: room.id,
+              timestamp: new Date().toISOString()
+            }
+          }),
+          supabase.channel('public_rooms').send({
+            type: 'broadcast',
+            event: 'sync',
+            payload: { 
+              action: 'room_deleted', 
+              roomId: room.id,
+              timestamp: new Date().toISOString()
+            }
+          })
+        ]);
 
         setRoom(null);
         toast("You have successfully left the room and it has been deleted");
         return;
       }
 
-      console.log('leaveRoom: Updating room timestamp', { 
+      log.debug('leaveRoom: Updating room timestamp', { 
         roomId: room.id,
         remainingPlayers: remainingPlayersData.length 
       });
@@ -988,18 +1029,45 @@ export const useGameActions = (
         .eq('id', room.id);
 
       if (roomUpdateError) {
-        console.error('leaveRoom: Error updating room timestamp:', roomUpdateError);
+        log.error('leaveRoom: Error updating room timestamp:', roomUpdateError);
       }
 
-      // Send a broadcast message to force immediate updates
-      const channel = supabase.channel(`room:${room.id}`);
-      await channel.send({
-        type: 'broadcast',
-        event: 'sync',
-        payload: { action: 'player_left', playerId }
-      });
-
-      console.log('leaveRoom: Fetching updated room data', { roomId: room.id });
+      // Send broadcast messages to force immediate updates
+      await Promise.all([
+        supabase.channel(`room:${room.id}`).send({
+          type: 'broadcast',
+          event: 'sync',
+          payload: { 
+            action: 'player_left', 
+            playerId,
+            roomId: room.id,
+            timestamp: new Date().toISOString(),
+            remainingPlayers: remainingPlayersData.length
+          }
+        }),
+        supabase.channel('public_rooms_list').send({
+          type: 'broadcast',
+          event: 'sync',
+          payload: { 
+            action: 'player_left', 
+            playerId,
+            roomId: room.id,
+            timestamp: new Date().toISOString(),
+            remainingPlayers: remainingPlayersData.length
+          }
+        }),
+        supabase.channel('public_rooms').send({
+          type: 'broadcast',
+          event: 'sync',
+          payload: { 
+            action: 'player_left', 
+            playerId,
+            roomId: room.id,
+            timestamp: new Date().toISOString(),
+            remainingPlayers: remainingPlayersData.length
+          }
+        })
+      ]);
 
       // Fetch the latest room data before setting room to null
       const { data: updatedRoom, error: fetchError } = await supabase
@@ -1012,7 +1080,7 @@ export const useGameActions = (
         .single();
 
       if (fetchError) {
-        console.error('leaveRoom: Error fetching updated room:', fetchError);
+        log.error('leaveRoom: Error fetching updated room:', fetchError);
       }
 
       setRoom(null);
@@ -1020,9 +1088,9 @@ export const useGameActions = (
     } catch (error: unknown) {
       let errorMessage = "An unexpected error occurred";
       if (error instanceof Error) {
-          errorMessage = error.message;
+        errorMessage = error.message;
       }
-      console.error('leaveRoom: Error in leaveRoom:', error);
+      log.error('leaveRoom: Error in leaveRoom:', error);
       toast(errorMessage);
     }
   }, [room, playerId, setRoom]);
@@ -1054,7 +1122,7 @@ export const useGameActions = (
           .lt('last_active', fiveMinutesAgo);
 
         if (inactiveError) {
-          console.error('Error checking inactive players:', inactiveError);
+          log.error('Error checking inactive players:', inactiveError);
           return;
         }
 
@@ -1065,14 +1133,14 @@ export const useGameActions = (
             .in('id', inactivePlayers.map(p => p.id));
 
           if (deleteError) {
-            console.error('Error removing inactive players:', deleteError);
+            log.error('Error removing inactive players:', deleteError);
             return;
           }
 
           await cleanupRoom(room.id);
         }
       } catch (error) {
-        console.error('Error in periodic cleanup:', error);
+        log.error('Error in periodic cleanup:', error);
       }
     }, 60000);
 
@@ -1149,7 +1217,7 @@ export const useGameActions = (
 
     const currentPlayer = room.players.find(p => p.id === playerId);
     if (!currentPlayer || currentPlayer.special_ability_used || !currentPlayer.role) {
-      console.warn("Cannot use special ability: Player not found, already used, or no role.");
+      log.warn("Cannot use special ability: Player not found, already used, or no role.");
       return; 
     }
 
@@ -1225,7 +1293,7 @@ export const useGameActions = (
           }
           break;
         default:
-          console.log(`No special ability action defined for role: ${currentPlayer.role}`);
+          log.info(`No special ability action defined for role: ${currentPlayer.role}`);
           // Revert the special_ability_used flag if no action was taken
           await updatePlayer(playerId, room.id, { special_ability_used: false });
           return;
@@ -1237,7 +1305,7 @@ export const useGameActions = (
 
     } catch (error: unknown) {
       const err = error as Error;
-      console.error('Error using special ability:', err);
+      log.error('Error using special ability:', err);
       toast.error(err.message || "Failed to use special ability");
       // Attempt to revert the used flag if an error occurred during the process
       await updatePlayer(playerId, room.id, { special_ability_used: false });
@@ -1261,7 +1329,7 @@ export const useGameActions = (
       const mappedRoom = mapRoomData(data as DatabaseRoom);
       return convertToExtendedRoom(mappedRoom);
     } catch (error) {
-      console.error('Error fetching room:', error);
+      log.error('Error fetching room:', error);
       return null;
     }
   };
@@ -1288,7 +1356,7 @@ export const useGameActions = (
       }
       return false;
     } catch (error) {
-      console.error('Error setting player role:', error);
+      log.error('Error setting player role:', error);
       toast.error("Failed to update player role");
       return false;
     }
@@ -1328,7 +1396,7 @@ export const useGameActions = (
         .single();
 
       if (roomError) {
-        console.error('Error fetching room:', roomError);
+        log.error('Error fetching room:', roomError);
         toast.error("Failed to check room. Please try again.");
         return false;
       }
@@ -1342,7 +1410,7 @@ export const useGameActions = (
         p.name.toLowerCase().trim() === trimmedName.toLowerCase()
       );
     } catch (error) {
-      console.error('Error checking name:', error);
+      log.error('Error checking name:', error);
       toast.error("An unexpected error occurred. Please try again.");
       return false;
     }

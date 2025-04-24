@@ -188,7 +188,6 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     settings,
     setRoom
   );
-  const remainingTime = useGameTimer(room, settings, setRoom, playerId);
 
   const mapRoomWithTimers = useCallback((roomData: DatabaseRoom): ExtendedGameRoom => {
     const baseRoom = mapRoomData(roomData);
@@ -337,6 +336,15 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     await fetchRoom();
   }, [room, fetchRoom]);
 
+  const remainingTime = useGameTimer(
+    room, 
+    settings, 
+    setRoom, 
+    playerId,
+    submitWord,
+    handleGameStateTransition
+  );
+
   const handleBroadcast = useCallback(async (payload: BroadcastMessage) => {
     console.log('Sync broadcast received:', payload);
     
@@ -481,6 +489,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         console.log('Cleaning up subscription - no room');
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;
+        setIsConnected(false);
       }
       return;
     }
@@ -493,6 +502,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
 
     console.log('Setting up realtime subscription for room:', room.id);
 
+    // Create a single channel for all subscriptions
     const channel = supabase
       .channel(`room:${room.id}`, {
         config: {
@@ -509,7 +519,13 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         }, 
         async (payload) => {
           console.log('Room change detected:', payload);
-          await fetchRoom();
+          // Debounce the fetch to prevent rapid updates
+          if (fetchTimeoutRef.current) {
+            clearTimeout(fetchTimeoutRef.current);
+          }
+          fetchTimeoutRef.current = setTimeout(() => {
+            fetchRoom();
+          }, 100);
         }
       )
       .on('postgres_changes', 
@@ -521,14 +537,32 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         }, 
         async (payload) => {
           console.log('Player change detected:', payload);
-          await fetchRoom();
+          // Debounce the fetch to prevent rapid updates
+          if (fetchTimeoutRef.current) {
+            clearTimeout(fetchTimeoutRef.current);
+          }
+          fetchTimeoutRef.current = setTimeout(() => {
+            fetchRoom();
+          }, 100);
         }
       )
       .on('broadcast', { event: 'sync' }, handleBroadcast)
       .subscribe((status) => {
         console.log('Subscription status:', status);
         if (status === 'SUBSCRIBED') {
+          setIsConnected(true);
+          // Initial fetch after subscription
           fetchRoom();
+        } else if (status === 'CLOSED') {
+          setIsConnected(false);
+          // Attempt to reconnect if connection is lost
+          if (reconnectAttempts.current < MAX_RETRIES) {
+            reconnectAttempts.current++;
+            setTimeout(() => {
+              console.log('Attempting to reconnect...');
+              channel.subscribe();
+            }, 1000 * reconnectAttempts.current);
+          }
         }
       });
 
@@ -539,6 +573,10 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         console.log('Cleaning up subscription for room:', room.id);
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;
+        setIsConnected(false);
+      }
+      if (fetchTimeoutRef.current) {
+        clearTimeout(fetchTimeoutRef.current);
       }
     };
   }, [room?.id, fetchRoom, handleBroadcast]);

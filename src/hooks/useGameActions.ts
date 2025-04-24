@@ -35,60 +35,59 @@ export const useGameActions = (
   const submitWord = useCallback(async (word: string) => {
     if (!room || !playerId || !room.turn_order || typeof room.current_turn !== 'number') return;
 
+    // Add submission lock to prevent double submissions
+    const isCurrentPlayer = room.players[room.current_turn ?? 0]?.id === playerId;
+    if (!isCurrentPlayer) {
+      console.log('Not your turn to submit');
+      return;
+    }
+
+    // Check if player has already submitted
+    const currentPlayer = room.players.find(p => p.id === playerId);
+    if (currentPlayer?.turn_description) {
+      console.log('Player has already submitted');
+      return;
+    }
+
     try {
+      // Prepare all updates in one object
+      const playerUpdate = {
+        turn_description: word || "[Time Out]",
+        last_updated: new Date().toISOString()
+      };
+
       // Update the player's description
       const { error: updateError } = await supabase
         .from('players')
-        .update({ 
-          turn_description: word,
-          last_updated: new Date().toISOString()
-        })
+        .update(playerUpdate)
         .eq('id', playerId)
         .eq('room_id', room.id);
 
       if (updateError) throw updateError;
 
-      // Send broadcast to all players
-      const channel = supabase.channel(`room:${room.id}`);
-      await channel.send({
-        type: 'broadcast',
-        event: 'sync',
-        payload: {
-          action: 'description_submitted',
-          playerId,
-          description: word,
-          timestamp: new Date().toISOString(),
-          roomId: room.id
-        }
-      });
+      // Prepare broadcast payload
+      const broadcastPayload = {
+        action: 'description_submitted',
+        playerId,
+        description: word || "[Time Out]",
+        timestamp: new Date().toISOString(),
+        roomId: room.id,
+        isTimeout: !word
+      };
 
-      // Also send to public_rooms channel for broader visibility
-      const publicChannel = supabase.channel('public_rooms');
-      await publicChannel.send({
-        type: 'broadcast',
-        event: 'sync',
-        payload: {
-          action: 'description_submitted',
-          playerId,
-          description: word,
-          timestamp: new Date().toISOString(),
-          roomId: room.id
-        }
-      });
-
-      // Fetch updated room data to ensure we have the latest state
-      const { data: updatedRoom, error: fetchError } = await supabase
-        .from('game_rooms')
-        .select('*, players!players_room_id_fkey (*)')
-        .eq('id', room.id)
-        .single();
-
-      if (fetchError) throw fetchError;
-
-      if (updatedRoom) {
-        const mappedRoom = mapRoomData(updatedRoom as DatabaseRoom);
-        setRoom(convertToExtendedRoom(mappedRoom));
-      }
+      // Send broadcasts in parallel
+      await Promise.all([
+        supabase.channel(`room:${room.id}`).send({
+          type: 'broadcast',
+          event: 'sync',
+          payload: broadcastPayload
+        }),
+        supabase.channel('public_rooms').send({
+          type: 'broadcast',
+          event: 'sync',
+          payload: broadcastPayload
+        })
+      ]);
 
       // Check if all players have submitted their descriptions
       const { data: players, error: playersError } = await supabase
@@ -99,78 +98,103 @@ export const useGameActions = (
       if (playersError) throw playersError;
 
       const allPlayersSubmitted = players?.every(p => p.turn_description);
+      
       if (allPlayersSubmitted) {
-        // --- ALL PLAYERS SUBMITTED: MOVE TO DISCUSSION ---
+        // Prepare discussion phase updates
+        const discussionUpdates = {
+          state: GameState.Discussion,
+          last_updated: new Date().toISOString()
+        };
+
         // Update room state to discussion phase
         const { error: stateError } = await supabase
           .from('game_rooms')
-          .update({ 
-            state: GameState.Discussion,
-            discussion_timer: room.settings.discussion_time, // Reset discussion timer
-            presenting_timer: 0, // Clear presenting timer
-            turn_timer: 0, // Clear turn timer
-            current_turn: 0, // Reset turn for discussion (optional, could keep last player)
-            last_updated: new Date().toISOString()
-          })
+          .update(discussionUpdates)
           .eq('id', room.id);
 
         if (stateError) throw stateError;
 
-        // Send broadcast for state change
-        await channel.send({
-          type: 'broadcast',
-          event: 'sync',
-          payload: {
-            action: 'game_state_changed',
-            newState: GameState.Discussion,
-            roomId: room.id
-          }
-        });
+        // Prepare state change broadcast
+        const stateChangePayload = {
+          action: 'game_state_changed',
+          newState: GameState.Discussion,
+          roomId: room.id
+        };
 
-        // Also send to public_rooms channel
-        await publicChannel.send({
-          type: 'broadcast',
-          event: 'sync',
-          payload: {
-            action: 'game_state_changed',
-            newState: GameState.Discussion,
-            roomId: room.id
-          }
+        // Send state change broadcasts in parallel
+        await Promise.all([
+          supabase.channel(`room:${room.id}`).send({
+            type: 'broadcast',
+            event: 'sync',
+            payload: stateChangePayload
+          }),
+          supabase.channel('public_rooms').send({
+            type: 'broadcast',
+            event: 'sync',
+            payload: stateChangePayload
+          })
+        ]);
+      } else {
+        // Calculate next turn index using turn_order array
+        const currentTurnIndex = room.turn_order.indexOf(room.players[room.current_turn]?.id);
+        const nextTurnIndex = (currentTurnIndex + 1) % room.turn_order.length;
+        const nextPlayerId = room.turn_order[nextTurnIndex];
+        
+        console.log('[Turn] Advancing turn:', {
+          currentTurn: room.current_turn,
+          currentTurnIndex,
+          nextTurnIndex,
+          nextPlayerId,
+          turnOrder: room.turn_order,
+          totalPlayers: room.players.length,
+          currentPlayer: room.players[room.current_turn]?.name,
+          nextPlayer: room.players.find(p => p.id === nextPlayerId)?.name
         });
         
-        // Fetch final state after transition
-        const finalRoom = await fetchRoom(room.id);
-        if (finalRoom) setRoom(finalRoom);
-
-      } else {
-        // --- NOT ALL PLAYERS SUBMITTED: ADVANCE TURN ---
-        const nextTurnIndex = (room.current_turn + 1) % room.players.length;
+        // Prepare turn advancement updates
+        const turnUpdates = {
+          current_turn: nextTurnIndex,
+          turn_timer: room.settings.presenting_time,
+          last_updated: new Date().toISOString()
+        };
+        
+        // Update room state for next turn
         const { error: turnError } = await supabase
           .from('game_rooms')
-          .update({
-            current_turn: nextTurnIndex,
-            turn_timer: room.settings.presenting_time, // Reset timer for next player
-            last_updated: new Date().toISOString()
-          })
+          .update(turnUpdates)
           .eq('id', room.id);
 
         if (turnError) throw turnError;
 
-        // Send broadcast for turn change (optional, but good practice)
-        await channel.send({
+        // Prepare turn change broadcast
+        const turnChangePayload = {
+          action: 'turn_changed',
+          roomId: room.id,
+          currentTurn: nextTurnIndex,
+          timestamp: new Date().toISOString(),
+          isTimeout: !word
+        };
+
+        // Send turn change broadcast
+        await supabase.channel(`room:${room.id}`).send({
           type: 'broadcast',
           event: 'sync',
-          payload: {
-            action: 'turn_changed',
-            roomId: room.id,
-            currentTurn: nextTurnIndex,
-            timestamp: new Date().toISOString()
-          }
+          payload: turnChangePayload
         });
-        
-        // Fetch state after turn update
-        const nextTurnRoom = await fetchRoom(room.id);
-        if (nextTurnRoom) setRoom(nextTurnRoom);
+
+        // Fetch and update local state immediately
+        const { data: updatedRoom, error: fetchError } = await supabase
+          .from('game_rooms')
+          .select('*, players!players_room_id_fkey (*)')
+          .eq('id', room.id)
+          .single();
+
+        if (fetchError) throw fetchError;
+
+        if (updatedRoom) {
+          const mappedRoom = mapRoomData(updatedRoom as DatabaseRoom);
+          setRoom(convertToExtendedRoom(mappedRoom));
+        }
       }
     } catch (error) {
       console.error('Error submitting word:', error);
@@ -726,39 +750,19 @@ export const useGameActions = (
       }
       
       // Log the shuffled order for debugging
-      console.log('Shuffled players:', shuffledPlayers.map(p => ({ id: p.id, name: p.name, is_host: p.is_host })));
+      console.log('Shuffled players:', shuffledPlayers.map(p => ({ 
+        id: p.id, 
+        name: p.name, 
+        is_host: p.is_host,
+        index: shuffledPlayers.indexOf(p)
+      })));
       
       const turnOrder = shuffledPlayers.map(p => p.id);
       const currentTurn = 0;
       
-      // Update the room in the database
-      const { error: updateError } = await supabase
-        .from('game_rooms')
-        .update({ 
-          category: category.name,
-          state: GameState.Presenting,
-          secret_word: secretWord,
-          presenting_timer: settings.presenting_time,
-          discussion_timer: settings.discussion_time,
-          voting_timer: settings.voting_time,
-          current_turn: 0,
-          turn_order: turnOrder,
-          updated_at: new Date().toISOString(),
-          last_updated: new Date().toISOString()
-        })
-        .eq('id', room.id);
-
-      if (updateError) {
-        console.error('Error updating room:', updateError);
-        throw updateError;
-      }
-
-      console.log('Room updated successfully');
-
-      // Update local state immediately
-      setRoom({
-        ...room,
-        category: category,
+      // Prepare all updates in one object
+      const updates = {
+        category: category.name,
         state: GameState.Presenting,
         secret_word: secretWord,
         presenting_timer: settings.presenting_time,
@@ -768,51 +772,58 @@ export const useGameActions = (
         turn_order: turnOrder,
         updated_at: new Date().toISOString(),
         last_updated: new Date().toISOString()
+      };
+
+      // Update the room in the database
+      const { error: updateError } = await supabase
+        .from('game_rooms')
+        .update(updates)
+        .eq('id', room.id);
+
+      if (updateError) {
+        console.error('Error updating room:', updateError);
+        throw updateError;
+      }
+
+      console.log('Room updated successfully with turn order:', turnOrder);
+
+      // Update local state immediately with the full category object
+      setRoom({
+        ...room,
+        ...updates,
+        category: category
       });
 
-      // Force a broadcast to all players with complete room state
-      const channel = supabase.channel(`room:${room.id}`);
-      await channel.send({
-        type: 'broadcast',
-        event: 'sync',
-        payload: {
-          action: 'category_selected',
-          roomId: room.id,
-          newState: GameState.Presenting,
-          currentTurn,
-          turnOrder,
-          secretWord,
-          category: category.name,
-          presenting_timer: settings.presenting_time,
-          discussion_timer: settings.discussion_time,
-          voting_timer: settings.voting_time,
-          timestamp: new Date().toISOString()
-        }
-      });
+      // Prepare broadcast payload
+      const broadcastPayload = {
+        action: 'category_selected',
+        roomId: room.id,
+        newState: GameState.Presenting,
+        currentTurn,
+        turnOrder,
+        secretWord,
+        category: category.name,
+        presenting_timer: settings.presenting_time,
+        discussion_timer: settings.discussion_time,
+        voting_timer: settings.voting_time,
+        timestamp: new Date().toISOString()
+      };
 
-      console.log('Broadcast sent to room channel');
+      // Send broadcasts in parallel
+      await Promise.all([
+        supabase.channel(`room:${room.id}`).send({
+          type: 'broadcast',
+          event: 'sync',
+          payload: broadcastPayload
+        }),
+        supabase.channel('public_rooms').send({
+          type: 'broadcast',
+          event: 'sync',
+          payload: broadcastPayload
+        })
+      ]);
 
-      // Also send to public_rooms channel
-      const publicChannel = supabase.channel('public_rooms');
-      await publicChannel.send({
-        type: 'broadcast',
-        event: 'sync',
-        payload: {
-          action: 'category_selected',
-          roomId: room.id,
-          newState: GameState.Presenting,
-          currentTurn,
-          turnOrder,
-          secretWord,
-          category: category.name,
-          presenting_timer: settings.presenting_time,
-          discussion_timer: settings.discussion_time,
-          voting_timer: settings.voting_time,
-          timestamp: new Date().toISOString()
-        }
-      });
-
-      console.log('Broadcast sent to public rooms channel');
+      console.log('Broadcasts sent successfully');
 
       // Add a small delay to ensure the database update has propagated
       await new Promise(resolve => setTimeout(resolve, 500));

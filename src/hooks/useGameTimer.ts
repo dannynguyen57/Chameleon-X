@@ -3,7 +3,7 @@ import { GameRoom, GameSettings, GameState } from '../lib/types';
 import { supabase } from '../integrations/supabase/client';
 import { ExtendedGameRoom } from '../contexts/GameContextProvider';
 
-export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettings, setRoom: (room: ExtendedGameRoom | null) => void, playerId: string) => {
+export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettings, setRoom: (room: ExtendedGameRoom | null) => void, playerId: string, submitWord: (word: string) => void, handleStateTransition: (newState: GameState) => void) => {
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [isActive, setIsActive] = useState<boolean>(false);
   const mainTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -33,10 +33,22 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
           // Current player: Start countdown from their remaining time
           initialTime = room.turn_timer ?? room.settings.presenting_time;
           shouldCountdownLocally = true;
+          console.log('[Timer] Current player turn:', {
+            playerId,
+            currentTurn: room.current_turn,
+            timeLeft: initialTime,
+            isCountingDown: shouldCountdownLocally
+          });
         } else {
           // Other players: Show the full static time for the phase
           initialTime = room.settings.presenting_time;
           shouldCountdownLocally = false; // Timer does not tick locally
+          console.log('[Timer] Other player view:', {
+            playerId,
+            currentTurn: room.current_turn,
+            timeLeft: initialTime,
+            isCountingDown: shouldCountdownLocally
+          });
         }
         break;
       case GameState.Discussion:
@@ -70,6 +82,19 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
           if (newTime === 0) {
             if (mainTimerRef.current) clearInterval(mainTimerRef.current);
             setIsActive(false);
+            
+            // Handle timeout based on game state
+            if (room.state === GameState.Presenting && isCurrentPlayer) {
+              // For presenting phase, trigger timeout submission
+              console.log('[Timer] Timeout triggered for player:', playerId);
+              submitWord(""); // Empty string will be converted to "[Time Out]"
+            } else if (room.state === GameState.Discussion) {
+              // For discussion phase, move to voting
+              handleStateTransition(GameState.Voting);
+            } else if (room.state === GameState.Voting) {
+              // For voting phase, move to results
+              handleStateTransition(GameState.Results);
+            }
           }
           return newTime;
         });
@@ -86,15 +111,17 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
   }, [
     room,
     room?.state,
-    room?.turn_timer, // For current player in presenting
+    room?.turn_timer,
     room?.discussion_timer,
     room?.voting_timer,
     room?.current_turn,
-    room?.settings.presenting_time, // For other players in presenting
+    room?.settings.presenting_time,
     room?.settings.discussion_time,
     room?.settings.voting_time,
-    room?.players, // Needed for isCurrentPlayer check
-    playerId
+    room?.players,
+    playerId,
+    submitWord,
+    handleStateTransition
   ]);
 
   // Handle individual player timers in presenting phase
@@ -267,8 +294,7 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
                   payload: {
                     action: 'game_state_changed',
                     newState: newState,
-                    roomId: room.id,
-                    timestamp: new Date().toISOString()
+                    roomId: room.id
                   }
                 });
 
@@ -280,8 +306,7 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
                   payload: {
                     action: 'game_state_changed',
                     newState: newState,
-                    roomId: room.id,
-                    timestamp: new Date().toISOString()
+                    roomId: room.id
                   }
                 });
               } catch (error) {

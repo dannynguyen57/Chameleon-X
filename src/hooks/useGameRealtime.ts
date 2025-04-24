@@ -72,24 +72,6 @@ export interface DatabaseRoom {
   player_count: number;
 }
 
-// const DEFAULT_SETTINGS_REALTIME: GameSettings = {
-//   max_players: 10,
-//   discussion_time: 30,
-//   max_rounds: 3,
-//   game_mode: GameMode.Classic,
-//   team_size: 2,
-//   chaos_mode: false,
-//   time_per_round: 30,
-//   voting_time: 30,
-//   roles: {
-//     [GameMode.Classic]: [PlayerRole.Regular, PlayerRole.Chameleon],
-//     [GameMode.Teams]: [PlayerRole.Regular, PlayerRole.Chameleon, PlayerRole.Guardian],
-//     [GameMode.Chaos]: [PlayerRole.Regular, PlayerRole.Chameleon, PlayerRole.Mimic, PlayerRole.Jester, PlayerRole.Spy],
-//     [GameMode.Timed]: [PlayerRole.Regular, PlayerRole.Chameleon]
-//   },
-//   special_abilities: false
-// };
-
 export const mapRoomData = (room: DatabaseRoom): GameRoom => {
   const categoryData = room.category ? categories.find(c => c.name === room.category) : undefined;
 
@@ -109,6 +91,18 @@ export const mapRoomData = (room: DatabaseRoom): GameRoom => {
     turn_timer: player.turn_timer || 0
   })) : [];
 
+  // Initialize timers based on game state
+  let presenting_timer = 0;
+  let discussion_timer = 0;
+  let voting_timer = 0;
+
+  // Only set timer values if we're in an active game state
+  if (room.state !== 'lobby') {
+    presenting_timer = room.presenting_time || 0;
+    discussion_timer = room.discussion_time || 0;
+    voting_timer = room.voting_time || 0;
+  }
+
   return {
     id: room.id,
     state: room.state,
@@ -117,9 +111,9 @@ export const mapRoomData = (room: DatabaseRoom): GameRoom => {
     category: categoryData || undefined,
     secret_word: room.secret_word || undefined,
     chameleon_id: room.chameleon_id || undefined,
-    presenting_timer: room.presenting_timer || 0,
-    discussion_timer: room.discussion_timer || 0,
-    voting_timer: room.voting_timer || 0,
+    presenting_timer,
+    discussion_timer,
+    voting_timer,
     current_turn: room.current_turn || 0,
     created_at: room.created_at,
     updated_at: room.updated_at,
@@ -135,11 +129,11 @@ export const mapRoomData = (room: DatabaseRoom): GameRoom => {
     last_updated: room.last_updated || new Date().toISOString(),
     host_id: room.host_id || '',
     max_players: room.max_players || 10,
-    discussion_time: room.discussion_time || 30,
+    discussion_time: room.discussion_time || 120,
     game_mode: room.game_mode || 'classic',
     team_size: room.team_size || 2,
     chaos_mode: room.chaos_mode || false,
-    presenting_time: room.presenting_time || 30,
+    presenting_time: room.presenting_time || 60,
     voting_time: room.voting_time || 30,
     chameleon_count: room.chameleon_count || 1,
     player_count: room.players?.length || 0,

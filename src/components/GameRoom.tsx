@@ -3,7 +3,7 @@ import { useGame } from "@/hooks/useGame";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Copy, LogOut, Settings } from "lucide-react";
+import { Copy, LogOut } from "lucide-react";
 import LobbyScreen from "./game-screens/LobbyScreen";
 import CategorySelection from "./game-screens/CategorySelection";
 import GamePlay from "./game-screens/GamePlay";
@@ -93,11 +93,6 @@ export default function GameRoom() {
                   >
                     <Copy className="h-4 w-4" />
                   </Button>
-                  {isHost && (
-                    <Button variant="outline" size="icon">
-                      <Settings className="h-4 w-4" />
-                    </Button>
-                  )}
                   <Button 
                     variant="destructive" 
                     size="icon"

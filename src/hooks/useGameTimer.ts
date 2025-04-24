@@ -6,7 +6,8 @@ import { ExtendedGameRoom } from '../contexts/GameContextProvider';
 export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettings, setRoom: (room: ExtendedGameRoom | null) => void) => {
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [isActive, setIsActive] = useState<boolean>(false);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const mainTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const playerTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastUpdateRef = useRef<number>(Date.now());
   const lastTimerValueRef = useRef<number>(0);
   const [gameState, setGameState] = useState<GameState>(GameState.Selecting);
@@ -19,15 +20,16 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
     if (!room) return;
 
     // Clear any existing timer
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
+    if (mainTimerRef.current) {
+      clearInterval(mainTimerRef.current);
+      mainTimerRef.current = null;
     }
 
     // Get the appropriate timer based on game state
     let currentTimer = 0;
     switch (room.state) {
       case 'presenting':
-        currentTimer = room.presenting_timer ?? room.settings.presenting_time;
+        currentTimer = room.turn_timer ?? room.settings.presenting_time;
         break;
       case 'discussion':
         currentTimer = room.discussion_timer ?? room.settings.discussion_time;
@@ -43,10 +45,13 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
 
     // Start the timer if we have time remaining
     if (currentTimer > 0) {
-      timerRef.current = setInterval(() => {
+      mainTimerRef.current = setInterval(() => {
         setTimeLeft(prev => {
           if (prev <= 0) {
-            clearInterval(timerRef.current!);
+            if (mainTimerRef.current) {
+              clearInterval(mainTimerRef.current);
+              mainTimerRef.current = null;
+            }
             return 0;
           }
           return prev - 1;
@@ -55,11 +60,12 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
     }
 
     return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
+      if (mainTimerRef.current) {
+        clearInterval(mainTimerRef.current);
+        mainTimerRef.current = null;
       }
     };
-  }, [room?.state, room?.presenting_timer, room?.discussion_timer, room?.voting_timer, room]);
+  }, [room, room?.state, room?.turn_timer, room?.discussion_timer, room?.voting_timer]);
 
   // Handle individual player timers in presenting phase
   useEffect(() => {
@@ -75,37 +81,42 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
     setCurrentPlayerTimer(room.settings.presenting_time);
     
     // Clear any existing timer
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
+    if (playerTimerRef.current) {
+      clearInterval(playerTimerRef.current);
+      playerTimerRef.current = null;
     }
 
     // Start new timer
-    const timer = setInterval(() => {
+    playerTimerRef.current = setInterval(() => {
       setCurrentPlayerTimer((prev) => {
         if (prev <= 1) {
-          clearInterval(timer);
+          if (playerTimerRef.current) {
+            clearInterval(playerTimerRef.current);
+            playerTimerRef.current = null;
+          }
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
 
-    // Store timer reference
-    timerRef.current = timer;
-
     return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
+      if (playerTimerRef.current) {
+        clearInterval(playerTimerRef.current);
+        playerTimerRef.current = null;
       }
     };
-  }, [room?.current_turn, room?.state, room?.settings.presenting_time, room]);
+  }, [room, room?.current_turn, room?.state, room?.settings.presenting_time, room?.players]);
 
   const stopTimer = useCallback(() => {
     setIsActive(false);
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
+    if (mainTimerRef.current) {
+      clearInterval(mainTimerRef.current);
+      mainTimerRef.current = null;
+    }
+    if (playerTimerRef.current) {
+      clearInterval(playerTimerRef.current);
+      playerTimerRef.current = null;
     }
   }, []);
 
@@ -116,8 +127,9 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
     lastUpdateRef.current = Date.now();
     lastTimerValueRef.current = duration;
 
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
+    if (mainTimerRef.current) {
+      clearInterval(mainTimerRef.current);
+      mainTimerRef.current = null;
     }
 
     // Use requestAnimationFrame for smoother updates
@@ -135,12 +147,26 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
         if (now - lastUpdateRef.current >= updateIntervalRef.current) {
           if (room && newTimeLeft > 0) {
             try {
+              const updates: Partial<ExtendedGameRoom> = {
+                last_updated: new Date().toISOString()
+              };
+
+              // Update the appropriate timer based on game state
+              switch (room.state) {
+                case 'presenting':
+                  updates.presenting_timer = newTimeLeft;
+                  break;
+                case 'discussion':
+                  updates.discussion_timer = newTimeLeft;
+                  break;
+                case 'voting':
+                  updates.voting_timer = newTimeLeft;
+                  break;
+              }
+
               const { error } = await supabase
                 .from('game_rooms')
-                .update({ 
-                  timer: newTimeLeft,
-                  last_updated: new Date().toISOString()
-                })
+                .update(updates)
                 .eq('id', room.id);
 
               if (error) {
@@ -151,10 +177,7 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
               // Update local room state
               setRoom({
                 ...room,
-                ...(room.state === 'presenting' ? { presenting_timer: newTimeLeft } :
-                    room.state === 'discussion' ? { discussion_timer: newTimeLeft } :
-                    room.state === 'voting' ? { voting_timer: newTimeLeft } : {}),
-                last_updated: new Date().toISOString()
+                ...updates
               });
               
               lastUpdateRef.current = now;
@@ -273,20 +296,20 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
             }
           }
         } else {
-          timerRef.current = setTimeout(updateTimer, 1000);
+          mainTimerRef.current = setTimeout(updateTimer, 1000);
         }
       } else {
-        timerRef.current = setTimeout(updateTimer, 1000);
+        mainTimerRef.current = setTimeout(updateTimer, 1000);
       }
     };
 
-    timerRef.current = setTimeout(updateTimer, 1000);
+    mainTimerRef.current = setTimeout(updateTimer, 1000);
 
     // Cleanup on unmount
     return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
+      if (mainTimerRef.current) {
+        clearInterval(mainTimerRef.current);
+        mainTimerRef.current = null;
       }
     };
   }, [room, stopTimer, setRoom, settings]);

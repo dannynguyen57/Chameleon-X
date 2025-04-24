@@ -99,7 +99,7 @@ export default function ChatSystem() {
           }
         }
       )
-      .on('broadcast', { event: 'sync' }, async (payload) => {
+      .on('broadcast', { event: 'sync' }, (payload) => {
         if (payload.payload?.action === 'chat_message') {
           console.log('Broadcast message received:', payload);
           const newMessage = payload.payload.message as ChatMessage;

@@ -411,8 +411,17 @@ export interface Database {
 }
 
 export const DEFAULT_ROLES: Record<GameMode, PlayerRole[]> = {
-  [GameMode.Classic]: [PlayerRole.Regular, PlayerRole.Chameleon],
+  [GameMode.Classic]: [PlayerRole.Regular, PlayerRole.Chameleon, PlayerRole.Mimic],
   [GameMode.Teams]: [PlayerRole.Regular, PlayerRole.Chameleon, PlayerRole.Guardian],
-  [GameMode.Chaos]: [],
-  [GameMode.Timed]: []
+  [GameMode.Chaos]: [
+    PlayerRole.Regular,
+    PlayerRole.Chameleon,
+    PlayerRole.Mimic,
+    PlayerRole.Jester,
+    PlayerRole.Spy,
+    PlayerRole.Illusionist,
+    PlayerRole.Oracle,
+    PlayerRole.Trickster
+  ],
+  [GameMode.Timed]: [PlayerRole.Regular, PlayerRole.Chameleon, PlayerRole.Mimic]
 };

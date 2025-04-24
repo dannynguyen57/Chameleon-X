@@ -168,7 +168,14 @@ export default function ChatSystem() {
 
   // Subscribe to chat session changes with all dependencies properly listed
   useEffect(() => {
-    if (!room) return;
+    // Derive stable values inside the effect
+    const currentRoomId = room?.id;
+    const currentRoomRound = room?.round;
+
+    if (!currentRoomId || currentRoomRound === undefined) {
+      console.log('ChatSystem: No room ID or round, skipping setup.');
+      return; // Exit early if room ID or round is missing
+    }
     
     // Prevent rapid reconnection cycles
     const now = Date.now();
@@ -196,13 +203,13 @@ export default function ChatSystem() {
     
     // If already initialized for this room and round, don't reinitialize
     if (initializedRef.current && 
-        chatSessionRef.current?.room_id === room.id && 
-        chatSessionRef.current?.round === room.round) {
+        chatSessionRef.current?.room_id === currentRoomId && 
+        chatSessionRef.current?.round === currentRoomRound) {
       console.log('Chat already initialized for this room and round, skipping');
       return;
     }
     
-    console.log('Setting up chat subscription for room:', room.id, 'round:', room.round);
+    console.log('Setting up chat subscription for room:', currentRoomId, 'round:', currentRoomRound);
     setSubscriptionStatus('CONNECTING');
     
     // Clean up previous channels
@@ -222,7 +229,7 @@ export default function ChatSystem() {
     
     // Initialize room channel for cross-component communication
     const roomChannel = supabase
-      .channel(`room:${room.id}`, {
+      .channel(`room:${currentRoomId}`, {
         config: {
           broadcast: { self: true },
           presence: { key: '' },
@@ -258,14 +265,14 @@ export default function ChatSystem() {
         
         // Handle new chat session created
         if (payload.payload?.action === 'new_chat_session' && 
-            payload.payload.roomId === room.id && 
-            payload.payload.round === room.round) {
+            payload.payload.roomId === currentRoomId && 
+            payload.payload.round === currentRoomRound) {
           console.log('New chat session created broadcast received:', payload);
           
           // Only update if we don't already have a session with the same details
           if (!chatSessionRef.current || 
-              chatSessionRef.current.room_id !== room.id || 
-              chatSessionRef.current.round !== room.round) {
+              chatSessionRef.current.room_id !== currentRoomId || 
+              chatSessionRef.current.round !== currentRoomRound) {
             console.log('Fetching new chat session with ID:', payload.payload.sessionId);
             
             supabase
@@ -318,11 +325,13 @@ export default function ChatSystem() {
       }
       lastInitTimeRef.current = now;
       
-      console.log('Setting up realtime subscription for chat session:', session.id);
+      // Use derived stable values for channel setup
+      const sessionIdForChannel = session.id;
+      console.log('Setting up realtime subscription for chat session:', sessionIdForChannel);
       
       // Create a new channel for chat session updates
       const channel = supabase
-        .channel(`chat_session:${session.id}`, {
+        .channel(`chat_session:${sessionIdForChannel}`, {
           config: {
             broadcast: { self: true },
             presence: { key: '' },
@@ -334,7 +343,7 @@ export default function ChatSystem() {
             event: 'UPDATE',
             schema: 'public',
             table: 'chat_sessions',
-            filter: `id=eq.${session.id}`
+            filter: `id=eq.${sessionIdForChannel}`
           },
           (payload) => {
             if (!isMounted) return;
@@ -377,11 +386,11 @@ export default function ChatSystem() {
             setSubscriptionStatus('CONNECTED');
             
             // Fetch latest messages on successful subscription
-            if (session.id) {
+            if (sessionIdForChannel) {
               supabase
                 .from('chat_sessions')
                 .select('*')
-                .eq('id', session.id)
+                .eq('id', sessionIdForChannel)
                 .single()
                 .then(({ data }) => {
                   if (data && isMounted) {
@@ -407,7 +416,8 @@ export default function ChatSystem() {
       console.log('Cleaning up chat subscription');
       lastCleanupTimeRef.current = Date.now();
       isMounted = false;
-      setSubscriptionStatus('DISCONNECTED');
+      // Don't change subscriptionStatus here, let the next run handle it if needed
+      // setSubscriptionStatus('DISCONNECTED'); 
       if (channelRef.current) {
         channelRef.current.unsubscribe();
         channelRef.current = null;
@@ -417,7 +427,7 @@ export default function ChatSystem() {
         roomChannelRef.current = null;
       }
     };
-  }, [room?.id, room?.round, initChatSession, scrollToBottom, subscriptionStatus, room]);
+  }, [room, initChatSession, scrollToBottom, subscriptionStatus]);
 
   // Move polling-related code to a separate useEffect to avoid circular dependencies
   useEffect(() => {
@@ -469,7 +479,7 @@ export default function ChatSystem() {
         pollingIntervalRef.current = null;
       }
     };
-  }, [subscriptionStatus, sessionId, scrollToBottom, room]);
+  }, [subscriptionStatus, sessionId, scrollToBottom, room?.id, room?.round]);
 
   // Optimized message sending
   const handleSendMessage = useCallback(async () => {

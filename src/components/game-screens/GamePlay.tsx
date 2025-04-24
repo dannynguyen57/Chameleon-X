@@ -929,7 +929,7 @@ export default function GamePlay() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-0">
-                      <ChatSystem key={`chat-${room.id}-${room.state}`} />
+                      <ChatSystem key={`chat-${room.id}-${room.round}-${room.state}`} />
                     </CardContent>
                   </Card>
                 </motion.div>

@@ -231,6 +231,30 @@ export interface Database {
           role?: string;
         };
       };
+      chat_sessions: {
+        Row: {
+          id: string;
+          room_id: string;
+          round: number;
+          messages: ChatMessage[];
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          room_id: string;
+          round: number;
+          messages?: ChatMessage[];
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          room_id?: string;
+          round?: number;
+          messages?: ChatMessage[];
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
       game_rooms: {
         Row: {
           id: string;

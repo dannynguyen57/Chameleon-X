@@ -35,109 +35,36 @@ export const useGameActions = (
   const submitWord = useCallback(async (word: string) => {
     if (!room || !playerId || !room.turn_order || typeof room.current_turn !== 'number') return;
 
-    // Get the current player's index in the turn order
-    const currentTurnIndex = room.turn_order.indexOf(playerId);
-    if (currentTurnIndex === -1) {
-      console.log('Not your turn to submit');
-      return;
-    }
-
-    // Check if player has already submitted
-    const currentPlayer = room.players.find(p => p.id === playerId);
-    if (currentPlayer?.turn_description) {
-      console.log('Player has already submitted');
-      return;
-    }
-
     try {
-      // Prepare all updates in one object
-      const playerUpdate = {
-        turn_description: word || "[Time Out]",
-        last_updated: new Date().toISOString()
-      };
+      // Get the current player's index in the turn order
+      const currentPlayerIndex = room.turn_order.indexOf(playerId);
+      if (currentPlayerIndex === -1) return;
 
-      // Update the player's description
-      const { error: updateError } = await supabase
+      // Calculate the next player's index
+      const nextPlayerIndex = (currentPlayerIndex + 1) % room.turn_order.length;
+
+      // First update the player's description in the players table
+      const { error: playerUpdateError } = await supabase
         .from('players')
-        .update(playerUpdate)
+        .update({
+          turn_description: word || "[Time Out]",
+          last_updated: new Date().toISOString()
+        })
         .eq('id', playerId)
         .eq('room_id', room.id);
 
-      if (updateError) throw updateError;
+      if (playerUpdateError) throw playerUpdateError;
 
-      // Check if all players have submitted
-      const allPlayersSubmitted = room.players.every(p => p.turn_description || p.id === playerId);
-      
-      // Calculate next turn index in turn_order
-      const nextTurnIndex = (currentTurnIndex + 1) % room.turn_order.length;
-      const nextPlayerId = room.turn_order[nextTurnIndex];
-      
-      if (allPlayersSubmitted) {
-        // If all players have submitted, transition to discussion phase
-        const { error: stateError } = await supabase
-          .from('game_rooms')
-          .update({
-            state: GameState.Discussion,
-            discussion_timer: room.settings.discussion_time,
-            current_turn: 0,
-            last_updated: new Date().toISOString()
-          })
-          .eq('id', room.id);
+      // Then update the current turn in the game_rooms table
+      const { error: roomUpdateError } = await supabase
+        .from('game_rooms')
+        .update({
+          current_turn: nextPlayerIndex,
+          last_updated: new Date().toISOString()
+        })
+        .eq('id', room.id);
 
-        if (stateError) throw stateError;
-
-        // Reset all players' is_turn status
-        const { error: resetError } = await supabase
-          .from('players')
-          .update({ is_turn: false })
-          .eq('room_id', room.id);
-
-        if (resetError) throw resetError;
-      } else {
-        // Find the next player's index in the players array
-        const nextPlayerIndex = room.players.findIndex(p => p.id === nextPlayerId);
-        if (nextPlayerIndex === -1) {
-          console.error('Next player not found in players array');
-          throw new Error('Invalid player order');
-        }
-
-        console.log('Turn progression:', {
-          currentPlayerId: playerId,
-          currentTurnIndex,
-          nextPlayerId,
-          nextPlayerIndex,
-          turnOrder: room.turn_order,
-          players: room.players.map(p => ({ id: p.id, name: p.name }))
-        });
-
-        // First, reset all players' is_turn status
-        const { error: resetError } = await supabase
-          .from('players')
-          .update({ is_turn: false })
-          .eq('room_id', room.id);
-
-        if (resetError) throw resetError;
-
-        // Then, set is_turn for the next player
-        const { error: nextPlayerError } = await supabase
-          .from('players')
-          .update({ is_turn: true })
-          .eq('id', nextPlayerId)
-          .eq('room_id', room.id);
-
-        if (nextPlayerError) throw nextPlayerError;
-
-        // Finally, update the current turn in the room
-        const { error: turnError } = await supabase
-          .from('game_rooms')
-          .update({
-            current_turn: nextTurnIndex,
-            last_updated: new Date().toISOString()
-          })
-          .eq('id', room.id);
-
-        if (turnError) throw turnError;
-      }
+      if (roomUpdateError) throw roomUpdateError;
 
       // Prepare broadcast payload
       const broadcastPayload = {
@@ -147,7 +74,7 @@ export const useGameActions = (
         timestamp: new Date().toISOString(),
         roomId: room.id,
         isTimeout: !word,
-        currentTurn: allPlayersSubmitted ? 0 : nextTurnIndex,
+        currentTurn: nextPlayerIndex,
         turnOrder: room.turn_order
       };
 
@@ -753,23 +680,8 @@ export const useGameActions = (
       const secretWord = getRandomWord(category);
       console.log('Generated secret word:', secretWord);
 
-      // Create completely random turn order for all players
-      const shuffledPlayers = [...room.players];
-      // Fisher-Yates shuffle algorithm for true randomness
-      for (let i = shuffledPlayers.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffledPlayers[i], shuffledPlayers[j]] = [shuffledPlayers[j], shuffledPlayers[i]];
-      }
-      
-      // Log the shuffled order for debugging
-      console.log('Shuffled players:', shuffledPlayers.map(p => ({ 
-        id: p.id, 
-        name: p.name, 
-        is_host: p.is_host,
-        index: shuffledPlayers.indexOf(p)
-      })));
-      
-      const turnOrder = shuffledPlayers.map(p => p.id);
+      // Use the existing turn order instead of creating a new one
+      const turnOrder = room.turn_order || [];
       const currentTurn = 0;
       
       // Prepare all updates in one object

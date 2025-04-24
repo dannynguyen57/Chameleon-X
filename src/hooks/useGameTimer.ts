@@ -23,15 +23,14 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
       return;
     }
 
-    const isCurrentPlayer = room.players[room.current_turn ?? 0]?.id === playerId;
+    const isCurrentPlayer = room.players.find(p => p.id === room.turn_order?.[room.current_turn || 0])?.id === playerId;
     let initialTime = 0;
     let shouldCountdownLocally = false;
 
     switch (room.state) {
       case GameState.Presenting:
         if (isCurrentPlayer) {
-          // Current player: Start countdown from their remaining time
-          initialTime = room.turn_timer ?? room.settings.presenting_time;
+          initialTime = room.presenting_timer || settings.presenting_time;
           shouldCountdownLocally = true;
           console.log('[Timer] Current player turn:', {
             playerId,
@@ -40,9 +39,8 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
             isCountingDown: shouldCountdownLocally
           });
         } else {
-          // Other players: Show the full static time for the phase
-          initialTime = room.settings.presenting_time;
-          shouldCountdownLocally = false; // Timer does not tick locally
+          initialTime = settings.presenting_time;
+          shouldCountdownLocally = false;
           console.log('[Timer] Other player view:', {
             playerId,
             currentTurn: room.current_turn,
@@ -52,29 +50,26 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
         }
         break;
       case GameState.Discussion:
-        initialTime = room.discussion_timer ?? room.settings.discussion_time;
-        shouldCountdownLocally = true; // Everyone sees countdown
+        initialTime = room.discussion_timer || settings.discussion_time;
+        shouldCountdownLocally = true;
         break;
       case GameState.Voting:
-        initialTime = room.voting_timer ?? room.settings.voting_time;
-        shouldCountdownLocally = true; // Everyone sees countdown
+        initialTime = room.voting_timer || settings.voting_time;
+        shouldCountdownLocally = true;
         break;
       default:
         initialTime = 0;
         shouldCountdownLocally = false;
     }
 
-    // Set the time displayed
     setTimeLeft(initialTime);
     setIsActive(initialTime > 0 && shouldCountdownLocally);
 
-    // Clear previous interval
     if (mainTimerRef.current) {
       clearInterval(mainTimerRef.current);
       mainTimerRef.current = null;
     }
 
-    // Start new interval ONLY if this player should see a countdown
     if (shouldCountdownLocally && initialTime > 0) {
       mainTimerRef.current = setInterval(() => {
         setTimeLeft(prev => {
@@ -83,16 +78,12 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
             if (mainTimerRef.current) clearInterval(mainTimerRef.current);
             setIsActive(false);
             
-            // Handle timeout based on game state
             if (room.state === GameState.Presenting && isCurrentPlayer) {
-              // For presenting phase, trigger timeout submission
               console.log('[Timer] Timeout triggered for player:', playerId);
-              submitWord(""); // Empty string will be converted to "[Time Out]"
+              submitWord("");
             } else if (room.state === GameState.Discussion) {
-              // For discussion phase, move to voting
               handleStateTransition(GameState.Voting);
             } else if (room.state === GameState.Voting) {
-              // For voting phase, move to results
               handleStateTransition(GameState.Results);
             }
           }
@@ -101,7 +92,6 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
       }, 1000);
     }
 
-    // Cleanup function
     return () => {
       if (mainTimerRef.current) {
         clearInterval(mainTimerRef.current);
@@ -111,14 +101,14 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
   }, [
     room,
     room?.state,
-    room?.turn_timer,
+    room?.presenting_timer,
     room?.discussion_timer,
     room?.voting_timer,
     room?.current_turn,
-    room?.settings.presenting_time,
-    room?.settings.discussion_time,
-    room?.settings.voting_time,
-    room?.players,
+    room?.turn_order,
+    settings.presenting_time,
+    settings.discussion_time,
+    settings.voting_time,
     playerId,
     submitWord,
     handleStateTransition
@@ -135,7 +125,7 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
     if (!currentPlayer) return;
 
     // Reset and start individual timer for current player
-    setCurrentPlayerTimer(room.settings.presenting_time);
+    setCurrentPlayerTimer(room.presenting_timer || settings.presenting_time);
     
     // Clear any existing timer
     if (playerTimerRef.current) {
@@ -163,7 +153,7 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
         playerTimerRef.current = null;
       }
     };
-  }, [room, room?.current_turn, room?.state, room?.settings.presenting_time, room?.players]);
+  }, [room, room?.current_turn, room?.state, room?.presenting_timer, room?.players, settings.presenting_time]);
 
   const stopTimer = useCallback(() => {
     setIsActive(false);
@@ -259,13 +249,13 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
               // Set appropriate timers based on the game state
               switch (newState) {
                 case 'presenting':
-                  updates.presenting_timer = room.settings.presenting_time;
+                  updates.presenting_timer = settings.presenting_time;
                   break;
                 case 'discussion':
-                  updates.discussion_timer = room.settings.discussion_time;
+                  updates.discussion_timer = settings.discussion_time;
                   break;
                 case 'voting':
-                  updates.voting_timer = room.settings.voting_time;
+                  updates.voting_timer = settings.voting_time;
                   break;
               }
 

@@ -102,7 +102,6 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
 }) => {
   const { playerId } = useGame();
   const [description, setDescription] = useState('');
-  const [isWordVisible, setIsWordVisible] = useState(false);
   const [isBlendingIn, setIsBlendingIn] = useState(false);
   const [isMimicking, setIsMimicking] = useState(false);
   const [isProtecting, setIsProtecting] = useState(false);
@@ -124,8 +123,10 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
   const isTrickster = currentPlayer.role === PlayerRole.Trickster;
   const isIllusionist = currentPlayer.role === PlayerRole.Illusionist;
 
-  const currentTurnPlayer = room.players[room.current_turn || 0];
-  const isCurrentPlayerTurn = currentPlayer.id === currentTurnPlayer?.id;
+  const currentTurnPlayer = room.players.find(p => p.id === room.turn_order?.[room.current_turn || 0]);
+  if (!currentTurnPlayer) return null;
+
+  const isCurrentPlayerTurn = currentPlayer?.id === currentTurnPlayer?.id;
 
   const handleAbilityUse = async (ability: string) => {
     switch (ability) {
@@ -403,70 +404,61 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
           </div>
 
           {/* Description Input */}
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="description" className="text-sm font-medium flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4 text-primary" />
-                  Your Description
-                </Label>
-                <span className="text-xs text-muted-foreground">
-                  {description.length}/200 characters
-                </span>
-              </div>
-              <div className="relative">
-                <Textarea
-                  id="description"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value.slice(0, 200))}
-                  placeholder={isChameleon ? "Try to blend in with your description..." : "Describe the word without saying it directly..."}
-                  disabled={!isWordVisible && !isChameleon}
-                  className={cn(
-                    "min-h-[120px] resize-none transition-all duration-200",
-                    "border-2 border-primary/20 bg-primary/5",
-                    "hover:border-primary/30",
-                    "focus:ring-2 focus:ring-primary/20 focus:border-primary/50",
-                    "placeholder:text-muted-foreground/50",
-                    !isWordVisible && !isChameleon && "opacity-50 cursor-not-allowed"
-                  )}
-                />
-                {!isWordVisible && !isChameleon && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-background/50 backdrop-blur-sm rounded-md">
-                    <p className="text-sm text-muted-foreground">Show the word to start describing</p>
-                  </div>
-                )}
-              </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="description" className="text-sm font-medium flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-primary" />
+                Your Description
+              </Label>
+              <span className="text-xs text-muted-foreground">
+                {description.length}/200 characters
+              </span>
             </div>
-            <div className="flex gap-2">
-              <Button 
-                onClick={handleSubmitDescription}
-                disabled={!description.trim() || !isCurrentPlayerTurn}
+            <div className="relative">
+              <Textarea
+                id="description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value.slice(0, 200))}
+                placeholder={isChameleon ? "Try to blend in with your description..." : "Describe the word without saying it directly..."}
                 className={cn(
-                  "flex-1 transition-all duration-200",
-                  "border-2 border-primary bg-primary hover:bg-primary/90",
-                  "hover:shadow-md",
-                  !description.trim() || !isCurrentPlayerTurn ? "opacity-50" : ""
-                )}
-              >
-                <CheckCircle className="w-4 h-4 mr-2" />
-                Submit Description
-              </Button>
-              <Button 
-                onClick={onSkipTurn}
-                variant="outline"
-                disabled={!isCurrentPlayerTurn}
-                className={cn(
-                  "transition-all duration-200",
+                  "min-h-[120px] resize-none transition-all duration-200",
                   "border-2 border-primary/20 bg-primary/5",
-                  "hover:border-primary/30 hover:bg-primary/10",
-                  "hover:shadow-md",
-                  !isCurrentPlayerTurn ? "opacity-50" : ""
+                  "hover:border-primary/30",
+                  "focus:ring-2 focus:ring-primary/20 focus:border-primary/50",
+                  "placeholder:text-muted-foreground/50"
                 )}
-              >
-                <XCircle className="w-4 h-4 mr-2" />
-                Skip Turn
-              </Button>
+              />
             </div>
+          </div>
+          <div className="flex gap-2">
+            <Button 
+              onClick={handleSubmitDescription}
+              disabled={!description.trim() || !isCurrentPlayerTurn}
+              className={cn(
+                "flex-1 transition-all duration-200",
+                "border-2 border-primary bg-primary hover:bg-primary/90",
+                "hover:shadow-md",
+                !description.trim() || !isCurrentPlayerTurn ? "opacity-50" : ""
+              )}
+            >
+              <CheckCircle className="w-4 h-4 mr-2" />
+              Submit Description
+            </Button>
+            <Button 
+              onClick={onSkipTurn}
+              variant="outline"
+              disabled={!isCurrentPlayerTurn}
+              className={cn(
+                "transition-all duration-200",
+                "border-2 border-primary/20 bg-primary/5",
+                "hover:border-primary/30 hover:bg-primary/10",
+                "hover:shadow-md",
+                !isCurrentPlayerTurn ? "opacity-50" : ""
+              )}
+            >
+              <XCircle className="w-4 h-4 mr-2" />
+              Skip Turn
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -612,7 +604,7 @@ export default function GamePlay() {
     );
   }
 
-  const currentTurnPlayer = room.players[room.current_turn || 0];
+  const currentTurnPlayer = room.players.find(p => p.id === room.turn_order?.[room.current_turn || 0]);
   if (!currentTurnPlayer) return null;
 
   const isCurrentPlayerTurn = currentPlayer?.id === currentTurnPlayer?.id;

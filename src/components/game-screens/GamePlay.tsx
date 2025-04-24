@@ -897,27 +897,25 @@ export default function GamePlay() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <div className="space-y-4">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                          {room.players.map((player) => (
-                            <Card key={player.id} className="p-4">
-                              <div className="flex items-center gap-3">
-                                <Avatar className="flex-shrink-0">
-                                  <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}`} />
-                                  <AvatarFallback>{player.name[0]}</AvatarFallback>
-                                </Avatar>
-                                <div className="flex-1 min-w-0">
-                                  <h3 className="font-semibold truncate" title={player.name}>
-                                    {truncateName(player.name)}
-                                  </h3>
-                                  <p className="text-sm text-muted-foreground truncate">
-                                    {player.turn_description || "No description yet"}
-                                  </p>
-                                </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {room.players.map((player) => (
+                          <Card key={player.id} className="p-4">
+                            <div className="flex items-center gap-3">
+                              <Avatar className="flex-shrink-0">
+                                <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}`} />
+                                <AvatarFallback>{player.name[0]}</AvatarFallback>
+                              </Avatar>
+                              <div className="flex-1 min-w-0">
+                                <h3 className="font-semibold truncate" title={player.name}>
+                                  {truncateName(player.name)}
+                                </h3>
+                                <p className="text-sm text-muted-foreground truncate">
+                                  {player.turn_description || "No description yet"}
+                                </p>
                               </div>
-                            </Card>
-                          ))}
-                        </div>
+                            </div>
+                          </Card>
+                        ))}
                       </div>
                     </CardContent>
                   </Card>
@@ -931,7 +929,7 @@ export default function GamePlay() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-0">
-                      <ChatSystem />
+                      <ChatSystem key={`chat-${room.id}-${room.state}`} />
                     </CardContent>
                   </Card>
                 </motion.div>

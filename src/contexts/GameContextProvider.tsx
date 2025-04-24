@@ -66,6 +66,7 @@ interface BroadcastPayload {
   currentTurn?: number;
   turnOrder?: string[];
   timer?: number;
+  message?: string;
 }
 
 interface BroadcastMessage {
@@ -351,8 +352,15 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     // Only process if we still have a room
     if (!roomRef.current?.id || !room) return;
 
-    const { action, playerId, playerName, roomId, isReady, timestamp, turnOrder, currentTurn } = payload.payload;
+    const { action, playerId, playerName, roomId, isReady, timestamp, turnOrder, currentTurn, message } = payload.payload;
     
+    // Handle chat messages
+    if (action === 'chat_message' && message) {
+      console.log('Chat message received:', message);
+      // The ChatSystem component will handle the message display
+      return;
+    }
+
     // Handle player left events
     if (action === 'player_left') {
       console.log('Player left broadcast received:', { playerId, roomId });
@@ -920,11 +928,44 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         // If host left and others remain, assign a new host
         // Simple logic: assign to the first remaining player
         newHostId = remainingPlayers[0].id;
+        
+        // Update the new host's status
         const { error: hostUpdateError } = await supabase
           .from('players')
           .update({ is_host: true })
           .eq('id', newHostId);
         if (hostUpdateError) console.error('Error updating host:', hostUpdateError);
+
+        // Update the room's host_id
+        const { error: roomHostUpdateError } = await supabase
+          .from('game_rooms')
+          .update({ host_id: newHostId })
+          .eq('id', roomId);
+        if (roomHostUpdateError) console.error('Error updating room host:', roomHostUpdateError);
+
+        // Broadcast the host change to all clients
+        await Promise.all([
+          supabase.channel(`room:${roomId}`).send({
+            type: 'broadcast',
+            event: 'sync',
+            payload: { 
+              action: 'host_changed', 
+              roomId: roomId,
+              newHostId: newHostId,
+              timestamp: new Date().toISOString()
+            }
+          }),
+          supabase.channel('public_rooms_list').send({
+            type: 'broadcast',
+            event: 'sync',
+            payload: { 
+              action: 'host_changed', 
+              roomId: roomId,
+              newHostId: newHostId,
+              timestamp: new Date().toISOString()
+            }
+          })
+        ]);
       }
 
       // 4. Broadcast the update to other clients
@@ -932,7 +973,13 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         await channelRef.current.send({
           type: 'broadcast',
           event: 'sync',
-          payload: { action: 'player_left', roomId: roomId, playerId: playerId, newHostId: newHostId },
+          payload: { 
+            action: 'player_left', 
+            roomId: roomId, 
+            playerId: playerId, 
+            newHostId: newHostId,
+            timestamp: new Date().toISOString()
+          },
         });
       }
 

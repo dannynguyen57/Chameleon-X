@@ -41,6 +41,7 @@ export interface Player {
   created_at: string;
   avatar?: string;
   roleTheme?: RoleTheme;
+  is_turn: boolean;
 }
 
 export enum GameState {

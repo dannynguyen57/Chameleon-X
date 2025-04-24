@@ -33,6 +33,7 @@ interface DatabasePlayer {
   can_see_word: boolean;
   created_at: string;
   turn_timer?: number;
+  is_turn: boolean;
 }
 
 export interface DatabaseRoom {
@@ -86,6 +87,7 @@ export const mapRoomData = (room: DatabaseRoom): GameRoom => {
     isInvestigated: false,
     isCurrentPlayer: false,
     isTurn: false,
+    is_turn: player.is_turn || false,
     room_id: room.id,
     team: player.team ? Number(player.team) : undefined,
     turn_timer: player.turn_timer || 0
@@ -191,6 +193,7 @@ export const useGameRealtime = (roomId: string | undefined): { room: GameRoom | 
           isInvestigated: false,
           isCurrentPlayer: false,
           isTurn: false,
+          is_turn: player.is_turn || false,
           room_id: data.id,
           team: player.team ? Number(player.team) : undefined,
           turn_timer: player.turn_timer || 0

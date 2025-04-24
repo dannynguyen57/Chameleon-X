@@ -351,7 +351,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     // Only process if we still have a room
     if (!roomRef.current?.id || !room) return;
 
-    const { action, playerId, playerName, roomId, isReady, timestamp } = payload.payload;
+    const { action, playerId, playerName, roomId, isReady, timestamp, turnOrder, currentTurn } = payload.payload;
     
     // Handle player joined events
     if (action === 'player_joined' && playerId && playerName) {
@@ -386,6 +386,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
             special_word: undefined,
             special_ability_used: false,
             turn_timer: 0,
+            is_turn: false,
             // Application-specific fields
             isProtected: false,
             isInvestigated: false,
@@ -464,13 +465,21 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
               ? categories.find((c: WordCategory) => c.name === payload.payload.category)
               : roomRef.current.category,
             secret_word: payload.payload?.secretWord || roomRef.current.secret_word,
-            current_turn: payload.payload?.currentTurn ?? roomRef.current.current_turn,
-            turn_order: payload.payload?.turnOrder || roomRef.current.turn_order,
+            current_turn: currentTurn ?? roomRef.current.current_turn,
+            turn_order: turnOrder || roomRef.current.turn_order,
             presenting_timer: payload.payload?.timer ?? roomRef.current.presenting_timer,
             discussion_timer: payload.payload?.timer ?? roomRef.current.discussion_timer,
             voting_timer: payload.payload?.timer ?? roomRef.current.voting_timer,
             last_updated: new Date().toISOString()
           };
+          
+          // Update player turn status based on is_turn
+          if (updatedRoom.players) {
+            updatedRoom.players = updatedRoom.players.map(player => ({
+              ...player,
+              isCurrentPlayer: player.is_turn
+            }));
+          }
           
           setRoom(updatedRoom);
 
@@ -494,6 +503,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
       return;
     }
     
+    // Clean up any existing channel before creating a new one
     if (channelRef.current) {
       console.log('Cleaning up old subscription');
       supabase.removeChannel(channelRef.current);
@@ -546,25 +556,27 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
           }, 100);
         }
       )
-      .on('broadcast', { event: 'sync' }, handleBroadcast)
-      .subscribe((status) => {
-        console.log('Subscription status:', status);
-        if (status === 'SUBSCRIBED') {
-          setIsConnected(true);
-          // Initial fetch after subscription
-          fetchRoom();
-        } else if (status === 'CLOSED') {
-          setIsConnected(false);
-          // Attempt to reconnect if connection is lost
-          if (reconnectAttempts.current < MAX_RETRIES) {
-            reconnectAttempts.current++;
-            setTimeout(() => {
-              console.log('Attempting to reconnect...');
-              channel.subscribe();
-            }, 1000 * reconnectAttempts.current);
-          }
+      .on('broadcast', { event: 'sync' }, handleBroadcast);
+
+    // Subscribe to the channel
+    channel.subscribe((status) => {
+      console.log('Subscription status:', status);
+      if (status === 'SUBSCRIBED') {
+        setIsConnected(true);
+        // Initial fetch after subscription
+        fetchRoom();
+      } else if (status === 'CLOSED') {
+        setIsConnected(false);
+        // Attempt to reconnect if connection is lost
+        if (reconnectAttempts.current < MAX_RETRIES) {
+          reconnectAttempts.current++;
+          setTimeout(() => {
+            console.log('Attempting to reconnect...');
+            channel.subscribe();
+          }, 1000 * reconnectAttempts.current);
         }
-      });
+      }
+    });
 
     channelRef.current = channel;
 

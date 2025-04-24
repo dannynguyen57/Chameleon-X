@@ -35,9 +35,9 @@ export const useGameActions = (
   const submitWord = useCallback(async (word: string) => {
     if (!room || !playerId || !room.turn_order || typeof room.current_turn !== 'number') return;
 
-    // Add submission lock to prevent double submissions
-    const isCurrentPlayer = room.players[room.current_turn ?? 0]?.id === playerId;
-    if (!isCurrentPlayer) {
+    // Get the current player's index in the turn order
+    const currentTurnIndex = room.turn_order.indexOf(playerId);
+    if (currentTurnIndex === -1) {
       console.log('Not your turn to submit');
       return;
     }
@@ -65,6 +65,80 @@ export const useGameActions = (
 
       if (updateError) throw updateError;
 
+      // Check if all players have submitted
+      const allPlayersSubmitted = room.players.every(p => p.turn_description || p.id === playerId);
+      
+      // Calculate next turn index in turn_order
+      const nextTurnIndex = (currentTurnIndex + 1) % room.turn_order.length;
+      const nextPlayerId = room.turn_order[nextTurnIndex];
+      
+      if (allPlayersSubmitted) {
+        // If all players have submitted, transition to discussion phase
+        const { error: stateError } = await supabase
+          .from('game_rooms')
+          .update({
+            state: GameState.Discussion,
+            discussion_timer: room.settings.discussion_time,
+            current_turn: 0,
+            last_updated: new Date().toISOString()
+          })
+          .eq('id', room.id);
+
+        if (stateError) throw stateError;
+
+        // Reset all players' is_turn status
+        const { error: resetError } = await supabase
+          .from('players')
+          .update({ is_turn: false })
+          .eq('room_id', room.id);
+
+        if (resetError) throw resetError;
+      } else {
+        // Find the next player's index in the players array
+        const nextPlayerIndex = room.players.findIndex(p => p.id === nextPlayerId);
+        if (nextPlayerIndex === -1) {
+          console.error('Next player not found in players array');
+          throw new Error('Invalid player order');
+        }
+
+        console.log('Turn progression:', {
+          currentPlayerId: playerId,
+          currentTurnIndex,
+          nextPlayerId,
+          nextPlayerIndex,
+          turnOrder: room.turn_order,
+          players: room.players.map(p => ({ id: p.id, name: p.name }))
+        });
+
+        // First, reset all players' is_turn status
+        const { error: resetError } = await supabase
+          .from('players')
+          .update({ is_turn: false })
+          .eq('room_id', room.id);
+
+        if (resetError) throw resetError;
+
+        // Then, set is_turn for the next player
+        const { error: nextPlayerError } = await supabase
+          .from('players')
+          .update({ is_turn: true })
+          .eq('id', nextPlayerId)
+          .eq('room_id', room.id);
+
+        if (nextPlayerError) throw nextPlayerError;
+
+        // Finally, update the current turn in the room
+        const { error: turnError } = await supabase
+          .from('game_rooms')
+          .update({
+            current_turn: nextTurnIndex,
+            last_updated: new Date().toISOString()
+          })
+          .eq('id', room.id);
+
+        if (turnError) throw turnError;
+      }
+
       // Prepare broadcast payload
       const broadcastPayload = {
         action: 'description_submitted',
@@ -72,7 +146,9 @@ export const useGameActions = (
         description: word || "[Time Out]",
         timestamp: new Date().toISOString(),
         roomId: room.id,
-        isTimeout: !word
+        isTimeout: !word,
+        currentTurn: allPlayersSubmitted ? 0 : nextTurnIndex,
+        turnOrder: room.turn_order
       };
 
       // Send broadcasts in parallel
@@ -89,112 +165,18 @@ export const useGameActions = (
         })
       ]);
 
-      // Check if all players have submitted their descriptions
-      const { data: players, error: playersError } = await supabase
-        .from('players')
-        .select('turn_description')
-        .eq('room_id', room.id);
+      // Fetch and update local state immediately
+      const { data: updatedRoom, error: fetchError } = await supabase
+        .from('game_rooms')
+        .select('*, players!players_room_id_fkey (*)')
+        .eq('id', room.id)
+        .single();
 
-      if (playersError) throw playersError;
+      if (fetchError) throw fetchError;
 
-      const allPlayersSubmitted = players?.every(p => p.turn_description);
-      
-      if (allPlayersSubmitted) {
-        // Prepare discussion phase updates
-        const discussionUpdates = {
-          state: GameState.Discussion,
-          last_updated: new Date().toISOString()
-        };
-
-        // Update room state to discussion phase
-        const { error: stateError } = await supabase
-          .from('game_rooms')
-          .update(discussionUpdates)
-          .eq('id', room.id);
-
-        if (stateError) throw stateError;
-
-        // Prepare state change broadcast
-        const stateChangePayload = {
-          action: 'game_state_changed',
-          newState: GameState.Discussion,
-          roomId: room.id
-        };
-
-        // Send state change broadcasts in parallel
-        await Promise.all([
-          supabase.channel(`room:${room.id}`).send({
-            type: 'broadcast',
-            event: 'sync',
-            payload: stateChangePayload
-          }),
-          supabase.channel('public_rooms').send({
-            type: 'broadcast',
-            event: 'sync',
-            payload: stateChangePayload
-          })
-        ]);
-      } else {
-        // Calculate next turn index using turn_order array
-        const currentTurnIndex = room.turn_order.indexOf(room.players[room.current_turn]?.id);
-        const nextTurnIndex = (currentTurnIndex + 1) % room.turn_order.length;
-        const nextPlayerId = room.turn_order[nextTurnIndex];
-        
-        console.log('[Turn] Advancing turn:', {
-          currentTurn: room.current_turn,
-          currentTurnIndex,
-          nextTurnIndex,
-          nextPlayerId,
-          turnOrder: room.turn_order,
-          totalPlayers: room.players.length,
-          currentPlayer: room.players[room.current_turn]?.name,
-          nextPlayer: room.players.find(p => p.id === nextPlayerId)?.name
-        });
-        
-        // Prepare turn advancement updates
-        const turnUpdates = {
-          current_turn: nextTurnIndex,
-          turn_timer: room.settings.presenting_time,
-          last_updated: new Date().toISOString()
-        };
-        
-        // Update room state for next turn
-        const { error: turnError } = await supabase
-          .from('game_rooms')
-          .update(turnUpdates)
-          .eq('id', room.id);
-
-        if (turnError) throw turnError;
-
-        // Prepare turn change broadcast
-        const turnChangePayload = {
-          action: 'turn_changed',
-          roomId: room.id,
-          currentTurn: nextTurnIndex,
-          timestamp: new Date().toISOString(),
-          isTimeout: !word
-        };
-
-        // Send turn change broadcast
-        await supabase.channel(`room:${room.id}`).send({
-          type: 'broadcast',
-          event: 'sync',
-          payload: turnChangePayload
-        });
-
-        // Fetch and update local state immediately
-        const { data: updatedRoom, error: fetchError } = await supabase
-          .from('game_rooms')
-          .select('*, players!players_room_id_fkey (*)')
-          .eq('id', room.id)
-          .single();
-
-        if (fetchError) throw fetchError;
-
-        if (updatedRoom) {
-          const mappedRoom = mapRoomData(updatedRoom as DatabaseRoom);
-          setRoom(convertToExtendedRoom(mappedRoom));
-        }
+      if (updatedRoom) {
+        const mappedRoom = mapRoomData(updatedRoom as DatabaseRoom);
+        setRoom(convertToExtendedRoom(mappedRoom));
       }
     } catch (error) {
       console.error('Error submitting word:', error);
@@ -619,15 +601,62 @@ export const useGameActions = (
         return;
       }
 
-      console.log('Starting game, updating room state to selecting');
+      // Create random turn order
+      const shuffledPlayers = [...room.players];
+      // Fisher-Yates shuffle algorithm for true randomness
+      for (let i = shuffledPlayers.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffledPlayers[i], shuffledPlayers[j]] = [shuffledPlayers[j], shuffledPlayers[i]];
+      }
+      
+      const turnOrder = shuffledPlayers.map(p => p.id);
+      const firstPlayerId = turnOrder[0];
 
-      // Update the room state to 'selecting' and reset all player states
+      console.log('Starting game with turn order:', {
+        turnOrder,
+        firstPlayerId,
+        players: shuffledPlayers.map(p => ({ id: p.id, name: p.name }))
+      });
+
+      // Reset all player states and set first player's turn
+      const { error: resetError } = await supabase
+        .from('players')
+        .update({ 
+          turn_description: null,
+          vote: null,
+          special_ability_used: false,
+          is_protected: false,
+          vote_multiplier: 1,
+          is_turn: false,
+          last_updated: new Date().toISOString()
+        })
+        .eq('room_id', room.id);
+
+      if (resetError) {
+        console.error('Error resetting player states:', resetError);
+        throw resetError;
+      }
+
+      // Set first player's turn
+      const { error: firstPlayerError } = await supabase
+        .from('players')
+        .update({ is_turn: true })
+        .eq('id', firstPlayerId)
+        .eq('room_id', room.id);
+
+      if (firstPlayerError) {
+        console.error('Error setting first player turn:', firstPlayerError);
+        throw firstPlayerError;
+      }
+
+      // Update the room state to 'selecting' with turn order
       const { error: stateUpdateError } = await supabase
         .from('game_rooms')
         .update({ 
           state: GameState.Selecting,
           round: 1,
           current_turn: 0,
+          turn_order: turnOrder,
           presenting_timer: settings.presenting_time,
           discussion_timer: settings.discussion_time,
           voting_timer: settings.voting_time,
@@ -640,26 +669,6 @@ export const useGameActions = (
       if (stateUpdateError) {
         console.error('Error updating room state:', stateUpdateError);
         throw stateUpdateError;
-      }
-
-      console.log('Resetting player states');
-
-      // Reset all player states
-      const { error: resetError } = await supabase
-        .from('players')
-        .update({ 
-          turn_description: null,
-          vote: null,
-          special_ability_used: false,
-          is_protected: false,
-          vote_multiplier: 1,
-          last_updated: new Date().toISOString()
-        })
-        .eq('room_id', room.id);
-
-      if (resetError) {
-        console.error('Error resetting player states:', resetError);
-        throw resetError;
       }
 
       console.log('Assigning roles to players');
@@ -679,6 +688,8 @@ export const useGameActions = (
           action: 'game_started',
           roomId: room.id,
           newState: GameState.Selecting,
+          turnOrder,
+          currentTurn: 0,
           timestamp: new Date().toISOString()
         }
       });
@@ -695,6 +706,7 @@ export const useGameActions = (
           roomId: room.id,
           round: 1,
           currentTurn: 0,
+          turnOrder,
           timestamp: new Date().toISOString()
         }
       });

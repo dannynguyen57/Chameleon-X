@@ -88,13 +88,17 @@ interface CurrentTurnCardProps {
   currentPlayer: Player;
   onDescriptionSubmit: (description: string) => void;
   onSkipTurn: () => void;
+  remainingTime: { isActive: boolean; timeLeft: number };
+  formatTime: (seconds: number) => string;
 }
 
 const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({ 
   room, 
   currentPlayer, 
   onDescriptionSubmit, 
-  onSkipTurn 
+  onSkipTurn, 
+  remainingTime,
+  formatTime
 }) => {
   const { playerId } = useGame();
   const [description, setDescription] = useState('');
@@ -180,22 +184,43 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
     >
-      <Card className="border-2 border-primary/20 shadow-lg overflow-hidden">
-        <CardHeader className="bg-primary/5 p-4 sm:p-6">
+      <Card className="border-2 border-primary/20 shadow-lg overflow-hidden bg-background/50">
+        <CardHeader className="p-4 sm:p-6 bg-gradient-to-br from-primary/5 to-transparent">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex flex-col items-center sm:items-start gap-2">
-              <div className="flex items-center gap-2">
-                <Timer className="w-6 h-6 text-primary" />
-                <span className="text-2xl sm:text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary/60">
-                  {isCurrentPlayerTurn ? "Your Turn!" : `${currentTurnPlayer?.name}'s Turn`}
-                </span>
+              <div className="flex items-center gap-3">
+                <div className="relative p-2 rounded-full border-2 border-primary/30 bg-primary/10">
+                  <Gamepad2 className="w-6 h-6 text-primary" />
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-2xl sm:text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary/60">
+                    {isCurrentPlayerTurn ? "Your Turn!" : `${currentTurnPlayer?.name}'s Turn`}
+                  </span>
+                  <p className="text-sm sm:text-base text-muted-foreground text-center sm:text-left">
+                    {isCurrentPlayerTurn 
+                      ? "Time to shine! Describe the word without saying it directly"
+                      : "Watch closely and prepare for your turn"}
+                  </p>
+                </div>
               </div>
-              <p className="text-sm sm:text-base text-muted-foreground text-center sm:text-left">
-                {isCurrentPlayerTurn 
-                  ? "Describe the word without saying it directly"
-                  : "Wait for your turn to describe the word"}
-              </p>
             </div>
+            <Badge 
+              variant="outline" 
+              className={cn(
+                "text-lg sm:text-xl transition-all duration-300",
+                "border-2 border-primary/20 bg-primary/5",
+                remainingTime.isActive && remainingTime.timeLeft <= 10 
+                  ? "text-red-500 border-red-500/50" 
+                  : "",
+                "hover:shadow-md"
+              )}
+            >
+              <Timer className={cn(
+                "w-4 h-4 sm:w-5 sm:h-5 mr-2",
+                remainingTime.isActive && remainingTime.timeLeft <= 10 ? "text-red-500" : "text-primary"
+              )} />
+              {formatTime(remainingTime.timeLeft)}
+            </Badge>
           </div>
         </CardHeader>
 
@@ -206,10 +231,17 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
               <Button 
                 onClick={() => handleAbilityUse('blendIn')}
                 disabled={isBlendingIn || currentPlayer.special_ability_used}
-                className="flex items-center gap-2"
+                className={cn(
+                  "flex items-center gap-2",
+                  "border-2",
+                  "border-green-500/20 bg-green-500/5",
+                  "hover:border-green-500/30 hover:bg-green-500/10",
+                  "transition-all duration-200",
+                  "hover:shadow-md"
+                )}
                 variant="secondary"
               >
-                <ShieldCheck className="w-4 h-4" />
+                <ShieldCheck className="w-4 h-4 text-green-500" />
                 Blend In
               </Button>
             )}
@@ -217,10 +249,17 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
               <Button 
                 onClick={() => handleAbilityUse('mimic')}
                 disabled={isMimicking || currentPlayer.special_ability_used}
-                className="flex items-center gap-2"
+                className={cn(
+                  "flex items-center gap-2",
+                  "border-2",
+                  "border-purple-500/20 bg-purple-500/5",
+                  "hover:border-purple-500/30 hover:bg-purple-500/10",
+                  "transition-all duration-200",
+                  "hover:shadow-md"
+                )}
                 variant="secondary"
               >
-                <Laugh className="w-4 h-4" />
+                <Laugh className="w-4 h-4 text-purple-500" />
                 Mimic
               </Button>
             )}
@@ -228,10 +267,17 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
               <Button 
                 onClick={() => handleAbilityUse('guide')}
                 disabled={isGuiding || currentPlayer.special_ability_used}
-                className="flex items-center gap-2"
+                className={cn(
+                  "flex items-center gap-2",
+                  "border-2",
+                  "border-blue-500/20 bg-blue-500/5",
+                  "hover:border-blue-500/30 hover:bg-blue-500/10",
+                  "transition-all duration-200",
+                  "hover:shadow-md"
+                )}
                 variant="secondary"
               >
-                <Lightbulb className="w-4 h-4" />
+                <Lightbulb className="w-4 h-4 text-blue-500" />
                 Guide
               </Button>
             )}
@@ -239,10 +285,17 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
               <Button 
                 onClick={() => handleAbilityUse('actSuspicious')}
                 disabled={isActingSuspicious || currentPlayer.special_ability_used}
-                className="flex items-center gap-2"
+                className={cn(
+                  "flex items-center gap-2",
+                  "border-2",
+                  "border-yellow-500/20 bg-yellow-500/5",
+                  "hover:border-yellow-500/30 hover:bg-yellow-500/10",
+                  "transition-all duration-200",
+                  "hover:shadow-md"
+                )}
                 variant="secondary"
               >
-                <Crown className="w-4 h-4" />
+                <Crown className="w-4 h-4 text-yellow-500" />
                 Act Suspicious
               </Button>
             )}
@@ -250,10 +303,17 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
               <Button 
                 onClick={() => handleAbilityUse('protect')}
                 disabled={isProtecting || currentPlayer.special_ability_used}
-                className="flex items-center gap-2"
+                className={cn(
+                  "flex items-center gap-2",
+                  "border-2",
+                  "border-red-500/20 bg-red-500/5",
+                  "hover:border-red-500/30 hover:bg-red-500/10",
+                  "transition-all duration-200",
+                  "hover:shadow-md"
+                )}
                 variant="secondary"
               >
-                <Shield className="w-4 h-4" />
+                <Shield className="w-4 h-4 text-red-500" />
                 Protect Chameleon
               </Button>
             )}
@@ -261,10 +321,17 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
               <Button 
                 onClick={() => handleAbilityUse('protect')}
                 disabled={isProtecting || currentPlayer.special_ability_used}
-                className="flex items-center gap-2"
+                className={cn(
+                  "flex items-center gap-2",
+                  "border-2",
+                  "border-indigo-500/20 bg-indigo-500/5",
+                  "hover:border-indigo-500/30 hover:bg-indigo-500/10",
+                  "transition-all duration-200",
+                  "hover:shadow-md"
+                )}
                 variant="secondary"
               >
-                <Shield className="w-4 h-4" />
+                <Shield className="w-4 h-4 text-indigo-500" />
                 Protect Player
               </Button>
             )}
@@ -272,10 +339,17 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
               <Button 
                 onClick={() => handleAbilityUse('swapVotes')}
                 disabled={isSwappingVotes || currentPlayer.special_ability_used}
-                className="flex items-center gap-2"
+                className={cn(
+                  "flex items-center gap-2",
+                  "border-2",
+                  "border-pink-500/20 bg-pink-500/5",
+                  "hover:border-pink-500/30 hover:bg-pink-500/10",
+                  "transition-all duration-200",
+                  "hover:shadow-md"
+                )}
                 variant="secondary"
               >
-                <Award className="w-4 h-4" />
+                <Award className="w-4 h-4 text-pink-500" />
                 Swap Votes
               </Button>
             )}
@@ -283,79 +357,47 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
               <Button 
                 onClick={() => handleAbilityUse('doubleVote')}
                 disabled={isDoublingVote || currentPlayer.special_ability_used}
-                className="flex items-center gap-2"
+                className={cn(
+                  "flex items-center gap-2",
+                  "border-2",
+                  "border-cyan-500/20 bg-cyan-500/5",
+                  "hover:border-cyan-500/30 hover:bg-cyan-500/10",
+                  "transition-all duration-200",
+                  "hover:shadow-md"
+                )}
                 variant="secondary"
               >
-                <EyeOff className="w-4 h-4" />
+                <EyeOff className="w-4 h-4 text-cyan-500" />
                 Double Vote
               </Button>
             )}
           </div>
 
-          {/* Target Selection */}
-          {(isProtecting || isSwappingVotes || isDoublingVote) && (
-            <div className="space-y-2">
-              <h4 className="text-sm font-medium">Select Target Player:</h4>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {room.players.map((player: Player) => (
-                  <Button
-                    key={player.id}
-                    onClick={() => handleTargetSelect(player.id)}
-                    variant={targetPlayer === player.id ? "default" : "outline"}
-                    disabled={player.id === currentPlayer.id}
-                    className="flex items-center gap-2"
-                  >
-                    <Avatar className="w-6 h-6">
-                      <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}`} />
-                      <AvatarFallback>{player.name[0]}</AvatarFallback>
-                    </Avatar>
-                    <div className="flex flex-col">
-                      <span className="font-medium">{player.name}</span>
-                      {shouldShowRole(room, player.id, currentPlayer?.id) && player.role && (
-                        <span className="text-xs text-muted-foreground">
-                          {player.role}
-                        </span>
-                      )}
-                    </div>
-                  </Button>
-                ))}
-              </div>
-            </div>
-          )}
-
           {/* Word Display */}
           <div className="space-y-2">
-            <h4 className="text-sm font-medium">Secret Word:</h4>
-            <div className="flex items-center justify-between p-4 rounded-lg bg-primary/5 border border-primary/20">
+            <h4 className="text-sm font-medium flex items-center gap-2">
+              <Shield className="w-4 h-4 text-primary" />
+              Secret Word
+            </h4>
+            <div className="relative p-6 rounded-lg transition-all duration-200 border-2 border-primary/20 bg-primary/5 hover:shadow-md">
               {isChameleon ? (
-                <span className="text-2xl font-bold tracking-widest">??????</span>
+                <div className="flex flex-col items-center justify-center gap-3">
+                  <div className="text-4xl font-bold tracking-widest text-green-500/40">
+                    ??????
+                  </div>
+                  <p className="text-sm text-muted-foreground text-center">
+                    You are the Chameleon! Try to blend in with your description.
+                  </p>
+                </div>
               ) : (
-                <>
-                  <span className={cn(
-                    "text-2xl font-bold tracking-widest transition-all duration-300",
-                    isWordVisible ? "opacity-100" : "opacity-0"
-                  )}>
-                    {isWordVisible ? room.secret_word : '••••••••'}
-                  </span>
-                  <Button 
-                    onClick={() => setIsWordVisible(!isWordVisible)}
-                    variant="ghost"
-                    size="sm"
-                    className="flex items-center gap-1"
-                  >
-                    {isWordVisible ? (
-                      <>
-                        <EyeOff className="w-4 h-4" />
-                        Hide
-                      </>
-                    ) : (
-                      <>
-                        <Eye className="w-4 h-4" />
-                        Show
-                      </>
-                    )}
-                  </Button>
-                </>
+                <div className="flex flex-col items-center justify-center gap-3">
+                  <div className="text-4xl font-bold tracking-widest bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary/60">
+                    {room.secret_word}
+                  </div>
+                  <p className="text-sm text-muted-foreground text-center">
+                    Describe this word without saying it directly!
+                  </p>
+                </div>
               )}
             </div>
           </div>
@@ -364,7 +406,10 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
           <div className="space-y-4">
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label htmlFor="description" className="text-sm font-medium">Your Description</Label>
+                <Label htmlFor="description" className="text-sm font-medium flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-primary" />
+                  Your Description
+                </Label>
                 <span className="text-xs text-muted-foreground">
                   {description.length}/200 characters
                 </span>
@@ -378,6 +423,8 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
                   disabled={!isWordVisible && !isChameleon}
                   className={cn(
                     "min-h-[120px] resize-none transition-all duration-200",
+                    "border-2 border-primary/20 bg-primary/5",
+                    "hover:border-primary/30",
                     "focus:ring-2 focus:ring-primary/20 focus:border-primary/50",
                     "placeholder:text-muted-foreground/50",
                     !isWordVisible && !isChameleon && "opacity-50 cursor-not-allowed"
@@ -396,7 +443,9 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
                 disabled={!description.trim() || !isCurrentPlayerTurn}
                 className={cn(
                   "flex-1 transition-all duration-200",
-                  !description.trim() || !isCurrentPlayerTurn ? "opacity-50" : "hover:scale-[1.02]"
+                  "border-2 border-primary bg-primary hover:bg-primary/90",
+                  "hover:shadow-md",
+                  !description.trim() || !isCurrentPlayerTurn ? "opacity-50" : ""
                 )}
               >
                 <CheckCircle className="w-4 h-4 mr-2" />
@@ -408,7 +457,10 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
                 disabled={!isCurrentPlayerTurn}
                 className={cn(
                   "transition-all duration-200",
-                  !isCurrentPlayerTurn ? "opacity-50" : "hover:scale-[1.02]"
+                  "border-2 border-primary/20 bg-primary/5",
+                  "hover:border-primary/30 hover:bg-primary/10",
+                  "hover:shadow-md",
+                  !isCurrentPlayerTurn ? "opacity-50" : ""
                 )}
               >
                 <XCircle className="w-4 h-4 mr-2" />
@@ -752,43 +804,8 @@ export default function GamePlay() {
                       onSkipTurn={async () => {
                         if (room && currentPlayer) {
                           try {
-                            // Update the player's description to indicate skipped turn
-                            const { error: updateError } = await supabase
-                              .from('players')
-                              .update({ 
-                                turn_description: "[Skipped Turn]",
-                                last_updated: new Date().toISOString()
-                              })
-                              .eq('id', currentPlayer.id)
-                              .eq('room_id', room.id);
-
-                            if (updateError) throw updateError;
-
-                            // Move to next turn
-                            const currentTurnIndex = room.current_turn ?? 0;
-                            const nextTurnIndex = (currentTurnIndex + 1) % (room.turn_order?.length ?? 0);
-                            const nextPlayerId = room.turn_order?.[nextTurnIndex];
-                            const nextPlayerRoomIndex = room.players.findIndex(p => p.id === nextPlayerId);
-
-                            const { error: roomError } = await supabase
-                              .from('game_rooms')
-                              .update({ 
-                                current_turn: nextPlayerRoomIndex >= 0 ? nextPlayerRoomIndex : 0,
-                                presenting_timer: settings.presenting_time,
-                                last_updated: new Date().toISOString()
-                              })
-                              .eq('id', room.id);
-
-                            if (roomError) throw roomError;
-
-                            // Update local state
-                            setRoom({
-                              ...room,
-                              current_turn: nextPlayerRoomIndex >= 0 ? nextPlayerRoomIndex : 0,
-                              presenting_timer: settings.presenting_time,
-                              last_updated: new Date().toISOString()
-                            });
-
+                            // Submit an empty string to trigger timeout
+                            await submitWord("");
                             toast.success("Turn skipped successfully");
                           } catch (error) {
                             console.error('Error skipping turn:', error);
@@ -796,6 +813,8 @@ export default function GamePlay() {
                           }
                         }
                       }}
+                      remainingTime={remainingTime}
+                      formatTime={formatTime}
                     />
                   ) : (
                     <Card className="border shadow-sm bg-background/50 backdrop-blur-sm">
@@ -1071,24 +1090,39 @@ export default function GamePlay() {
                   </div>
                   <div className="space-y-1">
                     <h4 className="text-xs sm:text-sm font-medium text-muted-foreground">
-                      {room?.state === GameState.Presenting ? "Time to Describe" :
+                      {/* Dynamically update timer title based on phase */}
+                      {room?.state === GameState.Presenting ? "Player Turn Time" :
                        room?.state === GameState.Discussion ? "Discussion Time" :
                        room?.state === GameState.Voting ? "Voting Time" :
                        "Time"}
                     </h4>
-                    <Badge 
-                      variant="outline" 
-                      className={cn(
-                        "text-sm sm:text-base transition-all duration-300",
-                        remainingTime.timeLeft <= 10 ? "text-red-500 animate-pulse" : ""
-                      )}
-                    >
-                      <Timer className={cn(
-                        "w-3 h-3 sm:w-4 sm:h-4 mr-1",
-                        remainingTime.timeLeft <= 10 ? "text-red-500" : ""
-                      )} />
-                      {formatTime(remainingTime.timeLeft)}
-                    </Badge>
+                    {/* Conditionally render timer based on state and turn - Hide if it's current player's presenting turn */}
+                    {(room?.state === GameState.Discussion || room?.state === GameState.Voting) ? (
+                      // Show for Discussion and Voting
+                      <Badge 
+                        variant="outline" 
+                        className={cn(
+                          "text-sm sm:text-base transition-all duration-300",
+                          remainingTime.isActive && remainingTime.timeLeft <= 10 ? "text-red-500 animate-pulse" : ""
+                        )}
+                      >
+                        <Timer className={cn(
+                          "w-3 h-3 sm:w-4 sm:h-4 mr-1",
+                          remainingTime.isActive && remainingTime.timeLeft <= 10 ? "text-red-500" : ""
+                        )} />
+                        {formatTime(remainingTime.timeLeft)} {/* Always show formatted time here */}
+                      </Badge>
+                    ) : room?.state === GameState.Presenting && !isCurrentPlayerTurn ? (
+                      // Show Waiting... for other players' presenting turns
+                      <Badge variant="outline" className="text-sm sm:text-base text-muted-foreground">
+                        Waiting...
+                      </Badge>
+                    ) : (
+                      // Show N/A for other states (like Lobby, Results, or *your* presenting turn)
+                       <Badge variant="outline" className="text-sm sm:text-base text-muted-foreground">
+                         N/A
+                       </Badge>
+                    )}
                   </div>
                   <div className="col-span-2 space-y-1">
                     <h4 className="text-xs sm:text-sm font-medium text-muted-foreground">Category</h4>

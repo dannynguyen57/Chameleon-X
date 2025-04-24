@@ -3,7 +3,7 @@ import { GameRoom, GameSettings, GameState } from '../lib/types';
 import { supabase } from '../integrations/supabase/client';
 import { ExtendedGameRoom } from '../contexts/GameContextProvider';
 
-export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettings, setRoom: (room: ExtendedGameRoom | null) => void) => {
+export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettings, setRoom: (room: ExtendedGameRoom | null) => void, playerId: string) => {
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [isActive, setIsActive] = useState<boolean>(false);
   const mainTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -15,57 +15,87 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
   const updateIntervalRef = useRef<number>(5000); // Update database every 5 seconds
   const [currentPlayerTimer, setCurrentPlayerTimer] = useState<number>(0);
 
-  // Update local timer state when room timer changes
   useEffect(() => {
-    if (!room) return;
+    if (!room) {
+      setTimeLeft(0);
+      setIsActive(false);
+      if (mainTimerRef.current) clearInterval(mainTimerRef.current);
+      return;
+    }
 
-    // Clear any existing timer
+    const isCurrentPlayer = room.players[room.current_turn ?? 0]?.id === playerId;
+    let initialTime = 0;
+    let shouldCountdownLocally = false;
+
+    switch (room.state) {
+      case GameState.Presenting:
+        if (isCurrentPlayer) {
+          // Current player: Start countdown from their remaining time
+          initialTime = room.turn_timer ?? room.settings.presenting_time;
+          shouldCountdownLocally = true;
+        } else {
+          // Other players: Show the full static time for the phase
+          initialTime = room.settings.presenting_time;
+          shouldCountdownLocally = false; // Timer does not tick locally
+        }
+        break;
+      case GameState.Discussion:
+        initialTime = room.discussion_timer ?? room.settings.discussion_time;
+        shouldCountdownLocally = true; // Everyone sees countdown
+        break;
+      case GameState.Voting:
+        initialTime = room.voting_timer ?? room.settings.voting_time;
+        shouldCountdownLocally = true; // Everyone sees countdown
+        break;
+      default:
+        initialTime = 0;
+        shouldCountdownLocally = false;
+    }
+
+    // Set the time displayed
+    setTimeLeft(initialTime);
+    setIsActive(initialTime > 0 && shouldCountdownLocally);
+
+    // Clear previous interval
     if (mainTimerRef.current) {
       clearInterval(mainTimerRef.current);
       mainTimerRef.current = null;
     }
 
-    // Get the appropriate timer based on game state
-    let currentTimer = 0;
-    switch (room.state) {
-      case 'presenting':
-        currentTimer = room.turn_timer ?? room.settings.presenting_time;
-        break;
-      case 'discussion':
-        currentTimer = room.discussion_timer ?? room.settings.discussion_time;
-        break;
-      case 'voting':
-        currentTimer = room.voting_timer ?? room.settings.voting_time;
-        break;
-      default:
-        currentTimer = 0;
-    }
-
-    setTimeLeft(currentTimer);
-
-    // Start the timer if we have time remaining
-    if (currentTimer > 0) {
+    // Start new interval ONLY if this player should see a countdown
+    if (shouldCountdownLocally && initialTime > 0) {
       mainTimerRef.current = setInterval(() => {
         setTimeLeft(prev => {
-          if (prev <= 0) {
-            if (mainTimerRef.current) {
-              clearInterval(mainTimerRef.current);
-              mainTimerRef.current = null;
-            }
-            return 0;
+          const newTime = Math.max(0, prev - 1);
+          if (newTime === 0) {
+            if (mainTimerRef.current) clearInterval(mainTimerRef.current);
+            setIsActive(false);
           }
-          return prev - 1;
+          return newTime;
         });
       }, 1000);
     }
 
+    // Cleanup function
     return () => {
       if (mainTimerRef.current) {
         clearInterval(mainTimerRef.current);
         mainTimerRef.current = null;
       }
     };
-  }, [room, room?.state, room?.turn_timer, room?.discussion_timer, room?.voting_timer]);
+  }, [
+    room,
+    room?.state,
+    room?.turn_timer, // For current player in presenting
+    room?.discussion_timer,
+    room?.voting_timer,
+    room?.current_turn,
+    room?.settings.presenting_time, // For other players in presenting
+    room?.settings.discussion_time,
+    room?.settings.voting_time,
+    room?.players, // Needed for isCurrentPlayer check
+    playerId
+  ]);
 
   // Handle individual player timers in presenting phase
   useEffect(() => {
@@ -213,14 +243,46 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
               }
 
               try {
-                await supabase
+                const { error } = await supabase
                   .from('game_rooms')
                   .update(updates)
                   .eq('id', room.id);
 
+                if (error) {
+                  console.error('Error in room state update:', error);
+                  return;
+                }
+
+                // Update local state
                 setRoom({
                   ...room,
                   ...updates
+                });
+
+                // Send broadcast to all players
+                const channel = supabase.channel(`room:${room.id}`);
+                await channel.send({
+                  type: 'broadcast',
+                  event: 'sync',
+                  payload: {
+                    action: 'game_state_changed',
+                    newState: newState,
+                    roomId: room.id,
+                    timestamp: new Date().toISOString()
+                  }
+                });
+
+                // Also send to public_rooms channel
+                const publicChannel = supabase.channel('public_rooms');
+                await publicChannel.send({
+                  type: 'broadcast',
+                  event: 'sync',
+                  payload: {
+                    action: 'game_state_changed',
+                    newState: newState,
+                    roomId: room.id,
+                    timestamp: new Date().toISOString()
+                  }
                 });
               } catch (error) {
                 console.error('Error in room state update:', error);
@@ -229,11 +291,6 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
 
             // Handle state transitions based on current state
             const allPlayersSubmitted = room.players.every(p => p.turn_description);
-            const currentTurnIndex = room.current_turn ?? 0;
-            const nextTurnIndex = (currentTurnIndex + 1) % (room.turn_order?.length ?? 0);
-            const nextPlayerId = room.turn_order?.[nextTurnIndex];
-            const nextPlayerRoomIndex = room.players.findIndex(p => p.id === nextPlayerId);
-
             switch (room.state) {
               case GameState.Presenting:
                 // In presenting phase, always move to next player or discussion
@@ -257,7 +314,7 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
                     await supabase
                       .from('game_rooms')
                       .update({ 
-                        current_turn: nextPlayerRoomIndex >= 0 ? nextPlayerRoomIndex : 0,
+                        current_turn: (room.current_turn ?? 0) + 1,
                         presenting_timer: settings.presenting_time,
                         last_updated: new Date().toISOString()
                       })
@@ -266,7 +323,7 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
                     // Update local state
                     setRoom({
                       ...room,
-                      current_turn: nextPlayerRoomIndex >= 0 ? nextPlayerRoomIndex : 0,
+                      current_turn: (room.current_turn ?? 0) + 1,
                       presenting_timer: settings.presenting_time,
                       last_updated: new Date().toISOString()
                     });
@@ -409,11 +466,11 @@ export const useGameTimer = (room: ExtendedGameRoom | null, settings: GameSettin
   }, [timeLeft, room, roomId, setRoom]);
 
   return { 
-    timeLeft: room?.state === GameState.Presenting ? currentPlayerTimer : timeLeft, 
+    timeLeft, 
     isActive, 
-    startTimer, 
-    stopTimer, 
-    resetTimer, 
+    startTimer,
+    stopTimer,
+    resetTimer,
     formatTime 
   };
 };

@@ -100,11 +100,16 @@ export const useGameActions = (
 
       const allPlayersSubmitted = players?.every(p => p.turn_description);
       if (allPlayersSubmitted) {
+        // --- ALL PLAYERS SUBMITTED: MOVE TO DISCUSSION ---
         // Update room state to discussion phase
         const { error: stateError } = await supabase
           .from('game_rooms')
           .update({ 
             state: GameState.Discussion,
+            discussion_timer: room.settings.discussion_time, // Reset discussion timer
+            presenting_timer: 0, // Clear presenting timer
+            turn_timer: 0, // Clear turn timer
+            current_turn: 0, // Reset turn for discussion (optional, could keep last player)
             last_updated: new Date().toISOString()
           })
           .eq('id', room.id);
@@ -132,6 +137,40 @@ export const useGameActions = (
             roomId: room.id
           }
         });
+        
+        // Fetch final state after transition
+        const finalRoom = await fetchRoom(room.id);
+        if (finalRoom) setRoom(finalRoom);
+
+      } else {
+        // --- NOT ALL PLAYERS SUBMITTED: ADVANCE TURN ---
+        const nextTurnIndex = (room.current_turn + 1) % room.players.length;
+        const { error: turnError } = await supabase
+          .from('game_rooms')
+          .update({
+            current_turn: nextTurnIndex,
+            turn_timer: room.settings.presenting_time, // Reset timer for next player
+            last_updated: new Date().toISOString()
+          })
+          .eq('id', room.id);
+
+        if (turnError) throw turnError;
+
+        // Send broadcast for turn change (optional, but good practice)
+        await channel.send({
+          type: 'broadcast',
+          event: 'sync',
+          payload: {
+            action: 'turn_changed',
+            roomId: room.id,
+            currentTurn: nextTurnIndex,
+            timestamp: new Date().toISOString()
+          }
+        });
+        
+        // Fetch state after turn update
+        const nextTurnRoom = await fetchRoom(room.id);
+        if (nextTurnRoom) setRoom(nextTurnRoom);
       }
     } catch (error) {
       console.error('Error submitting word:', error);

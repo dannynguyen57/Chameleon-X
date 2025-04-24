@@ -188,7 +188,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     settings,
     setRoom
   );
-  const remainingTime = useGameTimer(room, settings, setRoom);
+  const remainingTime = useGameTimer(room, settings, setRoom, playerId);
 
   const mapRoomWithTimers = useCallback((roomData: DatabaseRoom): ExtendedGameRoom => {
     const baseRoom = mapRoomData(roomData);

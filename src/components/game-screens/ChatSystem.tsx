@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { useGame } from '@/hooks/useGame';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,104 +22,178 @@ interface ChatSession {
   updated_at: string;
 }
 
+// Memoized Message UI component
+const ChatMessageItem = memo(({ message, playerId, truncateName }: { message: ChatMessage, playerId: string | null, truncateName: (name: string, maxLength?: number) => string }) => {
+  const isOwnMessage = message.player_id === playerId;
+
+  return (
+    <div
+      className={`flex flex-col ${isOwnMessage ? 'items-end' : 'items-start'}`}
+    >
+      <div
+        className={`max-w-[80%] rounded-lg p-3 ${
+          isOwnMessage
+            ? 'bg-primary text-primary-foreground'
+            : 'bg-muted'
+        }`}
+      >
+        <div className="flex items-start gap-3">
+          <Avatar className="flex-shrink-0">
+            <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${message.player_name}`} />
+            <AvatarFallback>{message.player_name[0]}</AvatarFallback>
+          </Avatar>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold truncate" title={message.player_name}>
+                {truncateName(message.player_name)}
+              </span>
+              {message.is_hint && (
+                <Badge variant="outline" className="flex-shrink-0">
+                  <Lightbulb className="w-3 h-3 mr-1" />
+                  Hint
+                </Badge>
+              )}
+            </div>
+            <p className="text-sm text-muted-foreground mt-1">{message.content}</p>
+          </div>
+          <span className="text-xs text-muted-foreground self-end">
+            {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+});
+ChatMessageItem.displayName = 'ChatMessageItem';
+
 export default function ChatSystem() {
   const { room, playerId } = useGame();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [isHint, setIsHint] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
-  const lastMessageRef = useRef<ChatMessage | null>(null);
-  const channelRef = useRef<RealtimeChannel | null>(null);
-  const roomChannelRef = useRef<RealtimeChannel | null>(null);
   const chatSessionRef = useRef<ChatSession | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [subscriptionStatus, setSubscriptionStatus] = useState<'DISCONNECTED' | 'CONNECTING' | 'CONNECTED'>('CONNECTING');
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const lastMessageCountRef = useRef<number>(0);
-  const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [status, setStatus] = useState<'loading' | 'connected' | 'error'>('loading');
+  const channelRef = useRef<RealtimeChannel | null>(null);
+  const isAtBottomRef = useRef(true);
+  const messageIdsRef = useRef(new Set<string>());
 
-  // Prevent reconnection loops with a stabilizer
-  const reconnectionCountRef = useRef(0);
-  const lastCleanupTimeRef = useRef(0);
-  const initializedRef = useRef(false);
-
-  // Track last init time
-  const lastInitTimeRef = useRef(0);
-
+  // Simple name truncation helper
   const truncateName = useCallback((name: string, maxLength: number = 12) => {
     if (name.length <= maxLength) return name;
     return name.slice(0, maxLength) + '...';
   }, []);
 
-  // Optimized scroll handling with debounce
-  const handleScroll = useCallback(() => {
-    if (!scrollRef.current) return;
-    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
-    const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
-    setShowScrollButton(!isNearBottom);
+  // Scroll to bottom function - scrolls the container directly
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    const scrollContainer = scrollRef.current;
+    if (!scrollContainer) return;
+    
+    try {
+      // Get the viewport element (the actual scrollable element in ScrollArea)
+      const viewport = scrollContainer.querySelector('[data-radix-scroll-area-viewport]');
+      if (viewport) {
+        viewport.scrollTo({
+          top: viewport.scrollHeight,
+          behavior: behavior
+        });
+      } else {
+        // Fallback to the container itself
+        scrollContainer.scrollTo({
+          top: scrollContainer.scrollHeight,
+          behavior: behavior
+        });
+      }
+    } catch (error) {
+      console.error('Error scrolling to bottom:', error);
+    }
   }, []);
 
-  // Memoized scroll to bottom function
-  const scrollToBottom = useCallback(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+  // Handle scroll events - Check if near bottom
+  const handleScroll = useCallback(() => {
+    const scrollContainer = scrollRef.current;
+    if (!scrollContainer) return;
+
+    try {
+      // Get the viewport element
+      const viewport = scrollContainer.querySelector('[data-radix-scroll-area-viewport]');
+      if (!viewport) return;
+
+      const { scrollTop, scrollHeight, clientHeight } = viewport;
+      const threshold = 100; // Pixels from bottom to consider "at bottom"
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+
+      // For debugging
+      console.log(`Scroll: ${distanceFromBottom.toFixed(0)}px from bottom`);
+
+      isAtBottomRef.current = distanceFromBottom <= threshold;
+      setShowScrollButton(distanceFromBottom > threshold);
+    } catch (error) {
+      console.error('Error handling scroll:', error);
     }
   }, []);
 
   // Find or create a chat session
   const initChatSession = useCallback(async () => {
-    if (!room) return null;
-    
-    console.log('Initializing chat session for room:', room.id, 'round:', room.round);
-    
+    if (!room) {
+      console.log('No room provided');
+      return null;
+    }
+
+    console.log('Initializing chat for room:', room.id, 'round:', room.round);
+
     try {
-      // Look for existing chat session
+      // Find existing session
       const { data: existingSessions, error: findError } = await supabase
         .from('chat_sessions')
         .select('*')
         .eq('room_id', room.id)
         .eq('round', room.round);
-      
+
       if (findError) {
         console.error('Error finding chat session:', findError);
         return null;
       }
-      
-      // Take the first session found if multiple exist
-      const existingSession = existingSessions && existingSessions.length > 0 ? existingSessions[0] : null;
-      
+
+      const existingSession = existingSessions && existingSessions.length > 0
+        ? existingSessions[0]
+        : null;
+
+      // If session exists, use it
       if (existingSession) {
         console.log('Found existing chat session:', existingSession.id);
-        chatSessionRef.current = existingSession;
-        setSessionId(existingSession.id);
-        
-        // Ensure we load the messages properly
+
+        // Check if messages exist and are valid
         if (existingSession.messages && Array.isArray(existingSession.messages)) {
-          console.log(`Setting ${existingSession.messages.length} messages from existing session`);
+          // Update local state
+          chatSessionRef.current = existingSession;
+          setSessionId(existingSession.id);
+
+          // Update message IDs set for deduplication
+          messageIdsRef.current.clear(); // Clear before repopulating
+          existingSession.messages.forEach((msg: ChatMessage) => {
+            messageIdsRef.current.add(msg.id);
+          });
+
+          // Set messages state
           setMessages(existingSession.messages);
-          lastMessageCountRef.current = existingSession.messages.length;
-          setTimeout(scrollToBottom, 100);
+
+          // Scroll to bottom after initial render (use 'auto' for instant scroll)
+          requestAnimationFrame(() => scrollToBottom('auto'));
         } else {
-          console.warn('Existing session has invalid messages format:', existingSession.messages);
+          console.warn('Invalid messages format in session');
+          chatSessionRef.current = {...existingSession, messages: []};
+          setSessionId(existingSession.id);
           setMessages([]);
-          lastMessageCountRef.current = 0;
+          messageIdsRef.current.clear();
         }
-        
-        // Mark as initialized for this room/round
-        initializedRef.current = true;
+
         return existingSession;
       }
-      
-      // Check if we already have a session in progress (to avoid duplicates)
-      if (chatSessionRef.current && chatSessionRef.current.room_id === room.id && chatSessionRef.current.round === room.round) {
-        console.log('Using existing session reference:', chatSessionRef.current.id);
-        initializedRef.current = true;
-        return chatSessionRef.current;
-      }
-      
-      // Create new chat session
+
+      // If no session exists, create a new one
       console.log('Creating new chat session');
       const { data: newSession, error: createError } = await supabase
         .from('chat_sessions')
@@ -130,39 +204,18 @@ export default function ChatSystem() {
         })
         .select()
         .single();
-      
+
       if (createError) {
         console.error('Error creating chat session:', createError);
         return null;
       }
-      
-      console.log('Created new chat session:', newSession.id);
+
+      console.log('New chat session created:', newSession.id);
       chatSessionRef.current = newSession;
       setSessionId(newSession.id);
       setMessages([]);
-      lastMessageCountRef.current = 0;
-      
-      // Mark as initialized for this room/round
-      initializedRef.current = true;
-      
-      // Broadcast to other clients that a new chat session was created
-      supabase.from('sync_events').insert({
-        room_id: room.id,
-        event_type: 'new_chat_session',
-        payload: {
-          sessionId: newSession.id,
-          roomId: room.id,
-          round: room.round
-        },
-        created_at: new Date().toISOString()
-      }).then(result => {
-        if (result.error) {
-          console.error('Error creating sync event:', result.error);
-        } else {
-          console.log('Created sync event for new chat session');
-        }
-      });
-      
+      messageIdsRef.current.clear();
+
       return newSession;
     } catch (error) {
       console.error('Error initializing chat session:', error);
@@ -170,775 +223,318 @@ export default function ChatSystem() {
     }
   }, [room, scrollToBottom]);
 
-  // Subscribe to chat session changes with all dependencies properly listed
+  // Set up chat session and subscriptions
   useEffect(() => {
-    // Derive stable values inside the effect
-    const currentRoomId = room?.id;
-    const currentRoomRound = room?.round;
+    if (!room || room.round === undefined) return;
 
-    if (!currentRoomId || currentRoomRound === undefined) {
-      console.log('ChatSystem: No room ID or round, skipping setup.');
-      return; // Exit early if room ID or round is missing
-    }
-    
-    // Prevent rapid reconnection cycles
-    const now = Date.now();
-    if (now - lastCleanupTimeRef.current < 1000) { // Less than 1 second since last cleanup
-      reconnectionCountRef.current++;
-      
-      // If reconnecting too rapidly, delay the next attempt
-      if (reconnectionCountRef.current > 3) {
-        console.log(`Too many reconnection attempts (${reconnectionCountRef.current}), delaying...`);
-        const delayTime = Math.min(reconnectionCountRef.current * 1000, 5000);
-        
-        // Force connection to avoid endless loading
-        setTimeout(() => {
-          console.log('Forced connection after delay');
-          setSubscriptionStatus('CONNECTED');
-          reconnectionCountRef.current = 0;
-        }, delayTime);
-        
-        return;
-      }
-    } else {
-      // Reset counter if enough time has passed
-      reconnectionCountRef.current = 0;
-    }
-    
-    // If already initialized for this room and round, don't reinitialize
-    if (initializedRef.current && 
-        chatSessionRef.current?.room_id === currentRoomId && 
-        chatSessionRef.current?.round === currentRoomRound) {
-      console.log('Chat already initialized for this room and round, skipping');
-      return;
-    }
-    
-    console.log('Setting up chat subscription for room:', currentRoomId, 'round:', currentRoomRound);
-    setSubscriptionStatus('CONNECTING');
-    
-    // Clean up previous channels
-    if (channelRef.current) {
-      console.log('Cleaning up previous chat channel');
-      channelRef.current.unsubscribe();
-      channelRef.current = null;
-    }
-    
-    if (roomChannelRef.current) {
-      console.log('Cleaning up previous room channel');
-      roomChannelRef.current.unsubscribe();
-      roomChannelRef.current = null;
-    }
-    
+    setStatus('loading');
     let isMounted = true;
-    
-    // Subscribe to various broadcast channels for maximum coverage
-    // 1. Room-specific channel
-    const roomChannel = supabase
-      .channel(`room:${currentRoomId}`, {
-        config: {
-          broadcast: { self: true },
-          presence: { key: '' },
-        },
-      })
-      .on('broadcast', { event: 'sync' }, (payload) => {
-        if (!isMounted) return;
-        
-        // Handle new chat messages broadcast via room channel
-        if (payload.payload?.action === 'new_chat_message' && 
-            payload.payload.sessionId && 
-            payload.payload.message &&
-            payload.payload.roomId === currentRoomId) {
-          console.log('Room channel received new message broadcast:', payload.payload.message);
-          handleNewMessage(payload.payload.message as ChatMessage, payload.payload.sessionId);
-        }
-      });
-      
-    // 2. Direct broadcast channel (for direct broadcasts)
-    const directBroadcastChannel = supabase
-      .channel(`direct:${currentRoomId}`, {
-        config: {
-          broadcast: { self: true },
-          presence: { key: '' },
-        },
-      })
-      .on('broadcast', { event: 'sync' }, (payload) => {
-        if (!isMounted) return;
-        
-        // Handle new chat messages from broadcast channel
-        if (payload.payload?.action === 'new_chat_message' && 
-            payload.payload.sessionId && 
-            payload.payload.message &&
-            payload.payload.roomId === currentRoomId) {
-          console.log('Direct broadcast channel received new message:', payload.payload.message);
-          handleNewMessage(payload.payload.message as ChatMessage, payload.payload.sessionId);
-        }
-      });
+    let currentChannel: RealtimeChannel | null = null;
 
-    // 3. General broadcast channel 
-    const broadcastChannel = supabase
-      .channel(`broadcast:${currentRoomId}`, {
-        config: {
-          broadcast: { self: true },
-          presence: { key: '' },
-        },
-      })
-      .on('broadcast', { event: 'sync' }, (payload) => {
-        if (!isMounted) return;
-        
-        // Handle new chat messages from broadcast channel
-        if (payload.payload?.action === 'new_chat_message' && 
-            payload.payload.sessionId && 
-            payload.payload.message &&
-            payload.payload.roomId === currentRoomId) {
-          console.log('Broadcast channel received new message:', payload.payload.message);
-          handleNewMessage(payload.payload.message as ChatMessage, payload.payload.sessionId);
-        }
-      });
+    // Reset message IDs on new session setup
+    messageIdsRef.current.clear();
 
-    // Subscribe to all channels
-    roomChannel.subscribe((status) => {
-      if (!isMounted) return;
-      console.log('Room channel subscription status:', status);
-      if (status === 'SUBSCRIBED') {
-        roomChannelRef.current = roomChannel;
-      }
-    });
-
-    directBroadcastChannel.subscribe((status) => {
-      if (!isMounted) return;
-      console.log('Direct broadcast channel subscription status:', status);
-    });
-
-    broadcastChannel.subscribe((status) => {
-      if (!isMounted) return;
-      console.log('General broadcast channel subscription status:', status);
-    });
-
-    // Helper function to handle new messages
-    const handleNewMessage = (message: ChatMessage, sessionId: string) => {
-      // Prevent adding duplicate messages
-      if (messages.some(msg => msg.id === message.id)) {
-        console.log('Ignoring duplicate message:', message.id);
-        return;
-      }
-
-      // Check timestamp to prevent processing stale messages
-      const lastCurrentTimestamp = messages[messages.length - 1]?.created_at;
-      if (lastCurrentTimestamp && new Date(message.created_at) <= new Date(lastCurrentTimestamp)) {
-        console.log('Ignoring stale message:', message.created_at);
-        return;
-      }
-
-      console.log(`Appending message: ${message.id}`);
-      setMessages(prevMessages => [...prevMessages, message]);
-
-      // Update chatSessionRef
-      if (chatSessionRef.current && sessionId === chatSessionRef.current.id) {
-        chatSessionRef.current.messages = [...chatSessionRef.current.messages, message];
-        chatSessionRef.current.updated_at = message.created_at;
-      }
-
-      // Scroll to bottom
-      requestAnimationFrame(() => {
-        scrollToBottom();
-      });
-    };
-
-    // Helper function to handle new chat sessions
-    const handleNewChatSession = async (sessionId: string) => {
-      if (!chatSessionRef.current || 
-          chatSessionRef.current.room_id !== currentRoomId || 
-          chatSessionRef.current.round !== currentRoomRound) {
-        console.log('Fetching new chat session:', sessionId);
-        
-        const { data, error } = await supabase
-          .from('chat_sessions')
-          .select('*')
-          .eq('id', sessionId)
-          .single();
-
-        if (error) {
-          console.error('Error fetching new chat session:', error);
-          return;
-        }
-
-        if (data && isMounted) {
-          console.log('Fetched new chat session:', data);
-          if (!chatSessionRef.current || chatSessionRef.current.id !== data.id) {
-            chatSessionRef.current = data;
-            setSessionId(data.id);
-            setMessages(data.messages || []);
-            lastMessageCountRef.current = data.messages?.length || 0;
-            requestAnimationFrame(() => {
-              scrollToBottom();
-            });
-          }
-        }
-      }
-    };
-
-    // Initialize chat session
-    initChatSession().then(session => {
-      if (!session || !isMounted) return;
-      
-      // Add debounce to initialization
-      const now = Date.now();
-      if (now - lastInitTimeRef.current < 2000) {
-        console.log('Debouncing chat session initialization');
-        return;
-      }
-      lastInitTimeRef.current = now;
-      
-      // Use derived stable values for channel setup
-      const sessionIdForChannel = session.id;
-      console.log('Setting up realtime subscription for chat session:', sessionIdForChannel);
-      
-      // Create a new channel for chat session updates
-      const channel = supabase
-        .channel(`chat_session:${sessionIdForChannel}`, {
-          config: {
-            broadcast: { self: true },
-            presence: { key: '' },
-          },
-        })
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'chat_sessions',
-            filter: `id=eq.${sessionIdForChannel}`
-          },
-          (payload) => {
-            if (!isMounted) return;
-            console.log('Chat session updated:', payload);
-            const updatedSession = payload.new as ChatSession;
-            
-            // Check if this is a newer update than what we have
-            const currentTimestamp = chatSessionRef.current?.updated_at;
-            const newTimestamp = updatedSession.updated_at;
-            
-            if (currentTimestamp && newTimestamp && new Date(currentTimestamp) >= new Date(newTimestamp)) {
-              console.log('Ignoring older update:', { currentTimestamp, newTimestamp });
-              return;
-            }
-            
-            chatSessionRef.current = updatedSession;
-            
-            // Update messages
-            if (updatedSession.messages) {
-              console.log('Updating messages from session:', updatedSession.messages.length);
-              setMessages(updatedSession.messages);
-              setTimeout(scrollToBottom, 100);
-            }
-          }
-        )
-        .on('broadcast', { event: 'sync' }, (payload) => {
-          if (!isMounted) return;
-          if (payload.payload?.action === 'new_chat_message') {
-            console.log('Broadcast new chat message received:', payload);
-            const updatedMessages = payload.payload.messages as ChatMessage[];
-            setMessages(updatedMessages);
-            setTimeout(scrollToBottom, 100);
-          }
-        })
-        .subscribe((status) => {
-          if (!isMounted) return;
-          console.log('Chat subscription status:', status);
-          if (status === 'SUBSCRIBED') {
-            console.log('Successfully subscribed to chat session');
-            setSubscriptionStatus('CONNECTED');
-            
-            // Fetch latest messages on successful subscription
-            if (sessionIdForChannel) {
-              supabase
-                .from('chat_sessions')
-                .select('*')
-                .eq('id', sessionIdForChannel)
-                .single()
-                .then(({ data }) => {
-                  if (data && isMounted) {
-                    chatSessionRef.current = data as ChatSession;
-                    setMessages(data.messages || []);
-                    setTimeout(scrollToBottom, 100);
-                  }
-                });
-            }
-          } else if (status === 'CHANNEL_ERROR') {
-            console.error('Chat subscription error');
-            setSubscriptionStatus('DISCONNECTED');
-          }
-        });
-      
-      channelRef.current = channel;
-    }).catch(error => {
-      console.error('Error setting up chat session:', error);
-      setSubscriptionStatus('DISCONNECTED');
-    });
-    
-    return () => {
-      console.log('Cleaning up chat subscription');
-      lastCleanupTimeRef.current = Date.now();
-      isMounted = false;
-      if (channelRef.current) {
-        channelRef.current.unsubscribe();
-        channelRef.current = null;
-      }
-      if (roomChannelRef.current) {
-        roomChannelRef.current.unsubscribe();
-        roomChannelRef.current = null;
-      }
-      directBroadcastChannel.unsubscribe();
-      broadcastChannel.unsubscribe();
-    };
-  }, [room, initChatSession, scrollToBottom, subscriptionStatus, messages]);
-
-  // Move polling-related code to a separate useEffect to avoid circular dependencies
-  useEffect(() => {
-    let isMounted = true;
-    const messagesSeenByPolling = new Set<string>(); // Track message IDs seen by polling
-    
-    // More efficient polling function
-    const pollForMessages = async () => {
-      if (!chatSessionRef.current?.id || !sessionId) return;
-      
+    const setupChat = async () => {
       try {
-        // 1. Check for chat session updates
-        const { data, error } = await supabase
-          .from('chat_sessions')
-          .select('*')
-          .eq('id', sessionId)
-          .single();
-          
-        if (!isMounted) return;
-        
-        if (error) {
-          console.error('Error polling chat session:', error);
-          return;
-        }
-        
-        if (!data || !data.messages || !Array.isArray(data.messages)) {
-          console.warn('Invalid data format in polling response:', data);
-          return;
-        }
-        
-        // Check for new messages using message IDs
-        const currentMessageIds = new Set(messages.map(msg => msg.id));
-        const newMessages = data.messages.filter((msg: ChatMessage) => !currentMessageIds.has(msg.id));
-        
-        if (newMessages.length > 0) {
-          console.log(`Polling found ${newMessages.length} new messages in chat session`);
-          
-          // Track these messages as seen by polling
-          newMessages.forEach((msg: ChatMessage) => messagesSeenByPolling.add(msg.id));
-          
-          // Don't replace the entire array, just append new messages
-          setMessages(prevMessages => [...prevMessages, ...newMessages]);
-          
-          // Update the chat session reference
-          chatSessionRef.current = data;
-          
-          // Scroll to bottom
-          requestAnimationFrame(() => scrollToBottom());
+        // Clear existing subscription
+        if (channelRef.current) {
+          await supabase.removeChannel(channelRef.current);
+          channelRef.current = null;
         }
 
-        // 2. Also check sync_events table for events
-        if (room?.id) {
-          const { data: syncEvents, error: syncError } = await supabase
-            .from('sync_events')
-            .select('*')
-            .eq('room_id', room.id)
-            .eq('event_type', 'new_message')
-            .gte('created_at', new Date(Date.now() - 10000).toISOString()) // Last 10 seconds
-            .order('created_at', { ascending: false });
+        // Initialize or find chat session
+        const session = await initChatSession();
+        if (!session || !isMounted) {
+            setStatus('error'); // Set error if session fails
+            return;
+        };
 
-          if (syncError) {
-            console.error('Error checking sync events:', syncError);
+        // Use a stable room-based channel
+        const channelName = `room:${room.id}`;
+        console.log('Setting up subscription to channel:', channelName);
+        const channel = supabase.channel(channelName);
+        currentChannel = channel; // Store reference for cleanup
+
+        // Listener for DATABASE updates (source of truth)
+        channel.on(
+            'postgres_changes',
+            {
+              event: 'UPDATE',
+              schema: 'public',
+              table: 'chat_sessions',
+              filter: `id=eq.${session.id}` // Ensure we filter by the correct session ID
+            },
+            (payload) => {
+              if (!isMounted || !payload.new?.messages) return;
+
+              const updatedSession = payload.new as ChatSession;
+              if (!Array.isArray(updatedSession.messages)) return;
+
+              console.log(`DB Update: Received ${updatedSession.messages.length} total messages`);
+
+              // Use functional update to get the latest messages state
+              setMessages(prevMessages => {
+                  // Get IDs of messages currently in state
+                  const currentIds = new Set(prevMessages.map(m => m.id));
+                  // Filter messages from the update that are not already in state
+                  const newMessages = updatedSession.messages.filter(msg => !currentIds.has(msg.id));
+
+                  if (newMessages.length > 0) {
+                      console.log(`DB Update: Adding ${newMessages.length} new messages`);
+                      // Add new message IDs to our ref tracker
+                      newMessages.forEach(msg => messageIdsRef.current.add(msg.id));
+                      if (isAtBottomRef.current) {
+                          // Schedule scroll after state update
+                          setTimeout(() => scrollToBottom('smooth'), 100);
+                      }
+                      // Return the combined list
+                      return [...prevMessages, ...newMessages];
+                  }
+                  // If no new messages, return the previous state to avoid re-render
+                  return prevMessages;
+              });
+              chatSessionRef.current = updatedSession; // Update session ref
+            }
+          );
+
+        // Listener for BROADCAST messages (faster notifications)
+        channel.on(
+          'broadcast',
+          { event: 'new_chat_message' }, // Listen to our specific event
+          (payload) => {
+            if (!isMounted || !payload.payload?.message) return;
+
+            const message = payload.payload.message as ChatMessage;
+            console.log('Broadcast received:', message.id);
+
+            // Add message only if it's new (check ref directly)
+            if (!messageIdsRef.current.has(message.id)) {
+              console.log('Broadcast: Adding new message', message.id);
+              messageIdsRef.current.add(message.id);
+              // Use functional update
+              setMessages(prev => [...prev, message]);
+              if (isAtBottomRef.current) {
+                  setTimeout(() => scrollToBottom('smooth'), 100);
+              }
+            }
+          }
+        );
+
+        // Subscribe to channel
+        channel.subscribe((status, err) => { // Add error handling
+          console.log(`Channel ${channelName} status:`, status);
+          if (err) {
+            console.error(`Subscription error on ${channelName}:`, err);
+            if (isMounted) setStatus('error');
             return;
           }
-
-          if (syncEvents && syncEvents.length > 0) {
-            console.log(`Found ${syncEvents.length} recent sync events`);
-            
-            // Process each event
-            for (const event of syncEvents) {
-              const message = event.payload?.message;
-              
-              if (message && !currentMessageIds.has(message.id) && !messagesSeenByPolling.has(message.id)) {
-                console.log(`Adding message from sync event: ${message.id}`);
-                
-                // Add to seen messages
-                messagesSeenByPolling.add(message.id);
-                
-                // Add to messages
-                setMessages(prevMessages => [...prevMessages, message]);
-                
-                // Scroll to bottom
-                requestAnimationFrame(() => scrollToBottom());
-              }
-            }
+          if (status === 'SUBSCRIBED' && isMounted) {
+            channelRef.current = channel;
+            setStatus('connected');
+            // Fetch initial state again after subscribing to ensure consistency
+             console.log('Subscription successful, re-validating chat session...');
+             initChatSession(); // Re-run init to ensure we have the latest messages
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+             if (isMounted) setStatus('error');
           }
-        }
+        });
       } catch (error) {
-        console.error('Error in polling function:', error);
+        console.error('Error setting up chat:', error);
+        if (isMounted) setStatus('error');
       }
     };
-    
-    // Start very frequent polling if connected
-    if (subscriptionStatus === 'CONNECTED' && sessionId) {
-      console.log('Setting up message polling at 1.5-second intervals');
-      // Poll immediately
-      pollForMessages();
-      // Then poll every 1.5 seconds
-      pollingIntervalRef.current = setInterval(pollForMessages, 1500);
-    }
-    
+
+    setupChat();
+
+    // Cleanup function
     return () => {
       isMounted = false;
-      if (pollingIntervalRef.current) {
-        console.log('Cleaning up polling interval');
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
+      if (currentChannel) {
+        supabase.removeChannel(currentChannel).catch(err => {
+          console.error('Error removing channel on cleanup:', err);
+        });
+        channelRef.current = null; // Clear the ref
       }
     };
-  }, [subscriptionStatus, sessionId, scrollToBottom, room?.id, room?.round, messages, scrollRef]);
+  // Dependencies: Re-run when room ID or round changes. initChatSession and scrollToBottom are stable callbacks.
+  }, [room, room?.id, room?.round, initChatSession, scrollToBottom]);
 
-  // Set up database sync event listener
-  useEffect(() => {
-    const currentRoomId = room?.id;
-    if (!currentRoomId) return;
-    
-    let isMounted = true;
-    
-    // Create a channel for sync events
-    const syncChannel = supabase
-      .channel(`sync:${currentRoomId}`, {
-        config: { broadcast: { self: true } }
-      })
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'sync_events',
-          filter: `room_id=eq.${currentRoomId}`
-        },
-        (payload) => {
-          if (!isMounted) return;
-          
-          console.log('Sync event detected:', payload);
-          
-          // If this is a new message event, handle it
-          if (payload.new.event_type === 'new_message') {
-            const message = payload.new.payload?.message;
-            const sessionId = payload.new.payload?.sessionId;
-            
-            if (message && sessionId) {
-              // Check if we already have this message
-              const messageExists = messages.some(msg => msg.id === message.id);
-              
-              if (!messageExists) {
-                console.log(`Adding message from sync event: ${message.id}`);
-                setMessages(prevMessages => [...prevMessages, message]);
-                
-                // Scroll to bottom
-                requestAnimationFrame(() => scrollToBottom());
-              }
-            }
-          }
-        }
-      );
-    
-    // Subscribe to the channel
-    syncChannel.subscribe(status => {
-      console.log(`Sync channel subscription status: ${status}`);
-    });
-    
-    return () => {
-      isMounted = false;
-      syncChannel.unsubscribe();
-    };
-  }, [room?.id, messages, scrollToBottom]);
-
-  // Optimized message sending
+  // Send message handler
   const handleSendMessage = useCallback(async () => {
-    if (!room || !newMessage.trim() || !chatSessionRef.current) return;
+    const currentSessionId = chatSessionRef.current?.id; // Get session ID before async operations
+    if (!room || !newMessage.trim() || !currentSessionId) {
+      console.warn('Cannot send message. Missing room, message, or session ID.');
+      return;
+    }
 
     const currentPlayer = room.players.find((p: Player) => p.id === playerId);
-    if (!currentPlayer) return;
+    if (!currentPlayer) {
+        console.error('Cannot send message. Current player not found.');
+        return;
+    }
+
+    // Generate a unique ID for the message
+    const messageId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const content = newMessage.trim();
+    const timestamp = new Date().toISOString();
+    const hintStatus = isHint; // Capture hint status before clearing
+
+    // Clear input field immediately
+    setNewMessage('');
+    setIsHint(false);
+
+    // Create message object
+    const message: ChatMessage = {
+      id: messageId,
+      room_id: room.id,
+      player_id: playerId,
+      player_name: currentPlayer.name,
+      content: content,
+      is_hint: hintStatus,
+      created_at: timestamp
+    };
+
+    // Add message to local state first (optimistic update)
+    messageIdsRef.current.add(messageId);
+    setMessages(prevMessages => [...prevMessages, message]);
+
+    // Scroll to bottom immediately (smoothly)
+    requestAnimationFrame(() => scrollToBottom('smooth'));
 
     try {
-      const now = new Date().toISOString();
-      const messageId = `msg-${playerId}-${Date.now()}`;
-      const newChatMessage: ChatMessage = {
-        id: messageId,
-        room_id: room.id,
-        player_id: playerId,
-        player_name: currentPlayer.name,
-        content: newMessage,
-        is_hint: isHint,
-        created_at: now
-      };
+      // Prepare updated messages array for database
+      // Get the *latest* messages array from the ref, or fallback to state if ref is somehow null
+      const currentMessages = Array.isArray(chatSessionRef.current?.messages)
+          ? chatSessionRef.current.messages
+          : messages; // Fallback to current state 'messages'
+      const updatedMessages = [...currentMessages, message]; // Append new message
 
-      // Optimistic update with immediate scroll
-      console.log('Adding optimistic message:', newChatMessage);
-      const updatedMessages = [...messages, newChatMessage];
-      setMessages(updatedMessages);
-      setNewMessage('');
-      setIsHint(false);
-      scrollToBottom();
-
-      // Broadcast message FIRST, then update database
-      if (!chatSessionRef.current?.id) {
-        console.error('No valid chat session ID for sending message');
-        return;
-      }
-
-      // Force other clients to refresh their chat by broadcasting
-      console.log(`Broadcasting new message to other clients for session ${chatSessionRef.current.id}`);
-      
-      // 1. Update chat session in the database
-      const { data: updatedSession, error: updateError } = await supabase
+      // Update database
+      const { data: updatedSessionData, error: updateError } = await supabase
         .from('chat_sessions')
-        .update({ 
+        .update({
           messages: updatedMessages,
-          updated_at: now
+          updated_at: timestamp
         })
-        .eq('id', chatSessionRef.current.id)
+        .eq('id', currentSessionId) // Use the captured session ID
         .select()
         .single();
 
       if (updateError) {
-        console.error('Error updating chat session:', updateError);
-        // Revert optimistic update on error
-        setMessages(messages);
-        throw updateError;
-      }
-
-      // Update local reference
-      if (updatedSession) {
-        chatSessionRef.current = updatedSession;
-      }
-
-      // 2. Create a sync event in the database to force synchronization
-      await supabase.from('sync_events').insert({
-        room_id: room.id,
-        event_type: 'new_message',
-        payload: {
-          message: newChatMessage,
-          sessionId: chatSessionRef.current?.id || '',
-          timestamp: now,
-          messageId: messageId,
-          roomId: room.id 
-        },
-        created_at: now
-      });
-
-      // 3. Broadcast via multiple channels
-      try {
-        // Create a direct broadcast channel for this message
-        const directChannel = supabase.channel(`direct:${room.id}:${messageId}`);
-        await directChannel.subscribe();
-        await directChannel.send({
-          type: 'broadcast',
-          event: 'sync',
-          payload: {
-            action: 'new_chat_message',
-            sessionId: chatSessionRef.current?.id || '',
-            timestamp: now,
-            message: newChatMessage,
-            messageId: messageId,
-            roomId: room.id 
-          }
+        // If DB update fails, remove optimistic message
+        console.error('Error sending message (DB update):', updateError);
+        messageIdsRef.current.delete(messageId);
+        setMessages(prev => prev.filter(m => m.id !== messageId));
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to send message"
         });
-        await directChannel.unsubscribe();
-        
-        console.log('Message send operation complete');
-      } catch (error) {
-        console.error('Error in message broadcasting:', error);
-        // Database update already succeeded, so we'll rely on polling
+        return; // Stop here if DB update fails
       }
+
+      // Update local session ref on successful DB update
+       if (updatedSessionData) {
+         // Ensure messages property is an array
+         const safeMessages = Array.isArray(updatedSessionData.messages) ? updatedSessionData.messages : updatedMessages;
+         chatSessionRef.current = { ...updatedSessionData, messages: safeMessages };
+       }
+
+      // Broadcast the new message to other clients via the room channel
+      try {
+        // Use a stable channel reference instead of creating a new one each time
+        // This prevents "channel closed before response" errors
+        const existingChannel = channelRef.current;
+        
+        if (existingChannel) {
+          // Use the already subscribed channel
+          await existingChannel.send({
+            type: 'broadcast',
+            event: 'new_chat_message',
+            payload: { message }
+          });
+          console.log('Message broadcast via existing channel');
+        } else {
+          console.log('No active channel found for broadcasting, using DB updates only');
+        }
+      } catch (broadcastError) {
+        console.error('Error broadcasting message:', broadcastError);
+        // Don't rollback UI, rely on DB subscription as fallback
+      }
+
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error('Error in message handling:', error);
+      // Remove optimistic message if something else went wrong
+      messageIdsRef.current.delete(messageId);
+      setMessages(prev => prev.filter(m => m.id !== messageId));
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to send message. Please try again."
+        description: "Failed to send message"
       });
     }
-  }, [room, playerId, newMessage, isHint, messages, scrollToBottom]);
+  // Dependencies: `messages` removed. State setters are stable. `room` object needed for player lookup.
+  }, [room, playerId, newMessage, isHint, scrollToBottom, messages]);
 
+  // Check if chat is disabled in voting phase
   const isChatDisabled = room?.state === GameState.Voting;
 
-  // Debugging output
-  useEffect(() => {
-    console.log('Current messages in state:', messages.length);
-  }, [messages]);
+  // Render loading state
+  if (status === 'loading') {
+    return (
+      <div className="flex flex-col h-[600px] justify-center items-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <p className="mt-4 text-muted-foreground">Loading chat...</p>
+      </div>
+    );
+  }
 
-  // Track message count for polling
-  useEffect(() => {
-    lastMessageCountRef.current = messages.length;
-  }, [messages]);
+  // Render error state
+  if (status === 'error') {
+    return (
+      <div className="flex flex-col h-[600px] justify-center items-center">
+        <p className="text-destructive">Failed to load chat</p>
+        <Button
+          onClick={() => window.location.reload()} // Simple retry for now
+          variant="outline"
+          className="mt-4"
+        >
+          Retry
+        </Button>
+      </div>
+    );
+  }
 
-  // Add a timeout to prevent endless connecting state
-  useEffect(() => {
-    // If we're connecting, set a timeout to force connected state after 5 seconds
-    if (subscriptionStatus === 'CONNECTING') {
-      connectionTimeoutRef.current = setTimeout(() => {
-        console.log('Connection timeout, forcing CONNECTED state');
-        setSubscriptionStatus('CONNECTED');
-      }, 5000);
-    }
-    
-    return () => {
-      if (connectionTimeoutRef.current) {
-        clearTimeout(connectionTimeoutRef.current);
-        connectionTimeoutRef.current = null;
-      }
-    };
-  }, [subscriptionStatus]);
-
-  // Clean up all resources when component unmounts
-  useEffect(() => {
-    return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-      }
-      if (connectionTimeoutRef.current) {
-        clearTimeout(connectionTimeoutRef.current);
-        connectionTimeoutRef.current = null;
-      }
-      if (channelRef.current) {
-        channelRef.current.unsubscribe();
-        channelRef.current = null;
-      }
-      if (roomChannelRef.current) {
-        roomChannelRef.current.unsubscribe();
-        roomChannelRef.current = null;
-      }
-    };
-  }, []);
-
+  // Main chat UI
   return (
-    <div className="flex flex-col h-[600px] relative">
-      {subscriptionStatus === 'DISCONNECTED' && (
-        <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-10">
-          <div className="text-center p-4">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-            <p className="text-muted-foreground">
-              Disconnected from chat
-            </p>
-            <Button 
-              className="mt-4" 
-              variant="outline" 
-              onClick={async () => {
-                // Reset connection state
-                reconnectionCountRef.current = 0;
-                initializedRef.current = false;
-                
-                // Clean up all channels first
-                if (channelRef.current) {
-                  await channelRef.current.unsubscribe();
-                  channelRef.current = null;
-                }
-                if (roomChannelRef.current) {
-                  await roomChannelRef.current.unsubscribe();
-                  roomChannelRef.current = null;
-                }
-                
-                // Clear any existing intervals/timeouts
-                if (pollingIntervalRef.current) {
-                  clearInterval(pollingIntervalRef.current);
-                  pollingIntervalRef.current = null;
-                }
-                if (connectionTimeoutRef.current) {
-                  clearTimeout(connectionTimeoutRef.current);
-                  connectionTimeoutRef.current = null;
-                }
-                
-                // Reset message state
-                setMessages([]);
-                setSessionId(null);
-                
-                // Force reconnect by triggering effect
-                setSubscriptionStatus('CONNECTING');
-                
-                // Re-initialize after a short delay to ensure cleanup is complete
-                setTimeout(() => {
-                  initChatSession();
-                }, 100);
-              }}
-            >
-              Reconnect
-            </Button>
-          </div>
-        </div>
-      )}
-      <ScrollArea 
-        ref={scrollRef} 
+    <div className="flex flex-col h-[600px] relative bg-card shadow-md rounded-lg border overflow-hidden">
+      <ScrollArea
+        ref={scrollRef}
         className="flex-1 p-4"
         onScroll={handleScroll}
+        style={{ overflowY: 'auto', height: 'calc(100% - 120px)' }}
       >
-        <div className="space-y-4">
+        <div className="space-y-3 pb-4">
           {messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex flex-col ${
-                message.player_id === playerId ? 'items-end' : 'items-start'
-              }`}
-            >
-              <div
-                className={`max-w-[80%] rounded-lg p-3 ${
-                  message.player_id === playerId
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted'
-                }`}
-              >
-                <div className="flex items-start gap-3">
-                  <Avatar className="flex-shrink-0">
-                    <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${message.player_name}`} />
-                    <AvatarFallback>{message.player_name[0]}</AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold truncate" title={message.player_name}>
-                        {truncateName(message.player_name)}
-                      </span>
-                      {message.is_hint && (
-                        <Badge variant="outline" className="flex-shrink-0">
-                          <Lightbulb className="w-3 h-3 mr-1" />
-                          Hint
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="text-sm text-muted-foreground mt-1">{message.content}</p>
-                  </div>
-                  <span className="text-xs text-muted-foreground self-end">
-                    {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                </div>
-              </div>
-            </div>
+            <ChatMessageItem key={message.id} message={message} playerId={playerId} truncateName={truncateName} />
           ))}
-          <div ref={messagesEndRef} />
         </div>
       </ScrollArea>
 
       {showScrollButton && (
         <Button
-          variant="outline"
+          variant="secondary"
           size="icon"
-          className="absolute bottom-20 right-4 rounded-full shadow-lg"
-          onClick={scrollToBottom}
+          className="absolute bottom-24 right-4 rounded-full shadow-lg h-10 w-10 z-10 bg-background/80 backdrop-blur-sm"
+          onClick={() => scrollToBottom('smooth')}
         >
-          <ArrowDown className="h-4 w-4" />
+          <ArrowDown className="h-5 w-5" />
         </Button>
       )}
 
-      <div className="p-4 border-t">
+      <div className="p-3 border-t bg-background">
         {isChatDisabled ? (
-          <div className="text-center text-muted-foreground">
+          <div className="text-center text-muted-foreground text-sm py-2">
             Chat is disabled during voting phase
           </div>
         ) : (
@@ -948,8 +544,9 @@ export default function ChatSystem() {
                 id="is-hint"
                 checked={isHint}
                 onCheckedChange={(checked) => setIsHint(checked as boolean)}
+                className="h-4 w-4"
               />
-              <label htmlFor="is-hint" className="text-sm">
+              <label htmlFor="is-hint" className="text-sm text-muted-foreground">
                 Mark as hint
               </label>
             </div>
@@ -958,6 +555,7 @@ export default function ChatSystem() {
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 placeholder="Type your message..."
+                className="flex-1"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
@@ -965,7 +563,7 @@ export default function ChatSystem() {
                   }
                 }}
               />
-              <Button onClick={handleSendMessage}>Send</Button>
+              <Button onClick={handleSendMessage} disabled={!newMessage.trim()}>Send</Button>
             </div>
           </>
         )}

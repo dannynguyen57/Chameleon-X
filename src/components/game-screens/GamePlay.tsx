@@ -928,7 +928,7 @@ export default function GamePlay() {
                         Chat
                       </CardTitle>
                     </CardHeader>
-                    <CardContent className="p-0">
+                    <CardContent className="p-0 h-[600px]">
                       <ChatSystem key={`chat-${room.id}-${room.round}-${room.state}`} />
                     </CardContent>
                   </Card>

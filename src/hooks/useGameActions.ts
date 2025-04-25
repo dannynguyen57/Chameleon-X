@@ -1,13 +1,13 @@
 import { supabase } from "@/integrations/supabase/client";
 import { categories } from '@/lib/word-categories';
-import { GameSettings, GameState, PlayerRole, Player, WordCategory, VotingPhase } from '@/lib/types';
+import { GameSettings, GameState, PlayerRole, Player, WordCategory, VotingPhase, VotingOutcome, GameResultType, Vote } from '@/lib/types';
 import { ExtendedGameRoom } from '@/contexts/GameContextProvider';
 import { convertToExtendedRoom } from '@/lib/roomUtils';
 import { useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { mapRoomData, DatabaseRoom } from '@/hooks/useGameRealtime';
 import {
-  handleGameStateTransition,
+  transitionGameState,
   updatePlayer,
   assignRoles,
   getSimilarWord,
@@ -800,165 +800,236 @@ export const useGameActions = (
   };
 
   const submitVote = async (votedPlayerId: string) => {
-    if (!room || !playerId) return;
+    if (!room || !playerId || !room.current_voting_round_id) return;
+    const currentVotingRoundId = room.current_voting_round_id;
+    const currentRoomId = room.id;
 
     try {
-      // Get current voting round
-      const { data: votingRounds, error: votingError } = await supabase
-        .from('voting_rounds')
-        .select('*')
-        .eq('room_id', room.id)
-        .eq('round_number', room.round)
-        .eq('phase', 'voting');
-
-      if (votingError) {
-        console.error('Error fetching voting rounds:', votingError);
-        throw votingError;
-      }
-
-      let votingRound;
-      // If no voting round exists, create one
-      if (!votingRounds || votingRounds.length === 0) {
-        console.log('No voting round found, creating one');
-        const { data: newVotingRound, error: createError } = await supabase
-          .from('voting_rounds')
-          .insert({
-            room_id: room.id,
-            round_number: room.round,
-            phase: VotingPhase.Voting,
-            start_time: new Date().toISOString()
-          })
-          .select()
-          .single();
-
-        if (createError) {
-          console.error('Error creating voting round:', createError);
-          throw createError;
-        }
-        
-        votingRound = newVotingRound;
-        
-        // Update the game room with the new voting round ID
-        await supabase
-          .from('game_rooms')
-          .update({ current_voting_round_id: votingRound.id })
-          .eq('id', room.id);
-      } else {
-        // Use the first one if multiple exist
-        votingRound = votingRounds[0];
-      }
-
       // Submit vote
-      const { error: voteError } = await supabase
-        .from('votes')
-        .insert({
-          round_id: votingRound.id,
-          voter_id: playerId,
-          target_id: votedPlayerId
-        });
+      const { error: voteError } = await supabase.from('votes').insert({
+        round_id: currentVotingRoundId,
+        voter_id: playerId,
+        target_id: votedPlayerId
+      });
+      if (voteError) throw voteError;
 
-      if (voteError) {
-        console.error('Error submitting vote:', voteError);
-        throw voteError;
+      // Broadcast the vote to update progress bars faster
+      await supabase.channel(`room:${currentRoomId}`).send({
+        type: 'broadcast', event: 'sync',
+        payload: { action: 'player_voted', roomId: currentRoomId, voterId: playerId, targetId: votedPlayerId, roundId: currentVotingRoundId }
+      });
+
+      // Fetch the updated vote count
+      const { data: updatedVotes, error: countError, count } = await supabase
+        .from('votes').select('id', { count: 'exact', head: true }).eq('round_id', currentVotingRoundId);
+      if (countError) console.error('Error fetching vote count:', countError);
+      
+      // Fetch player count separately for robustness
+      const { data: playersData, error: playerFetchError } = await supabase
+        .from('players').select('id', { count: 'exact', head: true }).eq('room_id', currentRoomId);
+      if (playerFetchError) console.error('Error fetching player count:', playerFetchError);
+
+      const voteCount = count ?? (room.current_voting_round?.votes?.length || 0) + 1; 
+      const playerCount = playersData?.length ?? room.players.length;
+      log.info(`Vote submitted. Current count: ${voteCount}/${playerCount}`);
+
+      // Check if all players have voted
+      if (playerCount > 0 && voteCount >= playerCount) { // Ensure playerCount > 0
+        log.info('All players have voted. Processing results...');
+        const { nextState: resultsState, gameShouldEnd, updateData, error: resultsError } = await processVotingResults(currentRoomId, currentVotingRoundId);
+        
+        if (resultsError) {
+          console.error('Error processing voting results immediately:', resultsError);
+          toast.error("Error processing results.")
+        } else {
+          // Update room state to Results first
+          const { error: roomUpdateError } = await supabase.from('game_rooms').update({
+            ...updateData // Contains state=Results, outcome, voted player etc.
+          }).eq('id', currentRoomId);
+          if (roomUpdateError) throw roomUpdateError;
+          
+          // Send broadcast to sync state change to Results
+          await supabase.channel(`room:${currentRoomId}`).send({
+            type: 'broadcast', event: 'sync',
+            payload: { action: 'voting_complete', roomId: currentRoomId, newState: GameState.Results }
+          });
+
+          // Fetch final state locally to update UI
+          const finalRoomState = await fetchRoom(currentRoomId);
+          if (finalRoomState) setRoom(finalRoomState);
+
+          // IMPORTANT: The transition *after* Results is handled by ResultsDisplay timeout or a separate mechanism
+          // This action's responsibility ends with setting the state to Results.
+        }
+      } else {
+         // Still waiting for votes, fetch intermediate state to update vote counts
+         const updatedRoom = await fetchRoom(currentRoomId);
+         if (updatedRoom) setRoom(updatedRoom);
+      }
+
+    } catch (error: unknown) {
+      log.error('Error submitting vote:', error);
+      toast.error((error as Error).message || "Failed to submit vote.");
+    }
+  };
+
+  const fetchRoom = useCallback(async (roomId: string): Promise<ExtendedGameRoom | null> => {
+    try {
+      const { data, error } = await supabase
+        .from('game_rooms')
+        .select(`*,
+          players:players(*),
+          current_voting_round:voting_rounds!game_rooms_current_voting_round_id_fkey(*, votes(*)),
+          current_round_result:round_results!round_results_round_id_fkey(*)
+        `)
+        .eq('id', roomId)
+        .single();
+
+      if (error) throw error;
+      if (!data) return null;
+
+      // Map the data to our ExtendedGameRoom type
+      const mappedRoom = mapRoomData(data as DatabaseRoom);
+      return convertToExtendedRoom(mappedRoom);
+    } catch (error) {
+      log.error('Error fetching room:', error);
+      return null;
+    }
+  }, []);
+
+  const resetGame = useCallback(async () => {
+    if (!room) return;
+
+    try {
+      await supabase.from('game_rooms').update({
+        state: GameState.Lobby, round: 0, category: null, secret_word: null,
+        chameleon_id: null, timer: null, current_turn: 0, turn_order: null,
+        round_outcome: null, votes_tally: null, revealed_player_id: null,
+        revealed_role: null, current_voting_round_id: null, 
+        voted_out_player: null, // Ensure this is reset
+        presenting_timer: 0, discussion_timer: 0, voting_timer: 0 // Reset timers
+      }).eq('id', room.id);
+
+      await supabase.from('players').update({ 
+        vote: null, turn_description: null, role: null, is_protected: false, 
+        vote_multiplier: 1, special_word: null, special_ability_used: false,
+        is_ready: false, is_turn: false // Reset ready & turn status
+      }).eq('room_id', room.id);
+      
+      if (playerId === room.host_id) { // Host is auto-ready
+        await supabase.from('players').update({ is_ready: true }).eq('id', playerId);
       }
 
       const updatedRoom = await fetchRoom(room.id);
       if (updatedRoom) setRoom(updatedRoom);
       
-      const targetPlayer = updatedRoom?.players.find(p => p.id === votedPlayerId);
-      toast.success(`You voted for ${targetPlayer?.name || 'a player'}.`);
-
-    } catch (error: unknown) {
-      let errorMessage = "Failed to submit vote.";
-      if (error instanceof Error) {
-          errorMessage = error.message;
-      }
-      log.error('Error submitting vote:', error);
-      toast.error(errorMessage);
+      // Send broadcast for reset
+      await supabase.channel(`room:${room.id}`).send({
+         type: 'broadcast', event: 'sync',
+         payload: { action: 'game_reset', roomId: room.id, newState: GameState.Lobby }
+      });
+      toast.success("Game reset to lobby.");
+    } catch (err: unknown) {
+      toast.error("Failed to reset game.");
     }
-  };
+  }, [room, playerId, fetchRoom, setRoom]);
 
-  const nextRound = async () => {
-    if (!room || room.state !== GameState.Results) return;
-
+  const prepareNextPresentingPhase = useCallback(async () => {
+    if (!room) return;
+    const currentRoomId = room.id;
+    const votedOutPlayerId = room.voted_out_player;
     try {
-        // End the current voting round if exists
-        if (room.current_voting_round_id) {
-          await supabase
-            .from('voting_rounds')
-            .update({ 
-              phase: VotingPhase.Results,
-              end_time: new Date().toISOString()
-            })
-            .eq('id', room.current_voting_round_id);
+      log.info('Preparing next presenting phase for round:', room.round);
+      const remainingPlayers = votedOutPlayerId 
+          ? room.players.filter(p => p.id !== votedOutPlayerId) 
+          : [...room.players];
+      if (remainingPlayers.length === 0) {
+         await resetGame(); 
+         return;
+      }
+      
+      // Check 1v1 win condition
+      if (remainingPlayers.length === 2) {
+        const chameleon = remainingPlayers.find(p => p.role === PlayerRole.Chameleon);
+        if (chameleon) {
+          log.info("Chameleon wins (1v1)!");
+          await supabase.from('game_rooms').update({
+             state: GameState.Ended,
+             round_outcome: GameResultType.ChameleonSurvived // Mark how round ended before 1v1 win
+          }).eq('id', currentRoomId);
+          await supabase.channel(`room:${currentRoomId}`).send({
+            type: 'broadcast', event: 'sync',
+            payload: { action: 'game_over', roomId: currentRoomId, newState: GameState.Ended }
+          });
+          const finalRoom = await fetchRoom(currentRoomId);
+          if(finalRoom) setRoom(finalRoom);
+          return;
         }
-        
-        // Start a new round - increment the round number
-        const nextRoundNumber = room.round + 1;
-        
-        // Reset player votes and descriptions
-        await supabase
-          .from('players')
-          .update({ 
-            vote: null,
-            turn_description: null,
-            special_ability_used: false
-          })
-          .eq('room_id', room.id);
-          
-        // Update the game room with the new round number and state
-        await supabase
-          .from('game_rooms')
-          .update({
-            state: GameState.Presenting,
-            round: nextRoundNumber,
-            current_turn: 0,
-            presenting_timer: room.settings.presenting_time,
-            last_updated: new Date().toISOString()
-          })
-          .eq('id', room.id);
-          
-        // Fetch updated room data with full player context
-        const { data: updatedRoomData, error: fetchError } = await supabase
-          .from('game_rooms')
-          .select(`
-            *,
-            players!players_room_id_fkey(*)
-          `)
-          .eq('id', room.id)
-          .single();
-        
-        if (fetchError) {
-          console.error('Error fetching updated room:', fetchError);
-          throw fetchError;
-        }
-        
-        if (updatedRoomData) {
-          const mappedRoom = mapRoomData(updatedRoomData as DatabaseRoom);
-          setRoom(convertToExtendedRoom(mappedRoom));
-        }
-        
-        // Send broadcast to update all clients
-        await supabase.channel(`room:${room.id}`).send({
-          type: 'broadcast',
-          event: 'sync',
-          payload: { 
-            action: 'next_round_started',
-            roomId: room.id,
-            round: nextRoundNumber,
-            newState: GameState.Presenting
-          }
-        });
-        
-    } catch (error: unknown) {
-        let errorMessage = "Could not start next round.";
-        if (error instanceof Error) {
-            errorMessage = error.message;
-        }
-        log.error("Error starting next round:", error);
-        toast.error(errorMessage);
+      }
+
+      // Create new turn order with remaining players
+      const shuffledRemaining = [...remainingPlayers];
+      for (let i = shuffledRemaining.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffledRemaining[i], shuffledRemaining[j]] = [shuffledRemaining[j], shuffledRemaining[i]];
+      }
+      const nextTurnOrder = shuffledRemaining.map(p => p.id);
+      const firstPlayerId = nextTurnOrder[0];
+      await supabase.from('players')
+        .update({ turn_description: null, vote: null, is_turn: false, special_ability_used: false, is_protected: false, vote_multiplier: 1, last_updated: new Date().toISOString() })
+        .in('id', remainingPlayers.map(p => p.id));
+      if (firstPlayerId) {
+        await supabase.from('players').update({ is_turn: true }).eq('id', firstPlayerId);
+      } else {
+          log.error("Could not determine first player for next turn");
+          await resetGame();
+          return;
+      }
+      const { error: roomUpdateError } = await supabase.from('game_rooms')
+        .update({
+          state: GameState.Presenting,
+          current_turn: 0, 
+          turn_order: nextTurnOrder,
+          presenting_timer: settings.presenting_time,
+          discussion_timer: settings.discussion_time, 
+          voting_timer: settings.voting_time, 
+          voted_out_player: null, 
+          revealed_player_id: null,
+          revealed_role: null,
+          round_outcome: null,
+          current_voting_round_id: null,
+          last_updated: new Date().toISOString()
+        })
+        .eq('id', currentRoomId);
+      if (roomUpdateError) throw roomUpdateError;
+      await supabase.channel(`room:${currentRoomId}`).send({
+        type: 'broadcast', event: 'sync',
+        payload: { action: 'continue_round', roomId: currentRoomId, newState: GameState.Presenting, round: room.round, turnOrder: nextTurnOrder, currentTurn: 0 }
+      });
+      const updatedRoom = await fetchRoom(currentRoomId);
+      if (updatedRoom) setRoom(updatedRoom);
+      const firstPlayerName = firstPlayerId ? remainingPlayers.find(p=>p.id === firstPlayerId)?.name : 'Next player';
+      toast.info(`Continuing round ${room.round}. ${firstPlayerName}'s turn.`);
+
+    } catch(error) {
+      log.error("Error preparing next presenting phase:", error);
+      toast.error("Failed to continue the round.");
     }
-  };
+  }, [room, settings, resetGame, fetchRoom, setRoom]);
+
+  const nextRound = useCallback(async () => {
+    log.warn("nextRound is deprecated. Use prepareNextPresentingPhase or resetGame.");
+    // Decide based on current state if we need to reset or continue
+    if (room?.state === GameState.Results) {
+        if (room.round_outcome === VotingOutcome.ChameleonFound || room.round >= room.max_rounds) {
+            await resetGame(); // Game ends
+        } else {
+            await prepareNextPresentingPhase(); // Continue same round
+        }
+    } else {
+        log.error("Cannot call nextRound from state:", room?.state);
+    }
+  }, [room, prepareNextPresentingPhase, resetGame]);
 
   const cleanupRoom = async (roomId: string) => {
     try {
@@ -1253,71 +1324,6 @@ export const useGameActions = (
     return () => clearInterval(cleanupInterval);
   }, [room]);
 
-  const resetGame = async () => {
-    if (!room) return;
-
-    try {
-      // Update the game room state
-      const { error } = await supabase
-        .from('game_rooms')
-        .update({
-          state: GameState.Lobby,
-          round: 0,
-          category: null,
-          secret_word: null,
-          chameleon_id: null,
-          timer: null,
-          current_turn: 0,
-          turn_order: null,
-          round_outcome: null,
-          votes_tally: null,
-          revealed_player_id: null,
-          revealed_role: null
-        })
-        .eq('id', room.id);
-
-      if (error) {
-        toast.error("Error resetting game");
-        return;
-      }
-
-      // Reset all player states to their initial values
-      await supabase
-        .from('players')
-        .update({ 
-          vote: null,
-          turn_description: null,
-          role: null,
-          is_protected: false,
-          vote_multiplier: 1,
-          special_word: null,
-          special_ability_used: false
-        })
-        .eq('room_id', room.id);
-
-      // Mark all players as not ready for a new game
-      await supabase
-        .from('players')
-        .update({ is_ready: false })
-        .eq('room_id', room.id);
-      
-      // Update the host's ready status to true
-      if (playerId === room.host_id) {
-        await supabase
-          .from('players')
-          .update({ is_ready: true })
-          .eq('id', playerId);
-      }
-
-      const updatedRoom = await fetchRoom(room.id);
-      if (updatedRoom) setRoom(updatedRoom);
-      
-      toast.success("Game has been reset. Players can join a new game.");
-    } catch (err: unknown) {
-      toast.error("An unexpected error occurred");
-    }
-  };
-
   const handleRoleAbility = async (targetPlayerId?: string) => {
     if (!room || !playerId) return;
 
@@ -1418,28 +1424,6 @@ export const useGameActions = (
     }
   };
 
-  const fetchRoom = async (roomId: string): Promise<ExtendedGameRoom | null> => {
-    try {
-      const { data, error } = await supabase
-        .from('game_rooms')
-        .select(`*,
-          players:players(*)
-        `)
-        .eq('id', roomId)
-        .single();
-
-      if (error) throw error;
-      if (!data) return null;
-
-      // Map the data to our ExtendedGameRoom type
-      const mappedRoom = mapRoomData(data as DatabaseRoom);
-      return convertToExtendedRoom(mappedRoom);
-    } catch (error) {
-      log.error('Error fetching room:', error);
-      return null;
-    }
-  };
-
   const setPlayerRole = async (playerId: string, role: PlayerRole) => {
     if (!room) return false;
 
@@ -1522,20 +1506,146 @@ export const useGameActions = (
     }
   };
 
+  // const getPublicRooms = async (): Promise<ExtendedGameRoom[]> => {
+  //   try {
+  //     const { data, error } = await supabase
+  //       .from('game_rooms')
+  //       .select(`
+  //         *,
+  //         players!players_room_id_fkey(*)
+  //       `)
+  //       .eq('state', 'lobby')
+  //       .order('created_at', { ascending: false });
+
+  //     if (error) throw error;
+  //     if (!data) return [];
+
+  //     return data.map(room => convertToExtendedRoom(mapRoomData(room as DatabaseRoom)));
+  //   } catch (error) {
+  //     console.error('Error fetching public rooms:', error);
+  //     return [];
+  //   }
+  // };
+
   return {
     createRoom,
     joinRoom,
     startGame,
     selectCategory,
-    submitWord,
     submitVote,
-    nextRound,
+    prepareNextPresentingPhase,
     leaveRoom,
     resetGame,
-    updateSettings,
     handleRoleAbility,
     setPlayerRole,
-    checkNameExists
+    submitWord,
+    nextRound,
+    updateSettings,
+    checkNameExists,
+    // getPublicRooms
   };
 };
+
+// Helper function to process voting results (can be expanded later)
+const processVotingResults = async (roomId: string, votingRoundId: string): Promise<{ 
+  nextState: GameState; // State *after* results are shown
+  gameShouldEnd: boolean;
+  updateData: Partial<DatabaseRoom>; // Data to set when entering Results state
+  error: string | null 
+}> => {
+  try {
+    const { data: roomData } = await supabase
+      .from('game_rooms').select('*, players!players_room_id_fkey(*)').eq('id', roomId).single();
+    const { data: votesData } = await supabase
+      .from('votes').select('*').eq('round_id', votingRoundId);
+    if (!roomData || !votesData) throw new Error('Missing room or vote data');
+    const currentRoom = mapRoomData(roomData as DatabaseRoom);
+    const votes = votesData as Vote[];
+    const voteCounts = new Map<string, number>();
+    votes.forEach(vote => {
+      const voter = currentRoom.players.find(p => p.id === vote.voter_id);
+      const multiplier = voter?.vote_multiplier || 1;
+      voteCounts.set(vote.target_id, (voteCounts.get(vote.target_id) || 0) + multiplier);
+    });
+    let maxVotes = -1; 
+    let votedOutPlayerId: string | null = null;
+    let tie = false;
+    currentRoom.players.forEach(player => {
+        if (!voteCounts.has(player.id)) { voteCounts.set(player.id, 0); }
+    });
+    for (const [playerId, count] of voteCounts.entries()) {
+      const player = currentRoom.players.find(p => p.id === playerId);
+      if (player?.is_protected) continue;
+      if (count > maxVotes) {
+        maxVotes = count; votedOutPlayerId = playerId; tie = false;
+      } else if (count === maxVotes && maxVotes > 0) { tie = true; }
+    }
+    if (tie) { votedOutPlayerId = null; }
+    const votedPlayer = votedOutPlayerId ? currentRoom.players.find(p => p.id === votedOutPlayerId) : null;
+    const revealedRole = votedPlayer?.role || null;
+    const isChameleonVoted = revealedRole === PlayerRole.Chameleon;
+    const isJesterVoted = revealedRole === PlayerRole.Jester; 
+    const isLastRound = currentRoom.round >= currentRoom.max_rounds;
+
+    // Determine VotingOutcome (for round_results table)
+    let votingOutcome: VotingOutcome;
+    if (votedOutPlayerId) {
+      // NOTE: Jester win isn't a VotingOutcome, handle via GameResultType
+      votingOutcome = isChameleonVoted ? VotingOutcome.ChameleonFound 
+                    : VotingOutcome.ChameleonSurvived;
+    } else {
+      votingOutcome = VotingOutcome.Tie;
+    }
+
+    // Determine GameResultType for the round (for game_rooms.round_outcome)
+    let roundGameResult: GameResultType | null;
+    if (votedOutPlayerId) {
+        if (isJesterVoted) {
+            roundGameResult = GameResultType.JesterWins; // Jester wins!
+        } else if (isChameleonVoted) {
+            roundGameResult = GameResultType.ChameleonFound; // Or PlayersWin?
+        } else {
+            roundGameResult = GameResultType.InnocentVoted; // Chameleon survived this round
+        }
+    } else {
+        roundGameResult = GameResultType.Tie;
+    }
+
+    // Determine if the game actually ends based on GameResultType and round number
+    const gameShouldEnd = isLastRound || roundGameResult === GameResultType.ChameleonFound || roundGameResult === GameResultType.JesterWins;
+    
+    // Determine the state *after* the results are shown
+    const nextStateAfterResults = gameShouldEnd ? GameState.Ended : GameState.Presenting;
+    
+    // Update voting_rounds table
+    await supabase.from('voting_rounds').update({ phase: VotingPhase.Results, end_time: new Date().toISOString() }).eq('id', votingRoundId);
+        
+    // Create round_results table entry (using VotingOutcome)
+    const { error: resultError } = await supabase.from('round_results').insert({
+      round_id: votingRoundId,
+      voted_out_player_id: votedOutPlayerId,
+      revealed_role: revealedRole,
+      outcome: votingOutcome // Store the specific voting outcome (Found, Survived, Tie)
+    });
+    if (resultError) throw resultError;
+
+    // Prepare update data for game_rooms table to transition TO Results state
+    const roomUpdateData: Partial<DatabaseRoom> = {
+      state: GameState.Results, 
+      voting_timer: 0,
+      round_outcome: roundGameResult, // Store the derived GameResultType for the round
+      voted_out_player: votedOutPlayerId,
+      revealed_player_id: votedOutPlayerId, 
+      revealed_role: revealedRole,
+      last_updated: new Date().toISOString()
+    };
+
+    // Return the intended next state AFTER results display
+    return { nextState: nextStateAfterResults, gameShouldEnd, updateData: roomUpdateData, error: null };
+
+  } catch (error) {
+    console.error("Error processing voting results:", error);
+    return { nextState: GameState.Voting, gameShouldEnd: false, updateData: {}, error: (error as Error).message };
+  }
+}
 

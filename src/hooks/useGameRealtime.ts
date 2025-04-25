@@ -161,8 +161,10 @@ export const useGameRealtime = (roomId: string | undefined): { room: GameRoom | 
         .select(`
           *,
           players!players_room_id_fkey(*),
-          current_voting_round:voting_rounds!voting_rounds_room_id_fkey(*),
-          current_round_result:round_results!round_results_round_id_fkey(*)
+          current_voting_round:voting_rounds!voting_rounds_room_id_fkey(
+            *,
+            round_result:round_results!round_results_round_id_fkey(*)
+          )
         `)
         .eq('id', roomId)
         .single();
@@ -209,7 +211,8 @@ export const useGameRealtime = (roomId: string | undefined): { room: GameRoom | 
           max_rounds: data.max_rounds || 1,
           votes: data.votes || {},
           results: data.results || [],
-          last_updated: data.last_updated || new Date().toISOString()
+          last_updated: data.last_updated || new Date().toISOString(),
+          current_round_result: data.current_voting_round?.round_result || null
         };
 
         console.log('Mapped room data:', {

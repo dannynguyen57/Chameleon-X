@@ -230,6 +230,9 @@ export interface GameRoom {
   current_voting_round?: VotingRound;
   current_round_result?: RoundResult;
   current_voting_round_id?: string | null;
+  voted_out_player?: string | null;
+  revealed_role?: PlayerRole | null;
+  round_outcome?: VotingOutcome | null;
 }
 
 export interface ChatMessage {

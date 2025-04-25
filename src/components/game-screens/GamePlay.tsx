@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useGame } from '@/hooks/useGame';
 import { useGameActions } from "@/hooks/useGameActions";
 import { convertToExtendedRoom } from '@/lib/roomUtils';
-import { handleGameStateTransition } from '@/lib/gameLogic';
+import { transitionGameState } from '@/lib/gameLogic';
 // import { updatePlayer } from "@/lib/gameLogic";
 import { Player, PlayerRole, GameState, GameRoom, GameResultType } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -591,15 +591,25 @@ interface VoteObject {
 
 export default function GamePlay() {
   const { room, isPlayerChameleon, remainingTime, settings, playerId, setRoom, resetGame, startGame } = useGame();
-  const { submitWord, submitVote, nextRound, resetGame: resetGameAction } = useGameActions(playerId, room ? convertToExtendedRoom(room) : null, settings, setRoom);
+  const { submitWord, submitVote, resetGame: resetGameAction, prepareNextPresentingPhase } = useGameActions(playerId, room ? convertToExtendedRoom(room) : null, settings, setRoom);
   const [selectedVote, setSelectedVote] = useState<string | null>(null);
   const [isPlayersPanelOpen, setIsPlayersPanelOpen] = useState(false);
   const [isRolePanelOpen, setIsRolePanelOpen] = useState(false);
-  const hasVoted = room?.current_voting_round?.votes?.some(vote => vote.voter_id === playerId) || false;
+  
+  // Combine derived and local state for immediate feedback
+  const [localHasVoted, setLocalHasVoted] = useState(false);
+  const actualHasVoted = room?.current_voting_round?.votes?.some(vote => vote.voter_id === playerId) || false;
+  const displayHasVoted = localHasVoted || actualHasVoted;
+  
+  // Reset local state if the actual state changes (e.g., new round)
+  useEffect(() => {
+    setLocalHasVoted(actualHasVoted);
+  }, [actualHasVoted]);
+
   const isDevMode = import.meta.env.VITE_ENABLE_DEV_MODE === 'false';
   const [isGameInfoOpen, setIsGameInfoOpen] = useState(true);
   const [isStarting, setIsStarting] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmittingVote, setIsSubmittingVote] = useState(false); // Renamed for clarity
 
   const truncateName = (name: string, maxLength: number = 12) => {
     if (name.length <= maxLength) return name;
@@ -703,10 +713,20 @@ export default function GamePlay() {
     }
   };
 
-  const handleVote = () => {
-    if (selectedVote && room && !isSubmitting) {
-      setIsSubmitting(true);
-      submitVote(selectedVote).finally(() => setIsSubmitting(false));
+  const handleVote = async () => { // Make async
+    if (selectedVote && room && !isSubmittingVote) {
+      setIsSubmittingVote(true);
+      try {
+        await submitVote(selectedVote);
+        setLocalHasVoted(true); // Set local state immediately for UI feedback
+        // No need to manually update room here, rely on subscription/context
+      } catch (error) {
+        // Handle potential error, maybe reset local state?
+        console.error("Vote submission error:", error);
+        // setLocalHasVoted(false); // Optional: reset on error
+      } finally {
+        setIsSubmittingVote(false);
+      }
     }
   };
 
@@ -726,7 +746,7 @@ export default function GamePlay() {
   const handleNextRound = async () => {
     if (!room) return;
     try {
-      await handleGameStateTransition(room.id, room.state, playerId, room.settings);
+      await transitionGameState(room.id, room.state, playerId, room.settings);
     } catch (error) {
       console.error('Error transitioning to next round:', error);
       toast.error('Failed to start next round. Please try again.');
@@ -1111,14 +1131,14 @@ export default function GamePlay() {
                   exit={{ opacity: 0 }}
                   className="space-y-4 sm:space-y-6"
                 >
-                  <Card className="border-2 border-red-500/20 shadow-xl bg-green-950/70 backdrop-blur-lg overflow-hidden">
-                    <CardHeader className="p-4 sm:p-6 bg-gradient-to-b from-red-900/30 to-transparent border-b border-red-500/10">
-                      <CardTitle className="text-2xl sm:text-3xl flex items-center gap-2 text-red-200">
-                        <VoteIcon className="w-6 text-red-300" />
+                  <Card className="border-2 border-purple-500/20 shadow-xl bg-green-950/70 backdrop-blur-lg overflow-hidden">
+                    <CardHeader className="p-4 sm:p-6 bg-gradient-to-b from-purple-900/30 to-transparent border-b border-purple-500/10">
+                      <CardTitle className="text-2xl sm:text-3xl flex items-center gap-2 text-purple-200">
+                        <VoteIcon className="w-6 text-purple-300" />
                          Vote for the Chameleon!
                        </CardTitle>
-                      <CardDescription className="text-red-300/80 pt-1">
-                        {hasVoted 
+                      <CardDescription className="text-purple-300/80 pt-1">
+                        {displayHasVoted 
                           ? "Vote cast! Waiting for others..." 
                           : "Carefully consider the clues and cast your vote!"}
                       </CardDescription>
@@ -1126,42 +1146,39 @@ export default function GamePlay() {
                     <CardContent className="p-4 sm:p-6 space-y-4 sm:space-y-6">
                        <div className="relative">
                          <div className="flex items-center justify-between mb-2">
-                           <span className="text-sm text-muted-foreground">
+                           <span className="text-sm text-purple-200/80">
                              Voting Progress
                            </span>
-                           <Badge variant="secondary" className="bg-primary/20">
+                           <Badge variant="secondary" className="bg-purple-500/20 border border-purple-500/30 text-purple-200">
                              {room.current_voting_round?.votes?.length || 0} / {room.players.length} votes
                            </Badge>
                          </div>
-                         <div className="w-full h-3 bg-muted rounded-full overflow-hidden">
+                         <div className="w-full h-3 bg-green-900/50 rounded-full overflow-hidden border border-purple-500/20">
                            <motion.div
-                             className="h-full bg-primary"
+                             className="h-full bg-gradient-to-r from-purple-500 to-fuchsia-500 rounded-full transition-all duration-500 ease-out"
                              initial={{ width: "0%" }}
                              animate={{ 
                                width: `${((room.current_voting_round?.votes?.length || 0) / room.players.length) * 100}%` 
                              }}
-                             transition={{ duration: 0.5 }}
                            />
                          </div>
-                         <div className="mt-1 text-xs text-muted-foreground text-right">
+                         <div className="mt-1 text-xs text-purple-300/70 text-right">
                            {remainingTime.timeLeft > 0 && (
-                             <span>Time remaining: {formatTime(remainingTime.timeLeft)}</span>
+                             <span>{formatTime(remainingTime.timeLeft)}</span>
                            )}
                          </div>
                        </div>
 
+                       {/* Show all players, adjust styling based on vote status */}
                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                          {room.players
-                           .filter(player => {
-                             if (player.id === playerId) return false;
-                             if (hasVoted) {
-                               return player.id === selectedVote;
-                             }
-                             return true;
-                           })
+                           .filter(player => player.id !== playerId) // Always filter self
                            .map((player) => {
                              const voteCount = room.current_voting_round?.votes?.filter(vote => vote.target_id === player.id).length || 0;
-                             const hasVotedFor = room.current_voting_round?.votes?.some(vote => vote.voter_id === playerId && vote.target_id === player.id);
+                             // Determine if this player is the one the current user voted for (from actual room data)
+                             const votedForByCurrentUser = actualHasVoted && room.current_voting_round?.votes?.find(vote => vote.voter_id === playerId)?.target_id === player.id;
+                             // Is this the player currently selected in the UI (before vote confirmed)?
+                             const isSelectedInUI = selectedVote === player.id;
                              
                              return (
                                <motion.div
@@ -1169,67 +1186,75 @@ export default function GamePlay() {
                                  initial={{ opacity: 0, scale: 0.95 }}
                                  animate={{ opacity: 1, scale: 1 }}
                                  transition={{ duration: 0.3 }}
+                                 className={cn(
+                                    "relative", // Needed for absolute positioning of overlays/badges
+                                    displayHasVoted && !votedForByCurrentUser ? "opacity-60 pointer-events-none" : ""
+                                 )}
                                >
                                  <Card
                                    className={cn(
-                                     "p-4 transition-all duration-200 relative overflow-hidden transform hover:scale-105",
-                                     selectedVote === player.id
-                                       ? "border-primary bg-primary/5 ring-2 ring-primary shadow-lg"
-                                       : "hover:border-primary/50 hover:shadow-md",
-                                     hasVotedFor && "border-primary bg-primary/10"
+                                     "p-4 transition-all duration-200 overflow-hidden transform",
+                                     "bg-green-900/40 border border-green-700/40", // Default state
+                                     !displayHasVoted && "cursor-pointer hover:border-purple-500/70 hover:shadow-md hover:scale-[1.03]", // Hover state when voting active
+                                     isSelectedInUI && !displayHasVoted && "border-purple-400 ring-2 ring-purple-400 ring-offset-2 ring-offset-green-950 scale-105 shadow-lg bg-gradient-to-br from-purple-600/30 to-purple-800/40", // Selected state
+                                     votedForByCurrentUser && "border-purple-500 bg-purple-500/10 ring-1 ring-purple-400 scale-105 shadow-md", // Voted-for state
                                    )}
-                                   onClick={() => !hasVoted && setSelectedVote(player.id)}
+                                   // Only allow selection if the user hasn't voted yet
+                                   onClick={() => !displayHasVoted && setSelectedVote(player.id)}
                                  >
+                                   {/* Vote Count Badge (Always visible if votes > 0) */}
                                    {voteCount > 0 && (
                                      <motion.div
                                        initial={{ opacity: 0, y: -10 }}
                                        animate={{ opacity: 1, y: 0 }}
-                                       className="absolute top-2 right-2"
+                                       className="absolute top-2 right-2 z-10"
                                      >
                                        <Badge 
                                          variant="secondary"
-                                         className="bg-primary/20 font-semibold"
+                                         className="bg-purple-500/30 border border-purple-500/50 text-purple-100 font-semibold shadow-sm"
                                        >
                                          {voteCount} {voteCount === 1 ? 'vote' : 'votes'}
                                        </Badge>
                                      </motion.div>
                                    )}
 
-                                   {hasVotedFor && (
+                                   {/* "Your Vote" Badge (Only if this player was voted for) */}
+                                   {votedForByCurrentUser && (
                                      <motion.div
                                        initial={{ opacity: 0, x: -10 }}
                                        animate={{ opacity: 1, x: 0 }}
-                                       className="absolute top-2 left-2"
+                                       className="absolute top-2 left-2 z-10"
                                      >
-                                       <Badge variant="outline" className="bg-primary/20">
+                                       <Badge variant="outline" className="bg-purple-500/80 border border-purple-300 text-white text-xs px-1.5 py-0.5 shadow font-semibold">
                                          Your Vote
                                        </Badge>
                                      </motion.div>
                                    )}
 
-                                   <div className="flex items-center gap-3">
-                                     <Avatar className="h-12 w-12">
+                                   <div className="flex items-center gap-3 relative z-0"> {/* Ensure content is above potential overlays */}
+                                     <Avatar className="h-12 w-12 border border-green-600/50">
                                        <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}`} />
                                        <AvatarFallback>{player.name[0]}</AvatarFallback>
                                      </Avatar>
                                      <div className="flex-1 min-w-0">
-                                       <h3 className="font-semibold truncate" title={player.name}>
+                                       <h3 className="font-semibold truncate text-green-100" title={player.name}>
                                          {truncateName(player.name)}
                                        </h3>
-                                       <p className="text-sm text-muted-foreground truncate">
+                                       <p className="text-sm text-green-300/70 truncate">
                                          {player.turn_description || "No description given"}
                                        </p>
                                      </div>
                                    </div>
 
-                                   {selectedVote === player.id && !hasVoted && (
+                                   {/* Visual overlay/indicator when selected but not yet voted */}
+                                   {isSelectedInUI && !displayHasVoted && (
                                      <motion.div
                                        initial={{ opacity: 0 }}
                                        animate={{ opacity: 1 }}
-                                       className="absolute inset-0 bg-primary/5 flex items-center justify-center pointer-events-none"
+                                       className="absolute inset-0 bg-purple-500/10 flex items-center justify-center pointer-events-none rounded-lg border-2 border-purple-400"
                                      >
-                                       <Badge variant="secondary" className="bg-primary/20 text-lg">
-                                         Selected
+                                       <Badge variant="secondary" className="bg-purple-500/80 text-white font-semibold px-3 py-1 text-sm shadow-lg">
+                                         Select
                                        </Badge>
                                      </motion.div>
                                    )}
@@ -1239,37 +1264,42 @@ export default function GamePlay() {
                            })}
                        </div>
 
-                       {!hasVoted && (
+                       {/* Confirm Vote Button */}
+                       {!displayHasVoted && (
                          <motion.div
                            initial={{ opacity: 0, y: 10 }}
                            animate={{ opacity: 1, y: 0 }}
-                           className="flex justify-center"
+                           className="flex justify-center pt-4"
                          >
                            <Button
-                             className="w-full max-w-md"
+                             className="w-full max-w-md transition-all duration-300 ease-in-out transform bg-gradient-to-r from-purple-500 to-fuchsia-500 hover:from-purple-600 hover:to-fuchsia-600 text-white font-semibold shadow-lg hover:scale-105 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100"
                              onClick={handleVote}
                              size="lg"
-                             variant="default"
-                             disabled={!selectedVote}
+                             disabled={!selectedVote || isSubmittingVote}
                            >
-                             <VoteIcon className="w-4 h-4 mr-2" />
-                             Confirm Vote
+                              {isSubmittingVote ? (
+                                <Loader2 className="w-5 h-5 mr-2 animate-spin" /> 
+                              ) : (
+                                <VoteIcon className="w-5 h-5 mr-2" />
+                              )}
+                              {isSubmittingVote ? "Voting..." : "Confirm Vote"}
                            </Button>
                          </motion.div>
                        )}
 
-                       {hasVoted && (
+                       {/* Waiting State */}
+                       {displayHasVoted && (
                          <motion.div
                            initial={{ opacity: 0 }}
                            animate={{ opacity: 1 }}
-                           className="text-center space-y-4"
+                           className="text-center space-y-4 pt-6"
                          >
-                           <div className="flex items-center justify-center gap-2 text-primary">
-                             <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent" />
-                             <p>Waiting for other players to vote...</p>
+                           <div className="flex items-center justify-center gap-2 text-purple-300">
+                             <div className="animate-spin rounded-full h-5 w-5 border-2 border-purple-300 border-t-transparent" />
+                             <p className="font-medium">Waiting for other players to vote...</p>
                            </div>
-                           <p className="text-sm text-muted-foreground">
-                             {room.players.length - (room.current_voting_round?.votes?.length || 0)} players still need to vote
+                           <p className="text-sm text-purple-300/70">
+                             {room.players.length - (room.current_voting_round?.votes?.length || 0)} players remaining
                            </p>
                          </motion.div>
                        )}
@@ -1288,7 +1318,6 @@ export default function GamePlay() {
                   <ResultsDisplay 
                     room={room} 
                     playerId={playerId}
-                    onNextRound={handleNextRound}
                   />
                 </motion.div>
               )}

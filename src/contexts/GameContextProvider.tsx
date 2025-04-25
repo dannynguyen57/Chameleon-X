@@ -13,6 +13,7 @@ import { GameContextType } from './gameTypes';
 import { categories } from '@/lib/word-categories';
 import { WordCategory } from '@/lib/types';
 import { convertToExtendedRoom } from '@/lib/roomUtils';
+import { VotingOutcome } from '@/lib/types';
 
 // Extend the base GameRoom type with additional timer fields
 export interface ExtendedGameRoom extends BaseGameRoom {
@@ -69,6 +70,22 @@ interface BroadcastMessage {
   event: string;
   payload: BroadcastPayload;
   type: string;
+}
+
+interface ExtendedGameContextType extends GameContextType {
+  setSettings: (settings: GameSettings) => void;
+  setRoomSafe: (room: ExtendedGameRoom | null) => void;
+  setRoom: (room: ExtendedGameRoom | null) => void;
+  fetchRoom: (roomId: string) => Promise<void>;
+  handleRoomUpdate: (room: ExtendedGameRoom) => void;
+  mapRoomWithTimers: (room: ExtendedGameRoom) => ExtendedGameRoom;
+  getPublicRooms: () => Promise<ExtendedGameRoom[]>;
+  updateSettings: (newSettings: GameSettings) => Promise<boolean>;
+  checkNameExists: (roomId: string, name: string) => Promise<boolean>;
+  setPlayerName: (name: string) => void;
+  loading: boolean;
+  error: Error | null;
+  nextRound: () => Promise<void>;
 }
 
 export const GameProvider = ({ children }: { children: React.ReactNode }) => {
@@ -160,6 +177,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
   const [playerName, setPlayerName] = useState<string>('');
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const roomRef = useRef<ExtendedGameRoom | null>(null);
   const reconnectAttempts = useRef<number>(0);
@@ -179,7 +197,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     [room?.chameleon_id, playerId]
   );
 
-  const { createRoom: createRoomAction, joinRoom: joinRoomAction, startGame: startGameAction, selectCategory, submitVote, nextRound, leaveRoom: leaveRoomAction, resetGame, handleRoleAbility, setPlayerRole, submitWord } = useGameActions(
+  const { createRoom: createRoomAction, joinRoom: joinRoomAction, startGame: startGameAction, selectCategory, submitVote, prepareNextPresentingPhase, leaveRoom: leaveRoomAction, resetGame, handleRoleAbility, setPlayerRole, submitWord } = useGameActions(
     playerId,
     room,
     settings,
@@ -267,70 +285,74 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     }, 100); // 100ms debounce
   }, [room?.id, mapRoomWithTimers]);
 
-  const handleGameStateTransition = useCallback(async (newState: GameState) => {
-    if (!room) return;
+  const handleGameStateTransition = useCallback(async (newState: GameState): Promise<void> => {
+    if (!room?.id) return;
+    try {
+      const now = new Date().toISOString();
+      let updates: Partial<ExtendedGameRoom> = {
+        state: newState,
+        last_updated: now
+      };
 
-    const now = new Date().toISOString();
-    let updates: Partial<ExtendedGameRoom> = {
-      state: newState,
-      last_updated: now
-    };
+      // Set appropriate timers based on the game state
+      switch (newState) {
+        case 'discussion': {
+          const discussionTime = room?.settings.discussion_time || 0;
+          updates = {
+            ...updates,
+            presenting_timer: 0,
+            voting_timer: 0,
+            discussion_timer: discussionTime
+          };
+          break;
+        }
+        case 'voting': {
+          const votingTime = room?.settings.voting_time || 0;
+          updates = {
+            ...updates,
+            presenting_timer: 0,
+            discussion_timer: 0,
+            voting_timer: votingTime
+          };
+          break;
+        }
+        case 'presenting': {
+          const turnTime = room?.settings.presenting_time || 0;
+          updates = {
+            ...updates,
+            presenting_timer: turnTime,
+            turn_started_at: now,
+            current_turn: room?.current_turn || 0
+          };
+          break;
+        }
+        default: {
+          updates = {
+            ...updates,
+            presenting_timer: 0,
+            discussion_timer: 0,
+            voting_timer: 0,
+            turn_started_at: undefined
+          };
+        }
+      }
 
-    // Set appropriate timers based on the game state
-    switch (newState) {
-      case 'discussion': {
-        const discussionTime = room.settings.discussion_time;
-        updates = {
-          ...updates,
-          presenting_timer: 0,
-          voting_timer: 0,
-          discussion_timer: discussionTime
-        };
-        break;
-      }
-      case 'voting': {
-        const votingTime = room.settings.voting_time;
-        updates = {
-          ...updates,
-          presenting_timer: 0,
-          discussion_timer: 0,
-          voting_timer: votingTime
-        };
-        break;
-      }
-      case 'presenting': {
-        const turnTime = room.settings.presenting_time;
-        updates = {
-          ...updates,
-          presenting_timer: turnTime,
-          turn_started_at: now,
-          current_turn: room.current_turn || 0
-        };
-        break;
-      }
-      default: {
-        updates = {
-          ...updates,
-          presenting_timer: 0,
-          discussion_timer: 0,
-          voting_timer: 0,
-          turn_started_at: undefined
-        };
-      }
-    }
+      const { error } = await supabase
+        .from('game_rooms')
+        .update(updates)
+        .eq('id', room.id);
 
-    const { error } = await supabase
-      .from('game_rooms')
-      .update(updates)
-      .eq('id', room.id);
+      if (error) {
+        console.error('Error transitioning game state:', error);
+        throw error;
+      }
 
-    if (error) {
-      console.error('Error transitioning game state:', error);
+      // Force a room data refresh
+      await fetchRoom();
+    } catch (error) {
+      console.error('Error in handleGameStateTransition:', error);
       throw error;
     }
-
-    // Force a room data refresh
-    await fetchRoom();
   }, [room, fetchRoom]);
 
   const remainingTime = useGameTimer(
@@ -1056,7 +1078,85 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     setRoom(newRoom);
   }, []);
 
-  const value: GameContextType = useMemo(() => ({
+  const getPublicRooms = useCallback(async (): Promise<ExtendedGameRoom[]> => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('game_rooms')
+        .select(`
+          *,
+          players!players_room_id_fkey(*)
+        `)
+        .eq('state', 'lobby')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      if (!data) return [];
+
+      return data.map(room => convertToExtendedRoom(mapRoomData(room as DatabaseRoom)));
+    } catch (error) {
+      console.error('Error fetching public rooms:', error);
+      return [];
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const updateSettings = useCallback(async (newSettings: GameSettings): Promise<boolean> => {
+    if (!room?.id) return false;
+    try {
+      const { error } = await supabase
+        .from('game_rooms')
+        .update({
+          settings: newSettings,
+          last_updated: new Date().toISOString()
+        })
+        .eq('id', room.id);
+
+      if (error) {
+        console.error('Error updating settings:', error);
+        return false;
+      }
+
+      setSettings(newSettings);
+      return true;
+    } catch (error) {
+      console.error('Error updating settings:', error);
+      return false;
+    }
+  }, [room?.id, setSettings]);
+
+  const checkNameExists = useCallback(async (name: string) => {
+    if (!room?.id) return false;
+    try {
+      const { data, error } = await supabase
+        .from('players')
+        .select('name')
+        .eq('room_id', room.id)
+        .eq('name', name);
+      
+      if (error) throw error;
+      return data.length > 0;
+    } catch (error) {
+      console.error('Error checking name:', error);
+      return false;
+    }
+  }, [room?.id]);
+
+  const nextRound = useCallback(async () => {
+    if (!room?.id) return;
+    if (room.state === 'results') {
+      if (room.round_outcome === VotingOutcome.ChameleonFound || room.round >= room.max_rounds) {
+        await resetGame(); // Game ends
+      } else {
+        await prepareNextPresentingPhase(); // Continue same round
+      }
+    } else {
+      console.error("Cannot call nextRound from state:", room.state);
+    }
+  }, [room, resetGame, prepareNextPresentingPhase]);
+
+  const value = useMemo(() => ({
     playerId,
     room,
     settings,
@@ -1066,66 +1166,31 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
     selectCategory,
     submitWord,
     submitVote,
-    nextRound,
+    prepareNextPresentingPhase,
     leaveRoom,
     resetGame,
     handleRoleAbility,
     setPlayerRole,
-    handleGameStateTransition,
-    handleRoomUpdate,
-    getPublicRooms: async (): Promise<ExtendedGameRoom[]> => {
-      const { data: rooms, error } = await supabase
-        .from('game_rooms')
-        .select(`
-          *,
-          players (*)
-        `)
-        .eq('state', 'lobby');
-
-      if (error) {
-        console.error('Error fetching public rooms:', error);
-        return [];
-      }
-
-      return (rooms || [])
-        .filter(room => room.players && room.players.length > 0)
-        .map(room => mapRoomWithTimers(room as DatabaseRoom));
-    },
-    updateSettings: async (newSettings: GameSettings) => {
-      setSettings(newSettings);
-      await fetchRoom();
-      return true;
-    },
-    checkNameExists: async (roomId: string, playerName: string) => {
-      try {
-        const { data: roomData, error: roomError } = await supabase
-          .from('game_rooms')
-          .select('*')
-          .eq('id', roomId)
-          .single();
-
-        if (roomError || !roomData) {
-          return false;
-        }
-
-        return roomData.players?.some((p: Player) => 
-          p.name.toLowerCase().trim() === playerName.toLowerCase().trim()
-        );
-      } catch (error) {
-        console.error('Error checking name:', error);
-        return false;
-      }
-    },
     isPlayerChameleon,
     remainingTime,
     playerName,
+    setSettings,
+    setRoomSafe,
+    setRoom,
+    fetchRoom,
+    handleGameStateTransition,
+    handleRoomUpdate,
+    mapRoomWithTimers,
+    getPublicRooms,
+    updateSettings,
+    checkNameExists,
     setPlayerName,
-    setRoom: setRoomSafe,
-    loading: false,
-    error: null
+    loading,
+    error,
+    nextRound
   }), [
-    playerId, room, settings, createRoom, joinRoom, startGame, selectCategory, submitWord, submitVote, nextRound, leaveRoom, resetGame, handleRoleAbility, setPlayerRole,
-    isPlayerChameleon, remainingTime, playerName, setSettings, setRoomSafe, fetchRoom, handleGameStateTransition, handleRoomUpdate, mapRoomWithTimers
+    playerId, room, settings, createRoom, joinRoom, startGame, selectCategory, submitWord, submitVote, prepareNextPresentingPhase, leaveRoom, resetGame, handleRoleAbility, setPlayerRole,
+    isPlayerChameleon, remainingTime, playerName, setSettings, setRoomSafe, setRoom, fetchRoom, handleGameStateTransition, handleRoomUpdate, mapRoomWithTimers, getPublicRooms, updateSettings, checkNameExists, setPlayerName, loading, error, nextRound
   ]);
 
   // Add effect to handle tab/window close

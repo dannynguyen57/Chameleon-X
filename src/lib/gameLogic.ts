@@ -340,7 +340,7 @@ const resetGameState = async (roomId: string): Promise<Partial<DatabaseRoom>> =>
   };
 };
 
-export const handleGameStateTransition = async (
+export const transitionGameState = async (
   roomId: string,
   currentState: GameState,
   playerId: string,

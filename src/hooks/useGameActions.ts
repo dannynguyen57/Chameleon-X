@@ -1,6 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { categories } from '@/lib/word-categories';
-import { GameSettings, GameState, PlayerRole, Player, WordCategory } from '@/lib/types';
+import { GameSettings, GameState, PlayerRole, Player, WordCategory, VotingPhase } from '@/lib/types';
 import { ExtendedGameRoom } from '@/contexts/GameContextProvider';
 import { convertToExtendedRoom } from '@/lib/roomUtils';
 import { useEffect, useCallback } from 'react';
@@ -800,31 +800,72 @@ export const useGameActions = (
   };
 
   const submitVote = async (votedPlayerId: string) => {
-    if (!room || !playerId || room.state !== GameState.Voting) return;
-
-    const voter = room.players.find(p => p.id === playerId);
-    if (!voter || voter.vote) {
-      toast.error("You have already submitted your vote.");
-      return;
-    }
-    
-    const targetPlayer = room.players.find(p => p.id === votedPlayerId);
-    if (targetPlayer?.isProtected) {
-       toast.error(`${targetPlayer.name} is protected.`);
-       return;
-    }
+    if (!room || !playerId) return;
 
     try {
-      const { error } = await supabase
-        .from('players')
-        .update({ vote: votedPlayerId, last_updated: new Date().toISOString() })
-        .eq('id', playerId);
+      // Get current voting round
+      const { data: votingRounds, error: votingError } = await supabase
+        .from('voting_rounds')
+        .select('*')
+        .eq('room_id', room.id)
+        .eq('round_number', room.round)
+        .eq('phase', 'voting');
 
-      if (error) throw error;
+      if (votingError) {
+        console.error('Error fetching voting rounds:', votingError);
+        throw votingError;
+      }
+
+      let votingRound;
+      // If no voting round exists, create one
+      if (!votingRounds || votingRounds.length === 0) {
+        console.log('No voting round found, creating one');
+        const { data: newVotingRound, error: createError } = await supabase
+          .from('voting_rounds')
+          .insert({
+            room_id: room.id,
+            round_number: room.round,
+            phase: VotingPhase.Voting,
+            start_time: new Date().toISOString()
+          })
+          .select()
+          .single();
+
+        if (createError) {
+          console.error('Error creating voting round:', createError);
+          throw createError;
+        }
+        
+        votingRound = newVotingRound;
+        
+        // Update the game room with the new voting round ID
+        await supabase
+          .from('game_rooms')
+          .update({ current_voting_round_id: votingRound.id })
+          .eq('id', room.id);
+      } else {
+        // Use the first one if multiple exist
+        votingRound = votingRounds[0];
+      }
+
+      // Submit vote
+      const { error: voteError } = await supabase
+        .from('votes')
+        .insert({
+          round_id: votingRound.id,
+          voter_id: playerId,
+          target_id: votedPlayerId
+        });
+
+      if (voteError) {
+        console.error('Error submitting vote:', voteError);
+        throw voteError;
+      }
 
       const updatedRoom = await fetchRoom(room.id);
       if (updatedRoom) setRoom(updatedRoom);
       
+      const targetPlayer = updatedRoom?.players.find(p => p.id === votedPlayerId);
       toast.success(`You voted for ${targetPlayer?.name || 'a player'}.`);
 
     } catch (error: unknown) {
@@ -838,12 +879,77 @@ export const useGameActions = (
   };
 
   const nextRound = async () => {
-    if (!room || room.host_id !== playerId || room.state !== GameState.Results) return;
+    if (!room || room.state !== GameState.Results) return;
 
     try {
-        await handleGameStateTransition(room.id, GameState.Results, settings, room);
-        const updatedRoom = await fetchRoom(room.id);
-        if(updatedRoom) setRoom(updatedRoom);
+        // End the current voting round if exists
+        if (room.current_voting_round_id) {
+          await supabase
+            .from('voting_rounds')
+            .update({ 
+              phase: VotingPhase.Results,
+              end_time: new Date().toISOString()
+            })
+            .eq('id', room.current_voting_round_id);
+        }
+        
+        // Start a new round - increment the round number
+        const nextRoundNumber = room.round + 1;
+        
+        // Reset player votes and descriptions
+        await supabase
+          .from('players')
+          .update({ 
+            vote: null,
+            turn_description: null,
+            special_ability_used: false
+          })
+          .eq('room_id', room.id);
+          
+        // Update the game room with the new round number and state
+        await supabase
+          .from('game_rooms')
+          .update({
+            state: GameState.Presenting,
+            round: nextRoundNumber,
+            current_turn: 0,
+            presenting_timer: room.settings.presenting_time,
+            last_updated: new Date().toISOString()
+          })
+          .eq('id', room.id);
+          
+        // Fetch updated room data with full player context
+        const { data: updatedRoomData, error: fetchError } = await supabase
+          .from('game_rooms')
+          .select(`
+            *,
+            players!players_room_id_fkey(*)
+          `)
+          .eq('id', room.id)
+          .single();
+        
+        if (fetchError) {
+          console.error('Error fetching updated room:', fetchError);
+          throw fetchError;
+        }
+        
+        if (updatedRoomData) {
+          const mappedRoom = mapRoomData(updatedRoomData as DatabaseRoom);
+          setRoom(convertToExtendedRoom(mappedRoom));
+        }
+        
+        // Send broadcast to update all clients
+        await supabase.channel(`room:${room.id}`).send({
+          type: 'broadcast',
+          event: 'sync',
+          payload: { 
+            action: 'next_round_started',
+            roomId: room.id,
+            round: nextRoundNumber,
+            newState: GameState.Presenting
+          }
+        });
+        
     } catch (error: unknown) {
         let errorMessage = "Could not start next round.";
         if (error instanceof Error) {

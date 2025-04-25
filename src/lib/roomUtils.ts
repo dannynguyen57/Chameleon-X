@@ -32,6 +32,7 @@ export const convertToExtendedRoom = (baseRoom: BaseGameRoom): ExtendedGameRoom 
     ...baseRoom,
     ...timers,
     chameleon_count: baseRoom.players.filter(p => p.role === PlayerRole.Chameleon).length,
-    player_count: baseRoom.players.length
+    player_count: baseRoom.players.length,
+    last_updated: baseRoom.updated_at
   };
 }; 

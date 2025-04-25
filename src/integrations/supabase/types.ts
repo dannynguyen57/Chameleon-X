@@ -1,4 +1,4 @@
-import { PlayerRole } from '@/lib/types';
+import { PlayerRole, GameState, GameSettings, GameResultType, VotingPhase, VotingOutcome } from '@/lib/types';
 
 export type Json =
   | string
@@ -8,72 +8,77 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
-export type Database = {
+export interface Database {
   public: {
     Tables: {
       game_rooms: {
-        Row: {
-          category: string | null
-          chameleon_id: string | null
-          created_at: string | null
-          host_id: string
-          id: string
-          max_rounds: number
-          round: number
-          secret_word: string | null
-          state: string
-          timer: number | null
-          max_players: number
-          discussion_time: number
-          game_mode: string
-          team_size: number
-          chaos_mode: boolean
-          // time_per_round: number
-          presenting_time: number
-          voting_time: number
-        }
+        Row: GameRoomsRow;
         Insert: {
-          category?: string | null
-          chameleon_id?: string | null
-          created_at?: string | null
-          host_id: string
-          id: string
-          max_rounds?: number
-          round?: number
-          secret_word?: string | null
-          state?: string
-          timer?: number | null
-          max_players?: number
-          discussion_time?: number
-          game_mode?: string
-          team_size?: number
-          chaos_mode?: boolean
-          // time_per_round?: number
-          presenting_time?: number
-          voting_time?: number
-        }
+          created_at?: string;
+          current_player_id?: string | null;
+          current_voting_round_id?: string | null;
+          discussion_time?: number;
+          discussion_timer?: number;
+          game_end_countdown?: number | null;
+          game_mode?: string;
+          game_result?: GameResultType | null;
+          game_secret?: string | null;
+          game_settings?: GameSettings;
+          game_state?: GameState;
+          game_type?: string;
+          host_id: string;
+          id?: string;
+          max_players?: number;
+          max_rounds?: number;
+          presenting_time?: number;
+          presenting_timer?: number;
+          round?: number;
+          secret_word?: string | null;
+          team_size?: number;
+          turn_order?: string[];
+          turn_started_at?: string | null;
+          turn_timer?: number;
+          updated_at?: string;
+          voting_time?: number;
+          voting_timer?: number;
+          chaos_mode?: boolean;
+          last_updated?: string;
+          voted_out_player?: string | null;
+        };
         Update: {
-          category?: string | null
-          chameleon_id?: string | null
-          created_at?: string | null
-          host_id?: string
-          id?: string
-          max_rounds?: number
-          round?: number
-          secret_word?: string | null
-          state?: string
-          timer?: number | null
-          max_players?: number
-          discussion_time?: number
-          game_mode?: string
-          team_size?: number
-          chaos_mode?: boolean
-          // time_per_round?: number
-          presenting_time?: number
-          voting_time?: number
-        }
+          created_at?: string;
+          current_player_id?: string | null;
+          current_voting_round_id?: string | null;
+          discussion_time?: number;
+          discussion_timer?: number;
+          game_end_countdown?: number | null;
+          game_mode?: string;
+          game_result?: GameResultType | null;
+          game_secret?: string | null;
+          game_settings?: GameSettings;
+          game_state?: GameState;
+          game_type?: string;
+          host_id?: string;
+          id?: string;
+          max_players?: number;
+          max_rounds?: number;
+          presenting_time?: number;
+          presenting_timer?: number;
+          round?: number;
+          secret_word?: string | null;
+          team_size?: number;
+          turn_order?: string[];
+          turn_started_at?: string | null;
+          turn_timer?: number;
+          updated_at?: string;
+          voting_time?: number;
+          voting_timer?: number;
+          chaos_mode?: boolean;
+          last_updated?: string;
+          voted_out_player?: string | null;
+        };
         Relationships: []
-      }
+      },
       players: {
         Row: {
           created_at: string | null
@@ -108,10 +113,165 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      },
+      voting_rounds: {
+        Row: {
+          id: string;
+          room_id: string;
+          round_number: number;
+          phase: VotingPhase;
+          start_time: string;
+          end_time: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          room_id: string;
+          round_number: number;
+          phase: VotingPhase;
+          start_time?: string;
+          end_time?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          room_id?: string;
+          round_number?: number;
+          phase?: VotingPhase;
+          start_time?: string;
+          end_time?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "voting_rounds_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "game_rooms"
+            referencedColumns: ["id"]
+          }
+        ]
+      },
+      votes: {
+        Row: {
+          id: string;
+          round_id: string;
+          voter_id: string;
+          target_id: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          round_id: string;
+          voter_id: string;
+          target_id: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          round_id?: string;
+          voter_id?: string;
+          target_id?: string;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "votes_round_id_fkey"
+            columns: ["round_id"]
+            isOneToOne: false
+            referencedRelation: "voting_rounds"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "votes_voter_id_fkey"
+            columns: ["voter_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "votes_target_id_fkey"
+            columns: ["target_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          }
+        ]
+      },
+      round_results: {
+        Row: {
+          id: string;
+          round_id: string;
+          voted_out_player_id: string | null;
+          revealed_role: string | null;
+          outcome: VotingOutcome;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          round_id: string;
+          voted_out_player_id?: string | null;
+          revealed_role?: string | null;
+          outcome: VotingOutcome;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          round_id?: string;
+          voted_out_player_id?: string | null;
+          revealed_role?: string | null;
+          outcome?: VotingOutcome;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "round_results_round_id_fkey"
+            columns: ["round_id"]
+            isOneToOne: false
+            referencedRelation: "voting_rounds"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "round_results_voted_out_player_id_fkey"
+            columns: ["voted_out_player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          }
+        ]
       }
     }
     Views: {
-      [_ in never]: never
+      active_voting_rounds: {
+        Row: {
+          id: string;
+          room_id: string;
+          round_number: number;
+          phase: VotingPhase;
+          start_time: string;
+          end_time: string | null;
+          created_at: string;
+          updated_at: string;
+          votes_count: number;
+          votes: Database['public']['Tables']['votes']['Row'][];
+          round_result: Database['public']['Tables']['round_results']['Row'] | null;
+        }
+        Relationships: [
+          {
+            foreignKeyName: "voting_rounds_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "game_rooms"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
     }
     Functions: {
       [_ in never]: never
@@ -245,4 +405,37 @@ export interface Player {
   turn_description?: string;
   last_active: string;
   created_at: string;
+}
+
+type GameRoomsRow = {
+  created_at: string;
+  current_player_id: string | null;
+  current_voting_round_id: string | null;
+  discussion_time: number;
+  discussion_timer: number;
+  game_end_countdown: number | null;
+  game_mode: string;
+  game_result: GameResultType | null;
+  game_secret: string | null;
+  game_settings: GameSettings;
+  game_state: GameState;
+  game_type: string;
+  host_id: string;
+  id: string;
+  max_players: number;
+  max_rounds: number;
+  presenting_time: number;
+  presenting_timer: number;
+  round: number;
+  secret_word: string | null;
+  team_size: number;
+  turn_order: string[];
+  turn_started_at: string | null;
+  turn_timer: number;
+  updated_at: string;
+  voting_time: number;
+  voting_timer: number;
+  chaos_mode: boolean;
+  last_updated: string;
+  voted_out_player: string | null;
 }

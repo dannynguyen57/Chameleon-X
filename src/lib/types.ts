@@ -83,7 +83,9 @@ export enum GameResultType {
   ImposterCaught = 'imposter_caught',
   InnocentVoted = 'innocent_voted',
   JesterWins = 'jester_wins',
-  Tie = 'tie'
+  Tie = 'tie',
+  ChameleonFound = 'chameleon_found',
+  ChameleonSurvived = 'chameleon_survived'
 }
 
 export type GameResult = {
@@ -143,9 +145,58 @@ export type DatabaseRoom = {
   last_updated?: string;
   max_rounds?: number;
   host_id?: string;
+  current_voting_round_id?: string | null;
+  turn_order: string[];
+  discussion_timer: number;
+  voting_timer: number;
+  turn_timer: number;
+  presenting_timer: number;
 };
 
 export type GamePhase = 'lobby' | 'selecting' | 'presenting' | 'discussion' | 'voting' | 'results';
+
+export enum VotingPhase {
+  Discussion = 'discussion',
+  Voting = 'voting',
+  Results = 'results'
+}
+
+export enum VotingOutcome {
+  ChameleonFound = 'chameleon_found',
+  ChameleonSurvived = 'chameleon_survived',
+  Tie = 'tie'
+}
+
+export interface VotingRound {
+  id: string;
+  room_id: string;
+  round_number: number;
+  phase: VotingPhase;
+  start_time: string;
+  end_time: string | null;
+  created_at: string;
+  updated_at: string;
+  votes?: Vote[];
+  votes_count?: number;
+}
+
+export interface Vote {
+  id: string;
+  round_id: string;
+  voter_id: string;
+  target_id: string;
+  created_at: string;
+}
+
+export interface RoundResult {
+  id: string;
+  round_id: string;
+  voted_out_player_id: string | null;
+  revealed_role: PlayerRole | null;
+  outcome: VotingOutcome;
+  created_at: string;
+  updated_at: string;
+}
 
 export interface GameRoom {
   id: string;
@@ -164,13 +215,6 @@ export interface GameRoom {
   updated_at: string;
   round: number;
   max_rounds: number;
-  round_outcome: GameResultType | null;
-  votes_tally: Record<string, number>;
-  votes: Record<string, string>;
-  results: GameResultType[];
-  revealed_player_id: string | null;
-  revealed_role: PlayerRole | null;
-  last_updated: string;
   host_id: string;
   max_players: number;
   discussion_time: number;
@@ -183,6 +227,9 @@ export interface GameRoom {
   player_count: number;
   turn_timer: number;
   current_phase: GamePhase;
+  current_voting_round?: VotingRound;
+  current_round_result?: RoundResult;
+  current_voting_round_id?: string | null;
 }
 
 export interface ChatMessage {
@@ -290,6 +337,7 @@ export interface Database {
           voting_timer: number;
           turn_timer: number;
           presenting_timer: number;
+          current_voting_round_id?: string | null;
         };
         Insert: {
           id: string;
@@ -325,6 +373,7 @@ export interface Database {
           voting_timer?: number;
           turn_timer?: number;
           presenting_timer?: number;
+          current_voting_round_id?: string | null;
         };
         Update: {
           id?: string;
@@ -360,6 +409,7 @@ export interface Database {
           voting_timer?: number;
           turn_timer?: number;
           presenting_timer?: number;
+          current_voting_round_id?: string | null;
         };
       };
       players: {

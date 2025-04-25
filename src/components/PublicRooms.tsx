@@ -44,7 +44,7 @@ export default function PublicRooms({ onSwitchTab }: PublicRoomsProps) {
         .from('game_rooms')
         .select(`
           *,
-          players:players(*)
+          players!players_room_id_fkey(*)
         `)
         .eq('state', 'lobby')
         .order('created_at', { ascending: false });

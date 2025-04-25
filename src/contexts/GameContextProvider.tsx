@@ -16,13 +16,13 @@ import { convertToExtendedRoom } from '@/lib/roomUtils';
 
 // Extend the base GameRoom type with additional timer fields
 export interface ExtendedGameRoom extends BaseGameRoom {
-  presenting_timer: number;  // Time for each player's turn
-  discussion_timer: number;  // Time for discussion phase
-  voting_timer: number;     // Time for voting phase
-  turn_timer: number;       // Current time left for individual player
-  turn_started_at?: string;
-  chameleon_count: number;
   player_count: number;
+  chameleon_count: number;
+  presenting_timer: number;
+  discussion_timer: number;
+  voting_timer: number;
+  turn_timer: number;
+  turn_started_at?: string;
   presenting_time: number;
   game_mode: string;
   team_size: number;
@@ -34,15 +34,11 @@ export interface ExtendedGameRoom extends BaseGameRoom {
   round: number;
   max_rounds: number;
   turn_order: string[];
-  votes_tally: Record<string, number>;
-  votes: Record<string, string>;
-  results: GameResultType[];
-  round_outcome: GameResultType | null;
-  revealed_player_id: string | null;
-  revealed_role: PlayerRole | null;
-  last_updated: string;
   updated_at: string;
   created_at: string;
+  current_voting_round_id?: string | null;
+  last_updated: string;
+  voted_out_player?: string | null;
 }
 
 // export const useGame = () => {

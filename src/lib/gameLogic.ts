@@ -1,6 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
-import { GameRoom, GameSettings, GameState, Player, WordCategory, GameResultType } from '@/lib/types';
-import { mapRoomData, DatabaseRoom as MappedDatabaseRoom } from '@/hooks/useGameRealtime';
+import { GameRoom, GameSettings, GameState, Player, WordCategory, GameResultType, VotingPhase, VotingOutcome, Vote, VotingRound } from '@/lib/types';
+import { mapRoomData, DatabaseRoom } from '@/hooks/useGameRealtime';
 import { PlayerRole } from '@/types/PlayerRole';
 
 // --- Exported Helper Functions & Types ---
@@ -65,7 +65,11 @@ export const fetchRoom = async (roomId: string): Promise<GameRoom | null> => {
     // First get the room data
     const { data: roomData, error: roomError } = await supabase
       .from('game_rooms')
-      .select('*')
+      .select(`
+        *,
+        players!players_room_id_fkey(*),
+        voted_out_player:players!game_rooms_voted_out_player_fkey(*)
+      `)
       .eq('id', roomId)
       .single();
 
@@ -85,7 +89,8 @@ export const fetchRoom = async (roomId: string): Promise<GameRoom | null> => {
     const { data: playersData, error: playersError } = await supabase
       .from('players')
       .select('*')
-      .eq('room_id', roomId);
+      .eq('room_id', roomId)
+      .eq('id', roomData.voted_out_player || '');
 
     if (playersError) {
       console.error('Error fetching players:', playersError);
@@ -103,7 +108,7 @@ export const fetchRoom = async (roomId: string): Promise<GameRoom | null> => {
     console.log('Combined data:', combinedData);
 
     // Use mapRoomData to convert the database response to GameRoom type
-    const mappedRoom = mapRoomData(combinedData as MappedDatabaseRoom);
+    const mappedRoom = mapRoomData(combinedData as DatabaseRoom);
     console.log('Mapped room:', mappedRoom);
     
     return mappedRoom;
@@ -228,80 +233,175 @@ export const updatePlayer = async (playerId: string, roomId: string, updates: Pa
   }
 };
 
+const handleVotingResults = async (
+  room: GameRoom,
+  votingRound: VotingRound & { votes: Vote[] },
+  roomId: string
+): Promise<{ nextState: GameState; updateData?: Partial<DatabaseRoom> }> => {
+  // Calculate vote counts more efficiently
+  const voteCounts = new Map<string, number>();
+  for (const vote of votingRound.votes) {
+    voteCounts.set(vote.target_id, (voteCounts.get(vote.target_id) || 0) + 1);
+  }
+
+  const maxVotes = Math.max(...voteCounts.values());
+  const votedPlayers = Array.from(voteCounts.entries())
+    .filter(([_, count]) => count === maxVotes)
+    .map(([id]) => id);
+
+  if (votedPlayers.length === 1) {
+    const votedOutPlayer = votedPlayers[0];
+    const votedOutPlayerObj = room.players.find(p => p.id === votedOutPlayer);
+    const isChameleon = votedOutPlayerObj?.role === PlayerRole.Chameleon;
+
+    // Create round result
+    const { error: resultError } = await supabase
+      .from('round_results')
+      .insert({
+        round_id: votingRound.id,
+        voted_out_player_id: votedOutPlayer,
+        revealed_role: votedOutPlayerObj?.role || null,
+        outcome: isChameleon ? VotingOutcome.ChameleonFound : VotingOutcome.ChameleonSurvived
+      });
+
+    if (resultError) throw resultError;
+
+    // Update voting round
+    await supabase
+      .from('voting_rounds')
+      .update({ 
+        phase: VotingPhase.Results,
+        end_time: new Date().toISOString()
+      })
+      .eq('id', votingRound.id);
+
+    return {
+      nextState: isChameleon ? GameState.Results : GameState.Presenting,
+      updateData: isChameleon ? undefined : { round: room.round + 1 }
+    };
+  }
+
+  // Handle tie - create new voting round
+  const { error: newVotingError } = await supabase
+    .from('voting_rounds')
+    .insert({
+      room_id: roomId,
+      round_number: room.round,
+      phase: VotingPhase.Voting,
+      start_time: new Date().toISOString()
+    });
+
+  if (newVotingError) throw newVotingError;
+
+  return { nextState: GameState.Voting };
+};
+
+// Add these helper functions at the top level
+const createShuffledTurnOrder = (players: Player[]): string[] => {
+  const shuffledPlayers = [...players];
+  for (let i = shuffledPlayers.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffledPlayers[i], shuffledPlayers[j]] = [shuffledPlayers[j], shuffledPlayers[i]];
+  }
+  return shuffledPlayers.map(p => p.id);
+};
+
+const resetGameState = async (roomId: string): Promise<Partial<DatabaseRoom>> => {
+  await supabase
+    .from('players')
+    .update({ 
+      vote: null,
+      turn_description: null,
+      role: null,
+      is_protected: false,
+      vote_multiplier: 1,
+      special_word: null,
+      special_ability_used: false
+    })
+    .eq('room_id', roomId);
+    
+  return { 
+    state: GameState.Lobby,
+    presenting_timer: 0,
+    discussion_timer: 0,
+    voting_timer: 0,
+    current_turn: 0,
+    turn_order: [],
+    round: 1,
+    category: undefined,
+    secret_word: undefined,
+    chameleon_id: undefined,
+    round_outcome: null,
+    votes_tally: {},
+    votes: {},
+    revealed_player_id: null,
+    revealed_role: null,
+    voted_out_player: null
+  };
+};
+
 export const handleGameStateTransition = async (
   roomId: string,
   currentState: GameState,
-  settings: GameSettings,
-  room: GameRoom
-) => {
+  playerId: string,
+  settings: GameSettings
+): Promise<GameState | null> => {
   try {
-    let updateData: Partial<GameRoom> = {};
     let determinedNextState: GameState | null = null;
+    let updateData: Partial<DatabaseRoom> = {};
+
+    // Get current room data
+    const { data: roomData } = await supabase
+      .from('game_rooms')
+      .select(`
+        *,
+        players!players_room_id_fkey(*),
+        current_voting_round:voting_rounds!voting_rounds_room_id_fkey(*),
+        current_round_result:round_results!round_results_round_id_fkey(*)
+      `)
+      .eq('id', roomId)
+      .single();
+
+    if (!roomData) return null;
+
+    const room = mapRoomData(roomData as DatabaseRoom);
 
     switch (currentState) {
      case GameState.Lobby: {
-       const nextStateConst = GameState.Selecting;
-       determinedNextState = nextStateConst;
-       
-       // Assign roles before transitioning to Selecting state
+       determinedNextState = GameState.Selecting;
        await assignRoles(roomId, room.players);
        
-       // Create random turn order with improved randomization
-       const shuffledPlayers = [...room.players];
-       // Use a more robust shuffle algorithm
-       for (let i = shuffledPlayers.length - 1; i > 0; i--) {
-         // Use a cryptographically secure random number if available
-         const j = Math.floor((Math.random() * (i + 1)) * 1000) % (i + 1);
-         [shuffledPlayers[i], shuffledPlayers[j]] = [shuffledPlayers[j], shuffledPlayers[i]];
-       }
-       
-       // Log the shuffled order for debugging
-       console.log('Shuffled players for Lobby transition:', shuffledPlayers.map(p => ({ id: p.id, name: p.name, is_host: p.is_host })));
-       
        updateData = { 
-         state: nextStateConst,
+         state: determinedNextState,
          round: 1,
          presenting_timer: settings.presenting_time,
          current_turn: 0,
-         turn_order: shuffledPlayers.map(p => p.id),
+         turn_order: createShuffledTurnOrder(room.players),
          round_outcome: null,
          votes_tally: {},
          votes: {},
          results: [],
          last_updated: new Date().toISOString(),
          updated_at: new Date().toISOString()
-       };
+       } as Partial<DatabaseRoom>;
        break;
      }
     
      case GameState.Selecting: {
-       const nextStateConst = GameState.Presenting;
-       determinedNextState = nextStateConst;
-       
-       // Create random turn order
-       const shuffledPlayers = [...room.players];
-       // Fisher-Yates shuffle algorithm for true randomness
-       for (let i = shuffledPlayers.length - 1; i > 0; i--) {
-         const j = Math.floor(Math.random() * (i + 1));
-         [shuffledPlayers[i], shuffledPlayers[j]] = [shuffledPlayers[j], shuffledPlayers[i]];
-       }
-       
-       // Log the shuffled order for debugging
-       console.log('Shuffled players for Selecting transition:', shuffledPlayers.map(p => ({ id: p.id, name: p.name, is_host: p.is_host })));
-       
+       determinedNextState = GameState.Presenting;
        updateData = { 
-         state: nextStateConst,
+         state: determinedNextState,
          presenting_timer: settings.presenting_time,
          current_turn: 0,
-         turn_order: shuffledPlayers.map(p => p.id),
-         round_outcome: null, 
+         turn_order: createShuffledTurnOrder(room.players),
+         round_outcome: null,
          votes_tally: {},
          votes: {},
          revealed_player_id: null,
          revealed_role: null,
          last_updated: new Date().toISOString(),
          updated_at: new Date().toISOString()
-       };
+       } as Partial<DatabaseRoom>;
        break;
      }
     
@@ -353,92 +453,59 @@ export const handleGameStateTransition = async (
      case GameState.Discussion: {
        const nextStateConst = GameState.Voting;
        determinedNextState = nextStateConst;
-       updateData = { 
+       
+       // Create new voting round
+       const { data: votingRound, error: votingError } = await supabase
+         .from('voting_rounds')
+         .insert({
+           room_id: roomId,
+           round_number: room.round,
+           phase: VotingPhase.Voting,
+           start_time: new Date().toISOString()
+         })
+         .select()
+         .single();
+
+       if (votingError) {
+         console.error('Error creating voting round:', votingError);
+         throw votingError;
+       }
+
+       updateData = {
          state: nextStateConst,
          voting_timer: settings.voting_time,
          current_turn: 0,
-         votes_tally: {},
-         votes: {},
-         last_updated: new Date().toISOString(),
-         updated_at: new Date().toISOString()
-       };
-       await supabase.from('players').update({ vote: null }).eq('room_id', roomId);
+         current_voting_round_id: votingRound.id,
+         last_updated: new Date().toISOString()
+       } as Partial<DatabaseRoom>;
        break;
      }
     
      case GameState.Voting: {
-       const nextStateConst = GameState.Results;
-       determinedNextState = nextStateConst;
-       
-       // Calculate vote results
-       const votes = room.players.reduce((acc, player) => {
-         if (player.vote) {
-           acc[player.vote] = (acc[player.vote] || 0) + 1;
-         }
-         return acc;
-       }, {} as Record<string, number>);
-       
-       // Find the player with the most votes
-       const maxVotes = Math.max(...Object.values(votes));
-       const votedPlayers = Object.entries(votes)
-         .filter(([_, count]) => count === maxVotes)
-         .map(([id]) => id);
-       
-       // If there's a tie, no one is eliminated
-       const eliminatedPlayerId = votedPlayers.length === 1 ? votedPlayers[0] : null;
-       
-       // Determine if the Chameleon was caught
-       const isChameleonCaught = eliminatedPlayerId === room.chameleon_id;
-       
-       updateData = { 
-         state: nextStateConst,
-         presenting_timer: 0,
-         discussion_timer: 0,
-         voting_timer: 0,
-         current_turn: 0,
-         votes_tally: votes,
-         round_outcome: isChameleonCaught ? GameResultType.ImposterCaught : GameResultType.InnocentVoted,
-         revealed_player_id: eliminatedPlayerId,
-         revealed_role: eliminatedPlayerId ? room.players.find(p => p.id === eliminatedPlayerId)?.role : null
-       };
+       const { data: votingRound, error: votingError } = await supabase
+         .from('voting_rounds')
+         .select('*, votes(*)')
+         .eq('room_id', roomId)
+         .eq('round_number', room.round)
+         .single();
+
+       if (votingError) throw votingError;
+
+       const allVoted = room.players.every(player => 
+         votingRound.votes.some((vote: Vote) => vote.voter_id === player.id)
+       );
+
+       if (allVoted) {
+         const { nextState, updateData: voteUpdateData } = await handleVotingResults(room, votingRound, roomId);
+         determinedNextState = nextState;
+         if (voteUpdateData) updateData = voteUpdateData;
+       }
        break;
      }
     
      case GameState.Results: {
-       const nextStateConst = GameState.Lobby;
-       determinedNextState = nextStateConst;
-       
-       // Reset all player states
-       await supabase
-         .from('players')
-         .update({ 
-           vote: null,
-           turn_description: null,
-           role: null,
-           is_protected: false,
-           vote_multiplier: 1,
-           special_word: null,
-           special_ability_used: false
-         })
-         .eq('room_id', roomId);
-       
-       updateData = { 
-         state: nextStateConst,
-         presenting_timer: 0,
-         discussion_timer: 0,
-         voting_timer: 0,
-         current_turn: 0,
-         turn_order: [],
-         round: 1,
-         category: undefined,
-         secret_word: undefined,
-         chameleon_id: undefined,
-         round_outcome: null,
-         votes_tally: {},
-         votes: {},
-         revealed_player_id: null,
-         revealed_role: null
-       };
+       determinedNextState = GameState.Lobby;
+       updateData = await resetGameState(roomId);
        break;
      }
     }
@@ -446,7 +513,11 @@ export const handleGameStateTransition = async (
     if (determinedNextState) {
       const { error } = await supabase
         .from('game_rooms')
-        .update(updateData)
+        .update({
+          ...updateData,
+          state: determinedNextState,
+          last_updated: new Date().toISOString()
+        })
         .eq('id', roomId);
 
       if (error) {

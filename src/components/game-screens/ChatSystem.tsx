@@ -29,39 +29,39 @@ const ChatMessageItem = memo(({ message, playerId, truncateName }: { message: Ch
   return (
     <div
       className={`flex flex-col ${isOwnMessage ? 'items-end' : 'items-start'}`}
-    >
-      <div
-        className={`max-w-[80%] rounded-lg p-3 ${
+            >
+              <div
+                className={`max-w-[80%] rounded-lg p-3 ${
           isOwnMessage
-            ? 'bg-primary text-primary-foreground'
-            : 'bg-muted'
-        }`}
-      >
-        <div className="flex items-start gap-3">
-          <Avatar className="flex-shrink-0">
-            <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${message.player_name}`} />
-            <AvatarFallback>{message.player_name[0]}</AvatarFallback>
-          </Avatar>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="font-semibold truncate" title={message.player_name}>
-                {truncateName(message.player_name)}
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted'
+                }`}
+              >
+            <div className="flex items-start gap-3">
+              <Avatar className="flex-shrink-0">
+                <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${message.player_name}`} />
+                <AvatarFallback>{message.player_name[0]}</AvatarFallback>
+              </Avatar>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold truncate" title={message.player_name}>
+                    {truncateName(message.player_name)}
+                  </span>
+                  {message.is_hint && (
+                    <Badge variant="outline" className="flex-shrink-0">
+                      <Lightbulb className="w-3 h-3 mr-1" />
+                      Hint
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-sm text-muted-foreground mt-1">{message.content}</p>
+              </div>
+              <span className="text-xs text-muted-foreground self-end">
+                {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </span>
-              {message.is_hint && (
-                <Badge variant="outline" className="flex-shrink-0">
-                  <Lightbulb className="w-3 h-3 mr-1" />
-                  Hint
-                </Badge>
-              )}
             </div>
-            <p className="text-sm text-muted-foreground mt-1">{message.content}</p>
           </div>
-          <span className="text-xs text-muted-foreground self-end">
-            {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </span>
         </div>
-      </div>
-    </div>
   );
 });
 ChatMessageItem.displayName = 'ChatMessageItem';
@@ -501,15 +501,15 @@ export default function ChatSystem() {
         >
           Retry
         </Button>
-      </div>
+    </div>
     );
   }
 
   // Main chat UI
   return (
     <div className="flex flex-col h-[600px] relative bg-card shadow-md rounded-lg border overflow-hidden">
-      <ScrollArea
-        ref={scrollRef}
+      <ScrollArea 
+        ref={scrollRef} 
         className="flex-1 p-4"
         onScroll={handleScroll}
         style={{ overflowY: 'auto', height: 'calc(100% - 120px)' }}

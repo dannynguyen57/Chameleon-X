@@ -21,7 +21,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Check, Clock, Lightbulb, Trophy, Gamepad2, Users, MessageSquare, Vote, CheckCircle, XCircle, Smile, ShieldCheck, Award, Shield, Search, Laugh, Crown, Eye, EyeOff, Timer, UserCircle2, ChevronDown, ChevronUp } from "lucide-react";
+import { Check, Clock, Lightbulb, Trophy, Gamepad2, Users, MessageSquare, Vote as VoteIcon, CheckCircle, XCircle, Smile, ShieldCheck, Award, Shield, Search, Laugh, Crown, Eye, EyeOff, Timer, UserCircle2, ChevronDown, ChevronUp } from "lucide-react";
 
 import ChatSystem from "./ChatSystem";
 import DevModeSetup from '@/components/dev/DevModeSetup';
@@ -542,13 +542,22 @@ const shouldShowRole = (room: GameRoom, playerId: string, currentPlayerId?: stri
   return room.state === GameState.Results || playerId === currentPlayerId;
 };
 
+// Define a local interface for vote objects to avoid type conflicts
+interface VoteObject {
+  id: string;
+  round_id: string;
+  voter_id: string;
+  target_id: string;
+  created_at: string;
+}
+
 export default function GamePlay() {
   const { room, isPlayerChameleon, remainingTime, settings, playerId, setRoom, resetGame, startGame } = useGame();
   const { submitWord, submitVote, nextRound, resetGame: resetGameAction } = useGameActions(playerId, room ? convertToExtendedRoom(room) : null, settings, setRoom);
   const [selectedVote, setSelectedVote] = useState<string | null>(null);
   const [isPlayersPanelOpen, setIsPlayersPanelOpen] = useState(false);
   const [isRolePanelOpen, setIsRolePanelOpen] = useState(false);
-  const hasVoted = Boolean(room?.votes?.[playerId]);
+  const hasVoted = room?.current_voting_round?.votes?.some(vote => vote.voter_id === playerId) || false;
   const isDevMode = import.meta.env.VITE_ENABLE_DEV_MODE === 'false';
   const [isGameInfoOpen, setIsGameInfoOpen] = useState(true);
   const [isStarting, setIsStarting] = useState(false);
@@ -562,7 +571,7 @@ export default function GamePlay() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (room && room.state === GameState.Presenting) {
+    if (room && (room.state === GameState.Presenting || room.state === GameState.Lobby)) {
       setIsLoading(false);
     }
   }, [room]);
@@ -606,14 +615,28 @@ export default function GamePlay() {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-4">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-        <p className="text-muted-foreground">Connecting to game...</p>
-        <p className="text-sm text-muted-foreground">If this persists, try refreshing the page.</p>
+        <p className="text-muted-foreground">Player session expired or disconnected.</p>
+        <Button onClick={() => window.location.reload()}>Reconnect</Button>
       </div>
     );
   }
 
   const currentTurnPlayer = room.players.find(p => p.id === room.turn_order?.[room.current_turn || 0]);
-  if (!currentTurnPlayer) return null;
+  if (!currentTurnPlayer) {
+    // Handle missing turn player
+    console.error('Turn player not found:', {
+      currentTurn: room.current_turn,
+      turnOrder: room.turn_order,
+      players: room.players.map(p => ({ id: p.id, name: p.name }))
+    });
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        <p className="text-muted-foreground">Syncing game state...</p>
+        <Button onClick={() => window.location.reload()}>Refresh</Button>
+      </div>
+    );
+  }
 
   const isCurrentPlayerTurn = currentPlayer?.id === currentTurnPlayer?.id;
 
@@ -943,53 +966,185 @@ export default function GamePlay() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -20 }}
                   transition={{ duration: 0.3 }}
+                  className="space-y-6"
                 >
                   <Card className="border shadow-sm bg-background/50 backdrop-blur-sm">
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2">
-                        <Vote className="w-5 h-5" />
+                        <VoteIcon className="w-5 h-5" />
                         Vote for the Chameleon
                       </CardTitle>
+                      <CardDescription>
+                        {hasVoted 
+                          ? "Your vote has been cast. Waiting for others..." 
+                          : "Choose carefully - who do you think is the Chameleon?"}
+                      </CardDescription>
                     </CardHeader>
-                    <CardContent>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {room.players.map((player) => (
-                          <Card
-                            key={player.id}
-                            className={cn(
-                              "p-4 cursor-pointer transition-all duration-200",
-                              selectedVote === player.id
-                                ? "border-primary bg-primary/5"
-                                : "hover:border-primary/50"
-                            )}
-                            onClick={() => !hasVoted && setSelectedVote(player.id)}
-                          >
-                            <div className="flex items-center gap-3">
-                              <Avatar className="flex-shrink-0">
-                                <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}`} />
-                                <AvatarFallback>{player.name[0]}</AvatarFallback>
-                              </Avatar>
-                              <div className="flex-1 min-w-0">
-                                <h3 className="font-semibold truncate" title={player.name}>
-                                  {truncateName(player.name)}
-                                </h3>
-                                <p className="text-sm text-muted-foreground truncate">
-                                  {player.turn_description || "No description yet"}
-                                </p>
-                              </div>
-                            </div>
-                          </Card>
-                        ))}
-                      </div>
-                      {!hasVoted && selectedVote && (
-                        <div className="mt-6 text-center">
-                          <Button
-                            className="w-full max-w-xs"
-                            onClick={() => handleVote()}
-                          >
-                            Submit Vote
-                          </Button>
+                    <CardContent className="space-y-6">
+                      {/* Vote Progress */}
+                      <div className="relative">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm text-muted-foreground">
+                            Voting Progress
+                          </span>
+                          <Badge variant="secondary" className="bg-primary/20">
+                            {room.current_voting_round?.votes?.length || 0} / {room.players.length} votes
+                          </Badge>
                         </div>
+                        <div className="w-full h-3 bg-muted rounded-full overflow-hidden">
+                          <motion.div
+                            className="h-full bg-primary"
+                            initial={{ width: "0%" }}
+                            animate={{ 
+                              width: `${((room.current_voting_round?.votes?.length || 0) / room.players.length) * 100}%` 
+                            }}
+                            transition={{ duration: 0.5 }}
+                          />
+                        </div>
+                        {/* Time Remaining */}
+                        <div className="mt-1 text-xs text-muted-foreground text-right">
+                          {remainingTime.timeLeft > 0 && (
+                            <span>Time remaining: {formatTime(remainingTime.timeLeft)}</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Player Cards Grid */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {room.players
+                          .filter(player => !hasVoted || player.id === selectedVote || !room.current_voting_round?.votes?.some(vote => vote.voter_id === player.id))
+                          .map((player) => {
+                          const voteCount = room.current_voting_round?.votes?.filter(vote => vote.target_id === player.id).length || 0;
+                          const hasVotedFor = room.current_voting_round?.votes?.some(vote => vote.voter_id === playerId && vote.target_id === player.id);
+                          const isCurrentPlayer = player.id === playerId;
+                          
+                          return (
+                            <motion.div
+                              key={player.id}
+                              initial={{ opacity: 0, scale: 0.95 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              transition={{ duration: 0.3 }}
+                            >
+                              <Card
+                                className={cn(
+                                  "p-4 transition-all duration-200 relative overflow-hidden transform hover:scale-105",
+                                  selectedVote === player.id
+                                    ? "border-primary bg-primary/5 ring-2 ring-primary shadow-lg"
+                                    : "hover:border-primary/50 hover:shadow-md",
+                                  hasVotedFor && "border-primary bg-primary/10",
+                                  isCurrentPlayer && "opacity-50 cursor-not-allowed border-muted"
+                                )}
+                                onClick={() => !hasVoted && !isCurrentPlayer && setSelectedVote(player.id)}
+                              >
+                                {/* Vote Count Badge */}
+                                {voteCount > 0 && (
+                                  <motion.div
+                                    initial={{ opacity: 0, y: -10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    className="absolute top-2 right-2"
+                                  >
+                                    <Badge 
+                                      variant="secondary"
+                                      className="bg-primary/20 font-semibold"
+                                    >
+                                      {voteCount} {voteCount === 1 ? 'vote' : 'votes'}
+                                    </Badge>
+                                  </motion.div>
+                                )}
+
+                                {/* Your Vote Indicator */}
+                                {hasVotedFor && (
+                                  <motion.div
+                                    initial={{ opacity: 0, x: -10 }}
+                                    animate={{ opacity: 1, x: 0 }}
+                                    className="absolute top-2 left-2"
+                                  >
+                                    <Badge variant="outline" className="bg-primary/20">
+                                      Your Vote
+                                    </Badge>
+                                  </motion.div>
+                                )}
+
+                                {/* Current Player Indicator */}
+                                {isCurrentPlayer && (
+                                  <motion.div
+                                    initial={{ opacity: 0, x: -10 }}
+                                    animate={{ opacity: 1, x: 0 }}
+                                    className="absolute top-2 left-2"
+                                  >
+                                    <Badge variant="outline" className="bg-muted">
+                                      You
+                                    </Badge>
+                                  </motion.div>
+                                )}
+
+                                <div className="flex items-center gap-3 mt-6">
+                                  <Avatar className="h-12 w-12">
+                                    <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}`} />
+                                    <AvatarFallback>{player.name[0]}</AvatarFallback>
+                                  </Avatar>
+                                  <div className="flex-1 min-w-0">
+                                    <h3 className="font-semibold truncate" title={player.name}>
+                                      {truncateName(player.name)}
+                                    </h3>
+                                    <p className="text-sm text-muted-foreground truncate">
+                                      {player.turn_description || "No description given"}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {/* Selection Overlay */}
+                                {selectedVote === player.id && !hasVoted && (
+                                  <motion.div
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    className="absolute inset-0 bg-primary/5 flex items-center justify-center pointer-events-none"
+                                  >
+                                    <Badge variant="secondary" className="bg-primary/20 text-lg">
+                                      Selected
+                                    </Badge>
+                                  </motion.div>
+                                )}
+                              </Card>
+                            </motion.div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Vote Button */}
+                      {!hasVoted && selectedVote && selectedVote !== playerId && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="flex justify-center"
+                        >
+                          <Button
+                            className="w-full max-w-md"
+                            onClick={handleVote}
+                            size="lg"
+                            variant="default"
+                          >
+                            <VoteIcon className="w-4 h-4 mr-2" />
+                            Confirm Vote
+                          </Button>
+                        </motion.div>
+                      )}
+
+                      {/* Waiting Message */}
+                      {hasVoted && (
+                        <motion.div
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          className="text-center space-y-4"
+                        >
+                          <div className="flex items-center justify-center gap-2 text-primary">
+                            <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent" />
+                            <p>Waiting for other players to vote...</p>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {room.players.length - (room.current_voting_round?.votes?.length || 0)} players still need to vote
+                          </p>
+                        </motion.div>
                       )}
                     </CardContent>
                   </Card>

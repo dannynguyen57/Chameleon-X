@@ -71,6 +71,7 @@ export interface DatabaseRoom {
   voting_time: number;
   chameleon_count: number;
   player_count: number;
+  voted_out_player: string | null;
 }
 
 export const mapRoomData = (room: DatabaseRoom): GameRoom => {
@@ -122,13 +123,6 @@ export const mapRoomData = (room: DatabaseRoom): GameRoom => {
     turn_order: room.turn_order || [],
     round: room.round || 1,
     max_rounds: room.max_rounds || 1,
-    round_outcome: room.round_outcome || null,
-    votes_tally: room.votes_tally || {},
-    votes: room.votes || {},
-    results: room.results || [],
-    revealed_player_id: room.revealed_player_id || null,
-    revealed_role: room.revealed_role || null,
-    last_updated: room.last_updated || new Date().toISOString(),
     host_id: room.host_id || '',
     max_players: room.max_players || 10,
     discussion_time: room.discussion_time || 120,
@@ -164,7 +158,12 @@ export const useGameRealtime = (roomId: string | undefined): { room: GameRoom | 
       console.log('Fetching room data for room:', roomId);
       const { data, error: fetchErr } = await supabase
         .from('game_rooms')
-        .select('*, players!players_room_id_fkey (*)')
+        .select(`
+          *,
+          players!players_room_id_fkey(*),
+          current_voting_round:voting_rounds!voting_rounds_room_id_fkey(*),
+          current_round_result:round_results!round_results_round_id_fkey(*)
+        `)
         .eq('id', roomId)
         .single();
 
@@ -367,7 +366,7 @@ export const useGameRealtime = (roomId: string | undefined): { room: GameRoom | 
             });
             
             // Check if this is a newer update than what we have
-            const currentTimestamp = room?.last_updated;
+            const currentTimestamp = room?.updated_at;
             if (currentTimestamp && timestamp && new Date(timestamp) <= new Date(currentTimestamp)) {
               console.log('Ignoring older update:', { currentTimestamp, newTimestamp: timestamp });
               return;

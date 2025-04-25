@@ -394,7 +394,7 @@ export const handleGameStateTransition = async (
          presenting_timer: settings.presenting_time,
          current_turn: 0,
          turn_order: createShuffledTurnOrder(room.players),
-         round_outcome: null,
+         round_outcome: null, 
          votes_tally: {},
          votes: {},
          revealed_player_id: null,
@@ -471,7 +471,7 @@ export const handleGameStateTransition = async (
          throw votingError;
        }
 
-       updateData = {
+       updateData = { 
          state: nextStateConst,
          voting_timer: settings.voting_time,
          current_turn: 0,

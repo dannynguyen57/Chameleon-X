@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useGame } from '@/hooks/useGame';
 import { useGameActions } from "@/hooks/useGameActions";
 import { convertToExtendedRoom } from '@/lib/roomUtils';
+import { handleGameStateTransition } from '@/lib/gameLogic';
 // import { updatePlayer } from "@/lib/gameLogic";
 import { Player, PlayerRole, GameState, GameRoom, GameResultType } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -21,7 +22,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Check, Clock, Lightbulb, Trophy, Gamepad2, Users, MessageSquare, Vote as VoteIcon, CheckCircle, XCircle, Smile, ShieldCheck, Award, Shield, Search, Laugh, Crown, Eye, EyeOff, Timer, UserCircle2, ChevronDown, ChevronUp } from "lucide-react";
+import { Check, Clock, Lightbulb, Trophy, Gamepad2, Users, MessageSquare, Vote as VoteIcon, CheckCircle, XCircle, Smile, ShieldCheck, Award, Shield, Search, Laugh, Crown, Eye, EyeOff, Timer, UserCircle2, ChevronDown, ChevronUp, Loader2, List, Info } from "lucide-react";
 
 import ChatSystem from "./ChatSystem";
 import DevModeSetup from '@/components/dev/DevModeSetup';
@@ -54,18 +55,14 @@ const PlayerRoleDisplay = memo(({ player }: { player: Player }) => {
   const { theme, config } = getRoleStyle(player.role);
   return (
     <div className={cn(
-      'p-4 rounded-lg border',
-      theme.bg,
-      theme.border,
-      theme.text,
-      theme.shadow,
-      theme.hover
+      'p-3 rounded-lg border text-sm',
+      theme.bg, theme.border, theme.text, theme.shadow, theme.hover
     )}>
-      <div className="flex items-center gap-2">
-        <span className="text-2xl">{theme.icon}</span>
+      <div className="flex items-center gap-1.5">
+        <span className="text-lg">{theme.icon}</span>
         <span className="font-semibold">{config.name}</span>
       </div>
-      <p className="mt-2 text-sm opacity-80">{config.description}</p>
+      <p className="mt-1.5 text-xs opacity-80">{config.description}</p>
       {config.abilities && (
         <div className="mt-4">
           <h4 className="text-sm font-medium mb-2">Abilities:</h4>
@@ -100,6 +97,7 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
 }) => {
   const { playerId } = useGame();
   const [description, setDescription] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isBlendingIn, setIsBlendingIn] = useState(false);
   const [isMimicking, setIsMimicking] = useState(false);
   const [isProtecting, setIsProtecting] = useState(false);
@@ -123,6 +121,19 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
 
   const currentTurnPlayer = room.players.find(p => p.id === room.turn_order?.[room.current_turn || 0]);
   const isCurrentPlayerTurn = currentPlayer.id === currentTurnPlayer?.id;
+
+  useEffect(() => {
+    console.log('CurrentTurnCard State:', {
+      isCurrentPlayerTurn,
+      descriptionLength: description.trim().length,
+      canSubmit: description.trim() && isCurrentPlayerTurn,
+      isSubmitting,
+      playerId,
+      currentTurnPlayerId: currentTurnPlayer?.id,
+      roomTurn: room.current_turn,
+      roomTurnOrder: room.turn_order
+    });
+  }, [isCurrentPlayerTurn, description, isSubmitting, playerId, currentTurnPlayer, room.current_turn, room.turn_order]);
 
   const handleAbilityUse = async (ability: string) => {
     switch (ability) {
@@ -167,21 +178,35 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
     setTargetPlayer(playerId);
   };
 
-  const handleSubmitDescription = () => {
-    if (description.trim() && isCurrentPlayerTurn) {
-      onDescriptionSubmit(description);
+  const handleSubmitDescription = async () => {
+    if (!description.trim() || !isCurrentPlayerTurn || isSubmitting) {
+      console.warn('Submit blocked:', { description: description.trim(), isCurrentPlayerTurn, isSubmitting });
+      return;
+    }
+    
+    setIsSubmitting(true);
+    try {
+      await onDescriptionSubmit(description);
       setDescription('');
+    } catch (error) {
+      console.error("Error submitting description:", error);
+      toast.error("Failed to submit description.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleSkipTurn = async () => {
-    if (isCurrentPlayerTurn) {
+    if (isCurrentPlayerTurn && !isSubmitting) {
+      setIsSubmitting(true);
       try {
-        onDescriptionSubmit("skip");
+        await onDescriptionSubmit("skip");
         toast.success("Turn skipped successfully");
       } catch (error) {
         console.error('Error skipping turn:', error);
         toast.error("Failed to skip turn. Please try again.");
+      } finally {
+        setIsSubmitting(false);
       }
     }
   };
@@ -193,40 +218,37 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
     >
-      <Card className="border-2 border-primary/20 shadow-lg overflow-hidden bg-background/50">
-        <CardHeader className="p-4 sm:p-6 bg-gradient-to-br from-primary/5 to-transparent">
+      <Card className="border-2 border-amber-500/20 shadow-xl bg-green-950/70 backdrop-blur-lg overflow-hidden">
+        <CardHeader className="p-4 sm:p-6 bg-gradient-to-b from-amber-900/30 to-transparent border-b border-amber-500/10">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex flex-col items-center sm:items-start gap-2">
-              <div className="flex items-center gap-3">
-                <div className="relative p-2 rounded-full border-2 border-primary/30 bg-primary/10">
-                  <Gamepad2 className="w-6 h-6 text-primary" />
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-2xl sm:text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary/60">
-                    {isCurrentPlayerTurn ? "Your Turn!" : `${currentTurnPlayer?.name}'s Turn`}
-                  </span>
-                  <p className="text-sm sm:text-base text-muted-foreground text-center sm:text-left">
-                    {isCurrentPlayerTurn 
-                      ? "Time to shine! Describe the word without saying it directly"
-                      : "Watch closely and prepare for your turn"}
-                  </p>
-                </div>
+            <div className="flex items-center gap-3">
+              <div className="relative p-2 rounded-full bg-gradient-to-br from-amber-500/20 to-amber-700/20 border border-amber-500/20 shadow-inner">
+                <Clock className="w-6 h-6 text-amber-200" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-2xl sm:text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-amber-300 to-amber-500">
+                  {isCurrentPlayerTurn ? "Your Turn!" : `${currentTurnPlayer?.name}'s Turn`}
+                </span>
+                <p className="text-sm sm:text-base text-amber-200/80">
+                  {isCurrentPlayerTurn 
+                    ? "Describe the secret word creatively!"
+                    : `Waiting for ${currentTurnPlayer?.name || 'player'} to describe...`}
+                </p>
               </div>
             </div>
             <Badge 
               variant="outline" 
               className={cn(
-                "text-lg sm:text-xl transition-all duration-300",
-                "border-2 border-primary/20 bg-primary/5",
+                "text-lg sm:text-xl transition-all duration-300 px-4 py-1.5 rounded-full shadow-md",
+                "border-2 border-amber-600/50 bg-amber-900/60 text-amber-200",
                 remainingTime.isActive && remainingTime.timeLeft <= 10 
-                  ? "text-red-500 border-red-500/50" 
-                  : "",
-                "hover:shadow-md"
+                  ? "text-red-400 border-red-500/50 animate-pulse"
+                  : ""
               )}
             >
               <Timer className={cn(
                 "w-4 h-4 sm:w-5 sm:h-5 mr-2",
-                remainingTime.isActive && remainingTime.timeLeft <= 10 ? "text-red-500" : "text-primary"
+                remainingTime.isActive && remainingTime.timeLeft <= 10 ? "text-red-400" : "text-amber-300"
               )} />
               {formatTime(remainingTime.timeLeft)}
             </Badge>
@@ -234,7 +256,6 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
         </CardHeader>
 
         <CardContent className="p-4 sm:p-6 space-y-6">
-          {/* Role Abilities Section */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {isChameleon && (
               <Button 
@@ -382,43 +403,50 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
             )}
           </div>
 
-          {/* Word Display */}
           <div className="space-y-2">
-            <h4 className="text-sm font-medium flex items-center gap-2">
-              <Shield className="w-4 h-4 text-primary" />
+            <h4 className="text-sm font-medium flex items-center gap-2 text-green-200">
+              <Shield className="w-4 h-4 text-green-300" />
               Secret Word
             </h4>
-            <div className="relative p-6 rounded-lg transition-all duration-200 border-2 border-primary/20 bg-primary/5 hover:shadow-md">
+            <div className={cn(
+              "relative p-6 rounded-lg transition-all duration-200 border-2 hover:shadow-xl",
+              isChameleon
+                ? "bg-gradient-to-br from-red-800/20 to-red-950/30 border-red-500/30"
+                : "bg-gradient-to-br from-green-800/20 to-green-950/30 border-green-500/30"
+            )}>
               {isChameleon ? (
-                <div className="flex flex-col items-center justify-center gap-3">
-                  <div className="text-4xl font-bold tracking-widest text-green-500/40">
+                <div className="flex flex-col items-center justify-center gap-3 text-center">
+                  <motion.div 
+                    animate={{ opacity: [0.5, 1, 0.5] }} 
+                    transition={{ duration: 1.5, repeat: Infinity }}
+                    className="text-4xl font-bold tracking-widest text-red-400/60 filter blur-[2px]"
+                  >
                     ??????
-                  </div>
-                  <p className="text-sm text-muted-foreground text-center">
-                    You are the Chameleon! Try to blend in with your description.
+                  </motion.div>
+                  <p className="text-sm text-red-200/80">
+                    You are the <strong className="text-red-300">Chameleon</strong>! Blend in with your description.
                   </p>
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center gap-3">
-                  <div className="text-4xl font-bold tracking-widest bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary/60">
+                <div className="flex flex-col items-center justify-center gap-3 text-center">
+                  <div className="text-4xl font-bold tracking-widest bg-clip-text text-transparent bg-gradient-to-r from-green-300 to-teal-300">
                     {room.secret_word}
                   </div>
-                  <p className="text-sm text-muted-foreground text-center">
-                    Describe this word without saying it directly!
+                  <p className="text-sm text-green-200/80">
+                    Describe this word <strong className="text-green-100">without</strong> saying it directly!
                   </p>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Description Input */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label htmlFor="description" className="text-sm font-medium flex items-center gap-2">
-                <MessageSquare className="w-4 h-4 text-primary" />
-                Your Description
+              <Label htmlFor="description" className="text-sm font-medium flex items-center gap-2 text-green-200">
+                <MessageSquare className="w-4 h-4 text-green-300" />
+                Your Clue
               </Label>
-              <span className="text-xs text-muted-foreground">
+              <span className="text-xs text-green-300/70">
                 {description.length}/200 characters
               </span>
             </div>
@@ -426,46 +454,56 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
               <Textarea
                 id="description"
                 value={description}
-                onChange={(e) => setDescription(e.target.value.slice(0, 200))}
-                placeholder={isChameleon ? "Try to blend in with your description..." : "Describe the word without saying it directly..."}
+                onChange={(e) => !isSubmitting && setDescription(e.target.value.slice(0, 200))}
+                placeholder={isChameleon ? "Craft your description carefully..." : "Give a clue about the secret word..."}
+                disabled={!isCurrentPlayerTurn || isSubmitting}
                 className={cn(
-                  "min-h-[120px] resize-none transition-all duration-200",
-                  "border-2 border-primary/20 bg-primary/5",
-                  "hover:border-primary/30",
-                  "focus:ring-2 focus:ring-primary/20 focus:border-primary/50",
-                  "placeholder:text-muted-foreground/50"
+                  "min-h-[100px] sm:min-h-[120px] resize-none transition-all duration-200 text-base rounded-lg",
+                  "border-2 border-green-700/50 bg-green-950/60 placeholder:text-green-300/50 text-green-100",
+                  "focus:border-teal-500 focus:ring-2 focus:ring-teal-500/30 focus:bg-green-950/80",
+                  !isCurrentPlayerTurn ? "opacity-60 cursor-not-allowed" : "hover:border-green-600/70"
                 )}
               />
             </div>
           </div>
-          <div className="flex gap-2">
+          
+          <div className="flex flex-col sm:flex-row gap-2">
             <Button 
               onClick={handleSubmitDescription}
-              disabled={!description.trim() || !isCurrentPlayerTurn}
+              disabled={!description.trim() || !isCurrentPlayerTurn || isSubmitting}
+              size="lg"
               className={cn(
-                "flex-1 transition-all duration-200",
-                "border-2 border-primary bg-primary hover:bg-primary/90",
-                "hover:shadow-md",
-                !description.trim() || !isCurrentPlayerTurn ? "opacity-50" : ""
+                "flex-1 transition-all duration-300 ease-in-out transform font-semibold",
+                (!description.trim() || !isCurrentPlayerTurn || isSubmitting)
+                  ? "bg-gray-700 text-gray-400 cursor-not-allowed shadow-inner"
+                  : "bg-gradient-to-r from-teal-500 to-green-500 hover:from-teal-600 hover:to-green-600 text-white shadow-lg hover:scale-[1.02] active:scale-95"
               )}
             >
-              <CheckCircle className="w-4 h-4 mr-2" />
-              Submit Description
+              {isSubmitting && !description.includes("skip") ? (
+                <Loader2 className="w-5 h-5 mr-2 animate-spin" /> 
+              ) : (
+                <CheckCircle className="w-5 h-5 mr-2" />
+              )}
+              {isSubmitting && !description.includes("skip") ? "Submitting..." : "Submit Clue"}
             </Button>
             <Button 
               onClick={handleSkipTurn}
               variant="outline"
-              disabled={!isCurrentPlayerTurn}
+              size="lg"
+              disabled={!isCurrentPlayerTurn || isSubmitting}
               className={cn(
-                "transition-all duration-200",
-                "border-2 border-primary/20 bg-primary/5",
-                "hover:border-primary/30 hover:bg-primary/10",
-                "hover:shadow-md",
-                !isCurrentPlayerTurn ? "opacity-50" : ""
+                "transition-all duration-200 font-medium sm:flex-none",
+                "border-2 border-amber-600/50 bg-amber-900/40 hover:bg-amber-800/50 text-amber-200",
+                "hover:border-amber-500/70 hover:shadow-md active:scale-95",
+                (!isCurrentPlayerTurn || isSubmitting) ? "opacity-50 cursor-not-allowed" : ""
               )}
             >
-              <XCircle className="w-4 h-4 mr-2" />
-              Skip Turn
+              {isSubmitting && description === "skip" ? (
+                 <Loader2 className="w-4 h-4 mr-2 animate-spin" /> 
+              ) : (
+                 <XCircle className="w-4 h-4 mr-2" /> 
+              )}
+               {isSubmitting && description === "skip" ? "Skipping..." : "Skip Turn"}
             </Button>
           </div>
         </CardContent>
@@ -561,6 +599,7 @@ export default function GamePlay() {
   const isDevMode = import.meta.env.VITE_ENABLE_DEV_MODE === 'false';
   const [isGameInfoOpen, setIsGameInfoOpen] = useState(true);
   const [isStarting, setIsStarting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const truncateName = (name: string, maxLength: number = 12) => {
     if (name.length <= maxLength) return name;
@@ -571,7 +610,8 @@ export default function GamePlay() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (room && (room.state === GameState.Presenting || room.state === GameState.Lobby)) {
+    // If room exists and is in a valid game state (not just Presenting/Lobby)
+    if (room && room.state) { 
       setIsLoading(false);
     }
   }, [room]);
@@ -664,8 +704,9 @@ export default function GamePlay() {
   };
 
   const handleVote = () => {
-    if (selectedVote && room) {
-      submitVote(selectedVote);
+    if (selectedVote && room && !isSubmitting) {
+      setIsSubmitting(true);
+      submitVote(selectedVote).finally(() => setIsSubmitting(false));
     }
   };
 
@@ -682,6 +723,16 @@ export default function GamePlay() {
     }
   };
 
+  const handleNextRound = async () => {
+    if (!room) return;
+    try {
+      await handleGameStateTransition(room.id, room.state, playerId, room.settings);
+    } catch (error) {
+      console.error('Error transitioning to next round:', error);
+      toast.error('Failed to start next round. Please try again.');
+    }
+  };
+
   // If in dev mode and no room is available, show the dev mode setup
   if (isDevMode && !room) {
     return (
@@ -692,132 +743,187 @@ export default function GamePlay() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background to-background/80">
-      <div className="container mx-auto p-4 space-y-6">
-        {/* Game Header */}
-        <GameHeader
-          roomName={room.id}
-          category={room.category || null}
-          playerRole={currentPlayer?.role}
-          word={room.secret_word}
-          roleTheme={getRoleTheme(currentPlayer?.role || PlayerRole.Regular)}
-        />
-        
-        {/* Game Phase Indicator */}
-        <GamePhaseIndicator room={room} />
-        
-        <div className="grid grid-cols-12 gap-4">
-          {/* Left Column - Player Info */}
-          <div className="col-span-12 lg:col-span-3 space-y-4">
-            <Card className="border shadow-sm bg-background/50 backdrop-blur-sm">
-              <CardHeader className="p-4">
+    <div className="min-h-screen bg-transparent">
+      <div className="container mx-auto p-0 space-y-4 sm:space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
+          <div className="lg:col-span-3 space-y-4">
+            <Card className="border border-green-700/30 shadow-md bg-green-950/60 backdrop-blur-sm">
+              <CardHeader className="p-3 sm:p-4 border-b border-green-700/20">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2">
-                    <Users className="w-5 h-5" />
+                  <CardTitle className="flex items-center gap-2 text-base sm:text-lg text-green-200">
+                    <Users className="w-4 h-4 sm:w-5 sm:h-5 text-green-300" />
                     Players
                   </CardTitle>
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="lg:hidden"
+                    className="lg:hidden text-green-300 hover:bg-green-800/50 h-7 w-7"
                     onClick={() => setIsPlayersPanelOpen(!isPlayersPanelOpen)}
                   >
                     {isPlayersPanelOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className={cn(
-                "p-4",
-                !isPlayersPanelOpen && "lg:block hidden"
-              )}>
-                <div className="space-y-2">
-                  {room.players.map((player) => (
-                    <div
-                      key={player.id}
-                      className={cn(
-                        "flex items-center justify-between p-3 rounded-lg transition-all duration-200",
-                        player.id === currentTurnPlayer?.id ? "bg-primary/10" : "",
-                        player.id === playerId ? "ring-2 ring-primary" : "hover:bg-muted/50"
-                      )}
+              <AnimatePresence>
+                {(isPlayersPanelOpen || window.innerWidth >= 1024) && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.3 }}
+                      style={{ overflow: 'hidden' }}
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="relative">
-                          <Avatar className="h-10 w-10 border-2 border-primary/20">
-                            <AvatarImage 
-                              src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}&backgroundColor=b6e3f4,c0aede,d1f4dd,ffd5dc,ffdfbf`}
-                              alt={player.name}
-                            />
-                            <AvatarFallback className="bg-primary/10">
-                              {player.name[0].toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          {player.id === playerId && (
-                            <div className="absolute -bottom-1 -right-1 bg-primary text-primary-foreground rounded-full p-1">
-                              <UserCircle2 className="h-3 w-3" />
-                            </div>
-                          )}
-                          {player.is_host && (
-                            <div className="absolute -top-1 -right-1 bg-yellow-500 text-yellow-900 rounded-full p-1">
-                              <Crown className="h-3 w-3" />
-                            </div>
-                          )}
+                      <CardContent className="p-3 sm:p-4">
+                        <div className="space-y-2">
+                          {room.players.map((player) => (
+                            <motion.div
+                              key={player.id}
+                              initial={{ opacity: 0, x: -10 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ duration: 0.2 }}
+                              className={cn(
+                                "flex items-center justify-between p-2 rounded-md transition-colors duration-200",
+                                player.id === currentTurnPlayer?.id ? "bg-amber-500/10" : "",
+                                player.id === playerId ? "ring-1 ring-teal-400/50 bg-teal-900/20" : "hover:bg-green-800/40"
+                              )}
+                            >
+                              <div className="flex items-center gap-2">
+                                <div className="relative flex-shrink-0">
+                                  <Avatar className="h-8 w-8 border border-green-600/50">
+                                    <AvatarImage 
+                                      src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}&backgroundColor=b6e3f4,c0aede,d1f4dd,ffd5dc,ffdfbf`}
+                                      alt={player.name}
+                                    />
+                                    <AvatarFallback className="bg-green-800 text-green-200 text-xs">
+                                      {player.name[0].toUpperCase()}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  {player.id === currentTurnPlayer?.id && (
+                                      <motion.div 
+                                        className="absolute -top-1 -right-1 p-0.5 bg-amber-500 rounded-full shadow-md"
+                                        animate={{ scale: [1, 1.2, 1]}} transition={{ repeat: Infinity, duration: 1.5}}
+                                      >
+                                        <Clock className="h-2.5 w-2.5 text-white" />
+                                      </motion.div>
+                                  )}
+                                  {player.id === playerId && (
+                                    <div className="absolute -bottom-1 -right-1 bg-teal-500 text-white rounded-full p-0.5">
+                                      <UserCircle2 className="h-2.5 w-2.5" />
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex flex-col">
+                                  <span className="text-sm font-medium text-green-100 truncate max-w-[100px] sm:max-w-[120px]">{player.name}</span>
+                                  {shouldShowRole(room, player.id, currentPlayer?.id) && player.role && (
+                                    <span className="text-xs text-green-300/70">
+                                      {player.role}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <Badge variant="secondary" className="text-xs bg-green-800/70 text-green-200 border-green-600/40">{player.score || 0} pts</Badge>
+                            </motion.div>
+                          ))}
                         </div>
-                        <div className="flex flex-col">
-                          <span className="font-medium">{player.name}</span>
-                          {shouldShowRole(room, player.id, currentPlayer?.id) && player.role && (
-                            <span className="text-xs text-muted-foreground">
-                              {player.role}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
+                      </CardContent>
+                   </motion.div>
+                )}
+               </AnimatePresence>
             </Card>
 
-            <Card className="border shadow-sm bg-background/50 backdrop-blur-sm">
-              <CardHeader className="p-4">
+            <Card className="border border-green-700/30 shadow-md bg-green-950/60 backdrop-blur-sm">
+              <CardHeader className="p-3 sm:p-4 border-b border-green-700/20">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2">
-                    <Crown className="w-5 h-5" />
+                  <CardTitle className="flex items-center gap-2 text-base sm:text-lg text-green-200">
+                    <Crown className="w-4 h-4 sm:w-5 sm:h-5 text-green-300" />
                     Your Role
                   </CardTitle>
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="lg:hidden"
+                    className="lg:hidden text-green-300 hover:bg-green-800/50 h-7 w-7"
                     onClick={() => setIsRolePanelOpen(!isRolePanelOpen)}
                   >
                     {isRolePanelOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className={cn(
-                "p-4",
-                !isRolePanelOpen && "lg:block hidden"
-              )}>
-                <PlayerRoleDisplay player={currentPlayer} />
-                <p className="mt-4 text-sm text-muted-foreground">
-                  {getRoleTips(currentPlayer.role)}
-                </p>
-              </CardContent>
+              <AnimatePresence>
+                {(isRolePanelOpen || window.innerWidth >= 1024) && (
+                     <motion.div
+                       initial={{ height: 0, opacity: 0 }}
+                       animate={{ height: 'auto', opacity: 1 }}
+                       exit={{ height: 0, opacity: 0 }}
+                       transition={{ duration: 0.3 }}
+                       style={{ overflow: 'hidden' }}
+                     >
+                       <CardContent className="p-3 sm:p-4">
+                         <PlayerRoleDisplay player={currentPlayer} />
+                         <p className="mt-3 text-xs sm:text-sm text-green-300/80 italic">
+                           {getRoleTips(currentPlayer.role)}
+                         </p>
+                       </CardContent>
+                    </motion.div>
+                 )}
+                </AnimatePresence>
+             </Card>
+
+            <Card className="border border-green-700/30 shadow-md bg-green-950/60 backdrop-blur-sm">
+               <CardHeader className="p-3 sm:p-4 border-b border-green-700/20">
+                  <div className="flex items-center justify-between">
+                   <CardTitle className="flex items-center gap-2 text-base sm:text-lg text-green-200">
+                     <Info className="w-4 h-4 sm:w-5 sm:h-5 text-green-300" />
+                     Game Info
+                   </CardTitle>
+                   <Button
+                     variant="ghost"
+                     size="icon"
+                     className="lg:hidden text-green-300 hover:bg-green-800/50 h-7 w-7"
+                     onClick={() => setIsGameInfoOpen(!isGameInfoOpen)}
+                   >
+                     {isGameInfoOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                   </Button>
+                 </div>
+               </CardHeader>
+               <AnimatePresence>
+                {(isGameInfoOpen || window.innerWidth >= 1024) && (
+                   <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.3 }}
+                      style={{ overflow: 'hidden' }}
+                   >
+                      <CardContent className="p-3 sm:p-4 space-y-3">
+                         <div className="flex items-center justify-between text-sm">
+                           <span className="text-green-300/80">Round:</span>
+                           <Badge variant="secondary" className="bg-green-800/70 text-green-200 border-green-600/40">
+                              {room?.round || 1} / {room?.max_rounds || 3}
+                           </Badge>
+                         </div>
+                         <div className="flex items-center justify-between text-sm">
+                           <span className="text-green-300/80">Category:</span>
+                           <Badge variant="secondary" className="bg-green-800/70 text-green-200 border-green-600/40 flex items-center gap-1">
+                              {room?.category?.emoji && <span className="text-base">{room.category.emoji}</span>}
+                              {room?.category?.name || "N/A"}
+                           </Badge>
+                         </div>
+                      </CardContent>
+                    </motion.div>
+                )}
+              </AnimatePresence>
             </Card>
           </div>
 
-          {/* Center Column - Main Game Area */}
-          <div className="col-span-12 lg:col-span-6 space-y-4">
+          <div className="lg:col-span-6 space-y-4 sm:space-y-6">
             <AnimatePresence mode="sync">
-              {/* Description Input */}
               {room.state === GameState.Presenting && (
-                <motion.div
-                  key="description"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
+                 <motion.div
+                  key="presenting-card"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
                   transition={{ duration: 0.3 }}
-                  className="space-y-4"
                 >
                   {isCurrentPlayerTurn ? (
                     <CurrentTurnCard
@@ -828,495 +934,372 @@ export default function GamePlay() {
                       formatTime={formatTime}
                     />
                   ) : (
-                    <Card className="border shadow-sm bg-background/50 backdrop-blur-sm">
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <Clock className="w-5 h-5" />
-                          Waiting for {currentTurnPlayer?.name}'s Turn
-                        </CardTitle>
+                    <Card className="border-2 border-amber-500/20 shadow-lg bg-green-950/70 backdrop-blur-lg overflow-hidden">
+                      <CardHeader className="p-4 sm:p-6">
+                         <CardTitle className="flex items-center justify-center gap-2 text-amber-200">
+                           <Clock className="w-5 h-5 text-amber-300" />
+                           Waiting for {currentTurnPlayer?.name}'s Turn
+                         </CardTitle>
                       </CardHeader>
-                      <CardContent>
-                        <p className="text-center text-muted-foreground">
-                          {currentTurnPlayer?.name} is describing the word. Please wait for your turn.
+                      <CardContent className="text-center py-8 px-4">
+                         <motion.div 
+                          animate={{ scale: [1, 1.1, 1]}} 
+                          transition={{ repeat: Infinity, duration: 2, ease: "easeInOut"}}
+                          className="inline-block mb-4"
+                         >
+                            <Avatar className="h-20 w-20 border-4 border-amber-500/30 shadow-lg">
+                              <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${currentTurnPlayer?.name}`} />
+                              <AvatarFallback>{currentTurnPlayer?.name?.[0]}</AvatarFallback>
+                            </Avatar>
+                          </motion.div>
+                        <p className="text-amber-200/80">
+                          {currentTurnPlayer?.name} is thinking of a clue...
                         </p>
+                        <Loader2 className="h-5 w-5 text-amber-300/70 animate-spin mt-4 mx-auto" />
                       </CardContent>
                     </Card>
                   )}
-
-                  {/* Submitted Words Display */}
-                  <Card className="border shadow-sm bg-background/50 backdrop-blur-sm">
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <MessageSquare className="w-5 h-5" />
-                        Submitted Descriptions
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="grid gap-3">
-                        {room.players
-                          .filter(p => p.turn_description)
-                          .map((player) => (
-                            <motion.div
-                              key={player.id}
-                              initial={{ opacity: 0, y: 10 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              transition={{ duration: 0.3 }}
-                              className={cn(
-                                "p-3 rounded-lg border",
-                                player.id === playerId ? "border-primary/50 bg-primary/5" : "border-muted"
-                              )}
-                            >
-                              <div className="flex items-start gap-3">
-                                <Avatar className="h-8 w-8">
-                                  <AvatarImage 
-                                    src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}`}
-                                    alt={player.name}
-                                  />
-                                  <AvatarFallback>{player.name[0]}</AvatarFallback>
-                                </Avatar>
-                                <div className="flex-1">
-                                  <div className="flex items-center gap-2">
-                                    <p className="font-medium">{player.name}</p>
-                                    {player.id === playerId && (
-                                      <Badge variant="outline" className="text-xs">You</Badge>
-                                    )}
-                                  </div>
-                                  <p className="mt-1 text-sm text-muted-foreground">
-                                    "{player.turn_description}"
-                                  </p>
-                                </div>
-                                <div className="flex items-center gap-1 text-green-500">
-                                  <CheckCircle className="h-4 w-4" />
-                                </div>
-                              </div>
-                            </motion.div>
-                          ))}
-                        {room.players.filter(p => !p.turn_description).length > 0 && (
-                          <div className="text-center text-sm text-muted-foreground">
-                            Waiting for {room.players.filter(p => !p.turn_description).length} more players to submit...
-                          </div>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
                 </motion.div>
               )}
 
-              {/* Discussion Phase UI */}
-              {room.state === GameState.Discussion && (
-                <motion.div
-                  key="discussion"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  transition={{ duration: 0.3 }}
-                  className="space-y-6"
+              {room.state === GameState.Presenting && (
+                 <motion.div
+                  key="submitted-words"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.3, delay: 0.1 }}
+                  exit={{ opacity: 0 }}
                 >
-                  <Card className="border shadow-sm bg-background/50 backdrop-blur-sm">
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <MessageSquare className="w-5 h-5" />
-                        Descriptions
+                  <Card className="border border-green-700/30 shadow-md bg-green-950/60 backdrop-blur-sm">
+                    <CardHeader className="p-3 sm:p-4 border-b border-green-700/20">
+                      <CardTitle className="flex items-center gap-2 text-base sm:text-lg text-green-200">
+                        <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5 text-green-300" />
+                        Submitted Clues
                       </CardTitle>
                     </CardHeader>
-                    <CardContent>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <CardContent className="p-3 sm:p-4">
+                      <AnimatePresence>
+                        {room.players
+                          .filter(p => p.turn_description)
+                          .length > 0 ? (
+                            <motion.div layout className="grid gap-3">
+                              {room.players
+                                .filter(p => p.turn_description)
+                                .map((player) => (
+                                  <motion.div
+                                    key={player.id}
+                                    layout
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, x: -10 }}
+                                    transition={{ duration: 0.3 }}
+                                    className={cn(
+                                      "p-3 rounded-md border flex items-start gap-3",
+                                      player.id === playerId ? "border-teal-500/40 bg-teal-900/20" : "border-green-800/50 bg-green-950/40"
+                                    )}
+                                  >
+                                    <Avatar className="h-8 w-8 flex-shrink-0 mt-0.5">
+                                      <AvatarImage 
+                                        src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}`}
+                                        alt={player.name}
+                                      />
+                                      <AvatarFallback className="text-xs">{player.name[0]}</AvatarFallback>
+                                    </Avatar>
+                                    <div className="flex-1">
+                                      <div className="flex items-center gap-2 mb-0.5">
+                                        <p className="font-medium text-sm text-green-100">{player.name}</p>
+                                        {player.id === playerId && (
+                                          <Badge variant="outline" className="text-xs px-1.5 py-0 bg-teal-500/20 text-teal-200 border-teal-500/30">You</Badge>
+                                        )}
+                                      </div>
+                                      <p className="text-base text-green-200/90">
+                                        "{player.turn_description}"
+                                      </p>
+                                    </div>
+                                    <CheckCircle className="h-4 w-4 text-green-400/70 mt-1 flex-shrink-0" />
+                                  </motion.div>
+                                ))}
+                             </motion.div>
+                          ) : (
+                            <p className="text-center text-sm text-green-300/70 py-4">No clues submitted yet...</p>
+                          )
+                        }
+                        </AnimatePresence>
+                        {room.players.filter(p => !p.turn_description).length > 0 && (
+                          <div className="text-center text-xs text-green-300/60 mt-3">
+                            Waiting for {room.players.filter(p => !p.turn_description).length} more players...
+                          </div>
+                        )}
+                    </CardContent>
+                  </Card>
+                 </motion.div>
+              )}
+
+              {room.state === GameState.Discussion && (
+                 <motion.div
+                  key="discussion"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1}}
+                  exit={{ opacity: 0 }}
+                  className="flex flex-col gap-4 sm:gap-6 min-h-[60vh]"
+                >
+                 <Card className="border border-green-700/30 shadow-md bg-green-950/60 backdrop-blur-sm">
+                     <CardHeader className="p-3 sm:p-4 border-b border-green-700/20">
+                       <CardTitle className="flex items-center gap-2 text-base sm:text-lg text-green-200">
+                         <List className="w-4 h-4 sm:w-5 sm:h-5 text-green-300" />
+                         Player Clues
+                       </CardTitle>
+                     </CardHeader>
+                     <CardContent className="p-3 sm:p-4">
+                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                         {room.players.map((player) => (
-                          <Card key={player.id} className="p-4">
-                            <div className="flex items-center gap-3">
-                              <Avatar className="flex-shrink-0">
+                          <Card key={player.id} className="p-3 bg-green-900/40 border border-green-700/40">
+                            <div className="flex items-center gap-2">
+                              <Avatar className="flex-shrink-0 h-8 w-8">
                                 <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}`} />
-                                <AvatarFallback>{player.name[0]}</AvatarFallback>
+                                <AvatarFallback className="text-xs">{player.name[0]}</AvatarFallback>
                               </Avatar>
                               <div className="flex-1 min-w-0">
-                                <h3 className="font-semibold truncate" title={player.name}>
-                                  {truncateName(player.name)}
+                                <h3 className="font-medium text-sm text-green-100 truncate" title={player.name}>
+                                  {player.name}
                                 </h3>
-                                <p className="text-sm text-muted-foreground truncate">
-                                  {player.turn_description || "No description yet"}
+                                <p className="text-xs text-green-300/80 truncate">
+                                  {player.turn_description || "-"}
                                 </p>
                               </div>
                             </div>
                           </Card>
                         ))}
                       </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* Chat System */}
-                  <Card className="border shadow-sm bg-background/50 backdrop-blur-sm">
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <MessageSquare className="w-5 h-5" />
-                        Chat
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-0 h-[600px]">
-                      <ChatSystem key={`chat-${room.id}-${room.round}-${room.state}`} />
-                    </CardContent>
-                  </Card>
+                     </CardContent>
+                   </Card>
+                   <Card className="border border-green-700/30 shadow-md bg-green-950/60 backdrop-blur-sm flex-grow flex flex-col">
+                     <CardHeader className="p-3 sm:p-4 border-b border-green-700/20 flex flex-row items-center justify-between">
+                       <CardTitle className="flex items-center gap-2 text-base sm:text-lg text-green-200">
+                         <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5 text-green-300" />
+                         Discussion Chat
+                       </CardTitle>
+                       <Badge 
+                         variant="outline" 
+                         className={cn(
+                           "text-sm transition-all duration-300 px-3 py-1 rounded-full shadow-md",
+                           "border-2 border-yellow-600/50 bg-yellow-900/60 text-yellow-200",
+                           remainingTime.isActive && remainingTime.timeLeft <= 10 
+                             ? "text-red-400 border-red-500/50 animate-pulse"
+                             : ""
+                         )}
+                       >
+                         <Clock className={cn(
+                           "w-3 h-3 sm:w-4 sm:h-4 mr-1.5",
+                           remainingTime.isActive && remainingTime.timeLeft <= 10 ? "text-red-400" : "text-yellow-300"
+                         )} />
+                         {formatTime(remainingTime.timeLeft)}
+                       </Badge>
+                     </CardHeader>
+                     <CardContent className="p-0 flex-grow overflow-hidden h-[50vh] sm:h-[60vh] max-h-[600px]">
+                       <ChatSystem key={`chat-${room.id}-${room.round}-${room.state}`} />
+                     </CardContent>
+                   </Card>
                 </motion.div>
               )}
 
-              {/* Voting UI */}
               {room.state === GameState.Voting && (
                 <motion.div
                   key="voting"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  transition={{ duration: 0.3 }}
-                  className="space-y-6"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="space-y-4 sm:space-y-6"
                 >
-                  <Card className="border shadow-sm bg-background/50 backdrop-blur-sm">
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <VoteIcon className="w-5 h-5" />
-                        Vote for the Chameleon
-                      </CardTitle>
-                      <CardDescription>
+                  <Card className="border-2 border-red-500/20 shadow-xl bg-green-950/70 backdrop-blur-lg overflow-hidden">
+                    <CardHeader className="p-4 sm:p-6 bg-gradient-to-b from-red-900/30 to-transparent border-b border-red-500/10">
+                      <CardTitle className="text-2xl sm:text-3xl flex items-center gap-2 text-red-200">
+                        <VoteIcon className="w-6 text-red-300" />
+                         Vote for the Chameleon!
+                       </CardTitle>
+                      <CardDescription className="text-red-300/80 pt-1">
                         {hasVoted 
-                          ? "Your vote has been cast. Waiting for others..." 
-                          : "Choose carefully - who do you think is the Chameleon?"}
+                          ? "Vote cast! Waiting for others..." 
+                          : "Carefully consider the clues and cast your vote!"}
                       </CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-6">
-                      {/* Vote Progress */}
-                      <div className="relative">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm text-muted-foreground">
-                            Voting Progress
-                          </span>
-                          <Badge variant="secondary" className="bg-primary/20">
-                            {room.current_voting_round?.votes?.length || 0} / {room.players.length} votes
-                          </Badge>
-                        </div>
-                        <div className="w-full h-3 bg-muted rounded-full overflow-hidden">
-                          <motion.div
-                            className="h-full bg-primary"
-                            initial={{ width: "0%" }}
-                            animate={{ 
-                              width: `${((room.current_voting_round?.votes?.length || 0) / room.players.length) * 100}%` 
-                            }}
-                            transition={{ duration: 0.5 }}
-                          />
-                        </div>
-                        {/* Time Remaining */}
-                        <div className="mt-1 text-xs text-muted-foreground text-right">
-                          {remainingTime.timeLeft > 0 && (
-                            <span>Time remaining: {formatTime(remainingTime.timeLeft)}</span>
-                          )}
-                        </div>
-                      </div>
+                    <CardContent className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+                       <div className="relative">
+                         <div className="flex items-center justify-between mb-2">
+                           <span className="text-sm text-muted-foreground">
+                             Voting Progress
+                           </span>
+                           <Badge variant="secondary" className="bg-primary/20">
+                             {room.current_voting_round?.votes?.length || 0} / {room.players.length} votes
+                           </Badge>
+                         </div>
+                         <div className="w-full h-3 bg-muted rounded-full overflow-hidden">
+                           <motion.div
+                             className="h-full bg-primary"
+                             initial={{ width: "0%" }}
+                             animate={{ 
+                               width: `${((room.current_voting_round?.votes?.length || 0) / room.players.length) * 100}%` 
+                             }}
+                             transition={{ duration: 0.5 }}
+                           />
+                         </div>
+                         <div className="mt-1 text-xs text-muted-foreground text-right">
+                           {remainingTime.timeLeft > 0 && (
+                             <span>Time remaining: {formatTime(remainingTime.timeLeft)}</span>
+                           )}
+                         </div>
+                       </div>
 
-                      {/* Player Cards Grid */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {room.players
-                          .filter(player => !hasVoted || player.id === selectedVote || !room.current_voting_round?.votes?.some(vote => vote.voter_id === player.id))
-                          .map((player) => {
-                          const voteCount = room.current_voting_round?.votes?.filter(vote => vote.target_id === player.id).length || 0;
-                          const hasVotedFor = room.current_voting_round?.votes?.some(vote => vote.voter_id === playerId && vote.target_id === player.id);
-                          const isCurrentPlayer = player.id === playerId;
-                          
-                          return (
-                            <motion.div
-                              key={player.id}
-                              initial={{ opacity: 0, scale: 0.95 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              transition={{ duration: 0.3 }}
-                            >
-                              <Card
-                                className={cn(
-                                  "p-4 transition-all duration-200 relative overflow-hidden transform hover:scale-105",
-                                  selectedVote === player.id
-                                    ? "border-primary bg-primary/5 ring-2 ring-primary shadow-lg"
-                                    : "hover:border-primary/50 hover:shadow-md",
-                                  hasVotedFor && "border-primary bg-primary/10",
-                                  isCurrentPlayer && "opacity-50 cursor-not-allowed border-muted"
-                                )}
-                                onClick={() => !hasVoted && !isCurrentPlayer && setSelectedVote(player.id)}
-                              >
-                                {/* Vote Count Badge */}
-                                {voteCount > 0 && (
-                                  <motion.div
-                                    initial={{ opacity: 0, y: -10 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    className="absolute top-2 right-2"
-                                  >
-                                    <Badge 
-                                      variant="secondary"
-                                      className="bg-primary/20 font-semibold"
-                                    >
-                                      {voteCount} {voteCount === 1 ? 'vote' : 'votes'}
-                                    </Badge>
-                                  </motion.div>
-                                )}
+                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                         {room.players
+                           .filter(player => {
+                             if (player.id === playerId) return false;
+                             if (hasVoted) {
+                               return player.id === selectedVote;
+                             }
+                             return true;
+                           })
+                           .map((player) => {
+                             const voteCount = room.current_voting_round?.votes?.filter(vote => vote.target_id === player.id).length || 0;
+                             const hasVotedFor = room.current_voting_round?.votes?.some(vote => vote.voter_id === playerId && vote.target_id === player.id);
+                             
+                             return (
+                               <motion.div
+                                 key={player.id}
+                                 initial={{ opacity: 0, scale: 0.95 }}
+                                 animate={{ opacity: 1, scale: 1 }}
+                                 transition={{ duration: 0.3 }}
+                               >
+                                 <Card
+                                   className={cn(
+                                     "p-4 transition-all duration-200 relative overflow-hidden transform hover:scale-105",
+                                     selectedVote === player.id
+                                       ? "border-primary bg-primary/5 ring-2 ring-primary shadow-lg"
+                                       : "hover:border-primary/50 hover:shadow-md",
+                                     hasVotedFor && "border-primary bg-primary/10"
+                                   )}
+                                   onClick={() => !hasVoted && setSelectedVote(player.id)}
+                                 >
+                                   {voteCount > 0 && (
+                                     <motion.div
+                                       initial={{ opacity: 0, y: -10 }}
+                                       animate={{ opacity: 1, y: 0 }}
+                                       className="absolute top-2 right-2"
+                                     >
+                                       <Badge 
+                                         variant="secondary"
+                                         className="bg-primary/20 font-semibold"
+                                       >
+                                         {voteCount} {voteCount === 1 ? 'vote' : 'votes'}
+                                       </Badge>
+                                     </motion.div>
+                                   )}
 
-                                {/* Your Vote Indicator */}
-                                {hasVotedFor && (
-                                  <motion.div
-                                    initial={{ opacity: 0, x: -10 }}
-                                    animate={{ opacity: 1, x: 0 }}
-                                    className="absolute top-2 left-2"
-                                  >
-                                    <Badge variant="outline" className="bg-primary/20">
-                                      Your Vote
-                                    </Badge>
-                                  </motion.div>
-                                )}
+                                   {hasVotedFor && (
+                                     <motion.div
+                                       initial={{ opacity: 0, x: -10 }}
+                                       animate={{ opacity: 1, x: 0 }}
+                                       className="absolute top-2 left-2"
+                                     >
+                                       <Badge variant="outline" className="bg-primary/20">
+                                         Your Vote
+                                       </Badge>
+                                     </motion.div>
+                                   )}
 
-                                {/* Current Player Indicator */}
-                                {isCurrentPlayer && (
-                                  <motion.div
-                                    initial={{ opacity: 0, x: -10 }}
-                                    animate={{ opacity: 1, x: 0 }}
-                                    className="absolute top-2 left-2"
-                                  >
-                                    <Badge variant="outline" className="bg-muted">
-                                      You
-                                    </Badge>
-                                  </motion.div>
-                                )}
+                                   <div className="flex items-center gap-3">
+                                     <Avatar className="h-12 w-12">
+                                       <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}`} />
+                                       <AvatarFallback>{player.name[0]}</AvatarFallback>
+                                     </Avatar>
+                                     <div className="flex-1 min-w-0">
+                                       <h3 className="font-semibold truncate" title={player.name}>
+                                         {truncateName(player.name)}
+                                       </h3>
+                                       <p className="text-sm text-muted-foreground truncate">
+                                         {player.turn_description || "No description given"}
+                                       </p>
+                                     </div>
+                                   </div>
 
-                                <div className="flex items-center gap-3 mt-6">
-                                  <Avatar className="h-12 w-12">
-                                    <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}`} />
-                                    <AvatarFallback>{player.name[0]}</AvatarFallback>
-                                  </Avatar>
-                                  <div className="flex-1 min-w-0">
-                                    <h3 className="font-semibold truncate" title={player.name}>
-                                      {truncateName(player.name)}
-                                    </h3>
-                                    <p className="text-sm text-muted-foreground truncate">
-                                      {player.turn_description || "No description given"}
-                                    </p>
-                                  </div>
-                                </div>
+                                   {selectedVote === player.id && !hasVoted && (
+                                     <motion.div
+                                       initial={{ opacity: 0 }}
+                                       animate={{ opacity: 1 }}
+                                       className="absolute inset-0 bg-primary/5 flex items-center justify-center pointer-events-none"
+                                     >
+                                       <Badge variant="secondary" className="bg-primary/20 text-lg">
+                                         Selected
+                                       </Badge>
+                                     </motion.div>
+                                   )}
+                                 </Card>
+                               </motion.div>
+                             );
+                           })}
+                       </div>
 
-                                {/* Selection Overlay */}
-                                {selectedVote === player.id && !hasVoted && (
-                                  <motion.div
-                                    initial={{ opacity: 0 }}
-                                    animate={{ opacity: 1 }}
-                                    className="absolute inset-0 bg-primary/5 flex items-center justify-center pointer-events-none"
-                                  >
-                                    <Badge variant="secondary" className="bg-primary/20 text-lg">
-                                      Selected
-                                    </Badge>
-                                  </motion.div>
-                                )}
-                              </Card>
-                            </motion.div>
-                          );
-                        })}
-                      </div>
+                       {!hasVoted && (
+                         <motion.div
+                           initial={{ opacity: 0, y: 10 }}
+                           animate={{ opacity: 1, y: 0 }}
+                           className="flex justify-center"
+                         >
+                           <Button
+                             className="w-full max-w-md"
+                             onClick={handleVote}
+                             size="lg"
+                             variant="default"
+                             disabled={!selectedVote}
+                           >
+                             <VoteIcon className="w-4 h-4 mr-2" />
+                             Confirm Vote
+                           </Button>
+                         </motion.div>
+                       )}
 
-                      {/* Vote Button */}
-                      {!hasVoted && selectedVote && selectedVote !== playerId && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className="flex justify-center"
-                        >
-                          <Button
-                            className="w-full max-w-md"
-                            onClick={handleVote}
-                            size="lg"
-                            variant="default"
-                          >
-                            <VoteIcon className="w-4 h-4 mr-2" />
-                            Confirm Vote
-                          </Button>
-                        </motion.div>
-                      )}
-
-                      {/* Waiting Message */}
-                      {hasVoted && (
-                        <motion.div
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          className="text-center space-y-4"
-                        >
-                          <div className="flex items-center justify-center gap-2 text-primary">
-                            <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent" />
-                            <p>Waiting for other players to vote...</p>
-                          </div>
-                          <p className="text-sm text-muted-foreground">
-                            {room.players.length - (room.current_voting_round?.votes?.length || 0)} players still need to vote
-                          </p>
-                        </motion.div>
-                      )}
-                    </CardContent>
-                  </Card>
+                       {hasVoted && (
+                         <motion.div
+                           initial={{ opacity: 0 }}
+                           animate={{ opacity: 1 }}
+                           className="text-center space-y-4"
+                         >
+                           <div className="flex items-center justify-center gap-2 text-primary">
+                             <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent" />
+                             <p>Waiting for other players to vote...</p>
+                           </div>
+                           <p className="text-sm text-muted-foreground">
+                             {room.players.length - (room.current_voting_round?.votes?.length || 0)} players still need to vote
+                           </p>
+                         </motion.div>
+                       )}
+                     </CardContent>
+                   </Card>
                 </motion.div>
               )}
 
-              {/* Results UI */}
               {room.state === GameState.Results && (
                 <motion.div
                   key="results"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  transition={{ duration: 0.3 }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1}}
+                  exit={{ opacity: 0 }}
                 >
                   <ResultsDisplay 
                     room={room} 
                     playerId={playerId}
-                    onNextRound={async () => {
-                      if (room.round >= room.max_rounds) {
-                        // Show final scores
-                        const finalScores = room.players.reduce((acc, player) => {
-                          acc[player.id] = {
-                            name: player.name,
-                            score: player.score || 0,
-                            role: player.role
-                          };
-                          return acc;
-                        }, {} as Record<string, { name: string; score: number; role?: PlayerRole }>);
-
-                        // Sort players by score
-                        const sortedPlayers = Object.entries(finalScores)
-                          .sort(([, a], [, b]) => b.score - a.score);
-
-                        // Show final scores in a toast
-                        toast(
-                          `Final Scores\n${sortedPlayers.map(([id, { name, score, role }]) => 
-                            `${name}: ${score} points${role ? ` (${role})` : ''}`
-                          ).join('\n')}`
-                        );
-
-                        // Reset the game
-                        await resetGameAction();
-                      } else {
-                        // Start next round
-                        await nextRound();
-                      }
-                    }}
+                    onNextRound={handleNextRound}
                   />
                 </motion.div>
               )}
             </AnimatePresence>
-          </div>
-
-          {/* Right Column - Game Info */}
-          <div className="col-span-12 lg:col-span-3 space-y-4">
-            <Card className="border shadow-sm bg-background/50 backdrop-blur-sm">
-              <CardHeader className="p-3 sm:p-4">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-                    <Gamepad2 className="w-4 h-4 sm:w-5 sm:h-5" />
-                    Game Info
-                  </CardTitle>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="lg:hidden"
-                    onClick={() => setIsGameInfoOpen(!isGameInfoOpen)}
-                  >
-                    {isGameInfoOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className={cn(
-                "p-3 sm:p-4 space-y-4",
-                !isGameInfoOpen && "lg:block hidden"
-              )}>
-                <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                  <div className="space-y-1">
-                    <h4 className="text-xs sm:text-sm font-medium text-muted-foreground">Round</h4>
-                    <Badge variant="outline" className="text-sm sm:text-base">
-                      {room?.round || 1} / {room?.max_rounds || 3}
-                    </Badge>
-                  </div>
-                  <div className="space-y-1">
-                    <h4 className="text-xs sm:text-sm font-medium text-muted-foreground">
-                      {/* Dynamically update timer title based on phase */}
-                      {room?.state === GameState.Presenting ? "Player Turn Time" :
-                       room?.state === GameState.Discussion ? "Discussion Time" :
-                       room?.state === GameState.Voting ? "Voting Time" :
-                       "Time"}
-                    </h4>
-                    {/* Conditionally render timer based on state and turn - Hide if it's current player's presenting turn */}
-                    {(room?.state === GameState.Discussion || room?.state === GameState.Voting) ? (
-                      // Show for Discussion and Voting
-                      <Badge 
-                        variant="outline" 
-                        className={cn(
-                          "text-sm sm:text-base transition-all duration-300",
-                          remainingTime.isActive && remainingTime.timeLeft <= 10 ? "text-red-500 animate-pulse" : ""
-                        )}
-                      >
-                        <Timer className={cn(
-                          "w-3 h-3 sm:w-4 sm:h-4 mr-1",
-                          remainingTime.isActive && remainingTime.timeLeft <= 10 ? "text-red-500" : ""
-                        )} />
-                        {formatTime(remainingTime.timeLeft)} {/* Always show formatted time here */}
-                      </Badge>
-                    ) : room?.state === GameState.Presenting && !isCurrentPlayerTurn ? (
-                      // Show Waiting... for other players' presenting turns
-                      <Badge variant="outline" className="text-sm sm:text-base text-muted-foreground">
-                        Waiting...
-                      </Badge>
-                    ) : (
-                      // Show N/A for other states (like Lobby, Results, or *your* presenting turn)
-                       <Badge variant="outline" className="text-sm sm:text-base text-muted-foreground">
-                         N/A
-                       </Badge>
-                    )}
-                  </div>
-                  <div className="col-span-2 space-y-1">
-                    <h4 className="text-xs sm:text-sm font-medium text-muted-foreground">Category</h4>
-                    <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-primary/10 border border-primary/20">
-                        {room?.category?.emoji && (
-                          <span className="text-lg">{room.category.emoji}</span>
-                        )}
-                        <span className="text-sm font-medium">
-                          {room?.category?.name || "Not selected"}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  {room?.secret_word && room.state !== GameState.Selecting && !isPlayerChameleon && (
-                    <div className="col-span-2 space-y-1">
-                      <h4 className="text-xs sm:text-sm font-medium text-muted-foreground">Secret Word</h4>
-                      <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-secondary/10 border border-secondary/20">
-                          <span className="text-sm font-semibold tracking-wide">
-                            {room.secret_word}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {room?.state === GameState.Lobby && currentPlayer?.is_host && (
-              <div className="mt-4 text-center">
-                <Button
-                  onClick={handleStartGame}
-                  disabled={!room.players.every(p => p.is_ready) || isStarting}
-                  className="w-full max-w-xs"
-                >
-                  {isStarting ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                      Starting Game...
-                    </>
-                  ) : room.players.every(p => p.is_ready) 
-                    ? "Start Game" 
-                    : "Waiting for players to be ready..."}
-                </Button>
-              </div>
-            )}
           </div>
         </div>
       </div>
     </div>
   );
 }
+
+PlayerRoleDisplay.displayName = 'PlayerRoleDisplay';
 
 

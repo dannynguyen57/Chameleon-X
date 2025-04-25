@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Lightbulb, ArrowDown } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 import { RealtimeChannel } from '@supabase/supabase-js';
+import { cn } from '@/lib/utils';
 
 // Chat session interface
 interface ChatSession {
@@ -22,46 +23,55 @@ interface ChatSession {
   updated_at: string;
 }
 
-// Memoized Message UI component
+// Memoized Message UI component - Reverted to original compact style
 const ChatMessageItem = memo(({ message, playerId, truncateName }: { message: ChatMessage, playerId: string | null, truncateName: (name: string, maxLength?: number) => string }) => {
   const isOwnMessage = message.player_id === playerId;
 
   return (
-    <div
-      className={`flex flex-col ${isOwnMessage ? 'items-end' : 'items-start'}`}
-            >
-              <div
-                className={`max-w-[80%] rounded-lg p-3 ${
-          isOwnMessage
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted'
-                }`}
-              >
-            <div className="flex items-start gap-3">
-              <Avatar className="flex-shrink-0">
-                <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${message.player_name}`} />
-                <AvatarFallback>{message.player_name[0]}</AvatarFallback>
-              </Avatar>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold truncate" title={message.player_name}>
-                    {truncateName(message.player_name)}
-                  </span>
-                  {message.is_hint && (
-                    <Badge variant="outline" className="flex-shrink-0">
-                      <Lightbulb className="w-3 h-3 mr-1" />
-                      Hint
-                    </Badge>
-                  )}
-                </div>
-                <p className="text-sm text-muted-foreground mt-1">{message.content}</p>
-              </div>
-              <span className="text-xs text-muted-foreground self-end">
-                {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+    <div className={cn("flex mb-3", isOwnMessage ? "justify-end" : "justify-start")}>
+       <div className={cn("flex items-start gap-3 max-w-[85%] sm:max-w-[75%]", isOwnMessage ? "flex-row-reverse" : "flex-row")}>
+         {/* Avatar - Keep it relatively small */}
+         <Avatar className={cn("h-8 w-8 flex-shrink-0 border border-muted-foreground/20", isOwnMessage ? "ml-2" : "mr-2")}>
+           <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${message.player_name}`} />
+           <AvatarFallback className="text-xs">{message.player_name[0]}</AvatarFallback>
+         </Avatar>
+
+         {/* Message Content Area */}
+         <div className="flex flex-col">
+            {/* Name and Hint Badge */}
+            <div className={cn("flex items-center gap-2 mb-1", isOwnMessage ? "justify-end" : "justify-start")}>
+              <span className="text-xs font-medium text-muted-foreground truncate" title={message.player_name}>
+                {truncateName(message.player_name, 15)}
               </span>
+              {message.is_hint && (
+                <Badge variant="outline" className="px-1.5 py-0.5 text-xs bg-yellow-500/10 border-yellow-500/20 text-yellow-200">
+                  <Lightbulb className="w-2.5 h-2.5 mr-1" />
+                  Hint
+                </Badge>
+              )}
             </div>
-          </div>
-        </div>
+
+           {/* Message Bubble */}
+           <div
+             className={cn(
+               "relative rounded-lg px-3 py-2 shadow-sm",
+               isOwnMessage
+                 ? "bg-gradient-to-br from-teal-600 to-green-600 text-white"
+                 : "bg-gradient-to-br from-gray-700 to-gray-800 text-gray-100"
+             )}
+           >
+             <p className="text-sm break-words whitespace-pre-wrap">{message.content}</p>
+             {/* Timestamp (Optional: show on hover or keep small) */}
+             <span 
+               className="text-[10px] text-muted-foreground/60 mt-1 block" 
+               style={{ textAlign: isOwnMessage ? 'right' : 'left' }}
+             >
+               {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+             </span>
+           </div>
+         </div>
+       </div>
+     </div>
   );
 });
 ChatMessageItem.displayName = 'ChatMessageItem';
@@ -507,14 +517,14 @@ export default function ChatSystem() {
 
   // Main chat UI
   return (
-    <div className="flex flex-col h-[600px] relative bg-card shadow-md rounded-lg border overflow-hidden">
+    <div className="flex flex-col h-full bg-background/50 relative overflow-hidden">
       <ScrollArea 
         ref={scrollRef} 
-        className="flex-1 p-4"
+        className="flex-1 p-4" // flex-1 allows it to take available space
         onScroll={handleScroll}
-        style={{ overflowY: 'auto', height: 'calc(100% - 120px)' }}
+        style={{ overflowY: 'auto' }} // Let height be determined by flex-grow parent
       >
-        <div className="space-y-3 pb-4">
+        <div className="space-y-1 pb-4">
           {messages.map((message) => (
             <ChatMessageItem key={message.id} message={message} playerId={playerId} truncateName={truncateName} />
           ))}
@@ -532,40 +542,50 @@ export default function ChatSystem() {
         </Button>
       )}
 
-      <div className="p-3 border-t bg-background">
+      {/* Optimized Input Bar */}
+      <div className="p-3 border-t border-green-700/20 bg-green-950/50">
         {isChatDisabled ? (
           <div className="text-center text-muted-foreground text-sm py-2">
             Chat is disabled during voting phase
           </div>
         ) : (
-          <>
-            <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-2 bg-green-900/40 border border-green-700/30 rounded-lg p-2">
+            <Input
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              placeholder="Type your message..."
+              className="flex-1 bg-transparent border-none focus:ring-0 focus:outline-none text-green-100 placeholder:text-green-300/50 text-sm"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSendMessage();
+                }
+              }}
+            />
+            <div className="flex items-center gap-2 border-l border-green-700/30 pl-2">
               <Checkbox
                 id="is-hint"
                 checked={isHint}
                 onCheckedChange={(checked) => setIsHint(checked as boolean)}
-                className="h-4 w-4"
+                className="h-4 w-4 border-yellow-500/50 data-[state=checked]:bg-yellow-500 data-[state=checked]:text-yellow-900 focus:ring-yellow-500/50"
               />
-              <label htmlFor="is-hint" className="text-sm text-muted-foreground">
-                Mark as hint
+              <label 
+                 htmlFor="is-hint" 
+                 className="text-xs text-yellow-300/80 cursor-pointer select-none flex items-center gap-1 hover:text-yellow-200 transition-colors"
+              >
+                 <Lightbulb className="w-3 h-3" />
+                 Hint
               </label>
-            </div>
-            <div className="flex gap-2">
-              <Input
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                placeholder="Type your message..."
-                className="flex-1"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendMessage();
-                  }
-                }}
-              />
-              <Button onClick={handleSendMessage} disabled={!newMessage.trim()}>Send</Button>
-            </div>
-          </>
+              <Button 
+                 size="sm" 
+                 onClick={handleSendMessage} 
+                 disabled={!newMessage.trim()}
+                 className="bg-gradient-to-r from-teal-500 to-green-500 hover:from-teal-600 hover:to-green-600 text-white px-3 py-1 h-auto rounded-md shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+               >
+                 Send
+               </Button>
+             </div>
+          </div>
         )}
       </div>
     </div>

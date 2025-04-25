@@ -31,7 +31,7 @@ const ChatMessageItem = memo(({ message, playerId, truncateName }: { message: Ch
     <div className={cn("flex mb-3", isOwnMessage ? "justify-end" : "justify-start")}>
        <div className={cn("flex items-start gap-3 max-w-[85%] sm:max-w-[75%]", isOwnMessage ? "flex-row-reverse" : "flex-row")}>
          {/* Avatar - Keep it relatively small */}
-         <Avatar className={cn("h-8 w-8 flex-shrink-0 border border-muted-foreground/20", isOwnMessage ? "ml-2" : "mr-2")}>
+         <Avatar className={cn("h-8 w-8 flex-shrink-0 border border-green-700/30", isOwnMessage ? "ml-2" : "mr-2")}>
            <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${message.player_name}`} />
            <AvatarFallback className="text-xs">{message.player_name[0]}</AvatarFallback>
          </Avatar>
@@ -40,11 +40,11 @@ const ChatMessageItem = memo(({ message, playerId, truncateName }: { message: Ch
          <div className="flex flex-col">
             {/* Name and Hint Badge */}
             <div className={cn("flex items-center gap-2 mb-1", isOwnMessage ? "justify-end" : "justify-start")}>
-              <span className="text-xs font-medium text-muted-foreground truncate" title={message.player_name}>
+              <span className="text-xs font-medium text-green-300/80 truncate" title={message.player_name}>
                 {truncateName(message.player_name, 15)}
               </span>
               {message.is_hint && (
-                <Badge variant="outline" className="px-1.5 py-0.5 text-xs bg-yellow-500/10 border-yellow-500/20 text-yellow-200">
+                <Badge variant="outline" className="px-1.5 py-0.5 text-xs bg-yellow-500/10 border-yellow-500/20 text-yellow-200 backdrop-blur-sm">
                   <Lightbulb className="w-2.5 h-2.5 mr-1" />
                   Hint
                 </Badge>
@@ -54,16 +54,16 @@ const ChatMessageItem = memo(({ message, playerId, truncateName }: { message: Ch
            {/* Message Bubble */}
            <div
              className={cn(
-               "relative rounded-lg px-3 py-2 shadow-sm",
+               "relative rounded-lg px-3 py-2 shadow-sm backdrop-blur-sm",
                isOwnMessage
-                 ? "bg-gradient-to-br from-teal-600 to-green-600 text-white"
-                 : "bg-gradient-to-br from-gray-700 to-gray-800 text-gray-100"
+                 ? "bg-gradient-to-br from-teal-600/80 to-green-600/80 text-white"
+                 : "bg-gradient-to-br from-gray-700/80 to-gray-800/80 text-gray-100"
              )}
            >
              <p className="text-sm break-words whitespace-pre-wrap">{message.content}</p>
              {/* Timestamp (Optional: show on hover or keep small) */}
              <span 
-               className="text-[10px] text-muted-foreground/60 mt-1 block" 
+               className="text-[10px] text-green-300/60 mt-1 block" 
                style={{ textAlign: isOwnMessage ? 'right' : 'left' }}
              >
                {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -517,12 +517,11 @@ export default function ChatSystem() {
 
   // Main chat UI
   return (
-    <div className="flex flex-col h-full bg-background/50 relative overflow-hidden">
+    <div className="flex flex-col h-full bg-green-950/30 backdrop-blur-md relative overflow-hidden">
       <ScrollArea 
         ref={scrollRef} 
-        className="flex-1 p-4" // flex-1 allows it to take available space
+        className="flex-1 p-4"
         onScroll={handleScroll}
-        style={{ overflowY: 'auto' }} // Let height be determined by flex-grow parent
       >
         <div className="space-y-1 pb-4">
           {messages.map((message) => (
@@ -535,7 +534,7 @@ export default function ChatSystem() {
         <Button
           variant="secondary"
           size="icon"
-          className="absolute bottom-24 right-4 rounded-full shadow-lg h-10 w-10 z-10 bg-background/80 backdrop-blur-sm"
+          className="absolute bottom-24 right-4 rounded-full shadow-lg h-10 w-10 z-10 bg-green-900/70 backdrop-blur-sm border border-green-700/30"
           onClick={() => scrollToBottom('smooth')}
         >
           <ArrowDown className="h-5 w-5" />
@@ -543,13 +542,13 @@ export default function ChatSystem() {
       )}
 
       {/* Optimized Input Bar */}
-      <div className="p-3 border-t border-green-700/20 bg-green-950/50">
+      <div className="p-3 border-t border-green-700/20 bg-green-950/40 backdrop-blur-md">
         {isChatDisabled ? (
           <div className="text-center text-muted-foreground text-sm py-2">
             Chat is disabled during voting phase
           </div>
         ) : (
-          <div className="flex items-center gap-2 bg-green-900/40 border border-green-700/30 rounded-lg p-2">
+          <div className="flex items-center gap-2 bg-green-900/30 backdrop-blur-sm border border-green-700/30 rounded-lg p-2">
             <Input
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
@@ -570,21 +569,21 @@ export default function ChatSystem() {
                 className="h-4 w-4 border-yellow-500/50 data-[state=checked]:bg-yellow-500 data-[state=checked]:text-yellow-900 focus:ring-yellow-500/50"
               />
               <label 
-                 htmlFor="is-hint" 
-                 className="text-xs text-yellow-300/80 cursor-pointer select-none flex items-center gap-1 hover:text-yellow-200 transition-colors"
+                htmlFor="is-hint" 
+                className="text-xs text-yellow-300/80 cursor-pointer select-none flex items-center gap-1 hover:text-yellow-200 transition-colors"
               >
-                 <Lightbulb className="w-3 h-3" />
-                 Hint
+                <Lightbulb className="w-3 h-3" />
+                Hint
               </label>
               <Button 
-                 size="sm" 
-                 onClick={handleSendMessage} 
-                 disabled={!newMessage.trim()}
-                 className="bg-gradient-to-r from-teal-500 to-green-500 hover:from-teal-600 hover:to-green-600 text-white px-3 py-1 h-auto rounded-md shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-               >
-                 Send
-               </Button>
-             </div>
+                size="sm" 
+                onClick={handleSendMessage} 
+                disabled={!newMessage.trim()}
+                className="bg-gradient-to-r from-teal-500/80 to-green-500/80 hover:from-teal-600 hover:to-green-600 text-white px-3 py-1 h-auto rounded-md shadow-sm disabled:opacity-50 disabled:cursor-not-allowed backdrop-blur-sm"
+              >
+                Send
+              </Button>
+            </div>
           </div>
         )}
       </div>

@@ -473,7 +473,7 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
               disabled={!description.trim() || !isCurrentPlayerTurn || isSubmitting}
               size="lg"
               className={cn(
-                "flex-1 transition-all duration-300 ease-in-out transform font-semibold",
+                "flex-1 transition-all duration-300 ease-in-out transform font-semibold text-sm sm:text-base py-3",
                 (!description.trim() || !isCurrentPlayerTurn || isSubmitting)
                   ? "bg-gray-700 text-gray-400 cursor-not-allowed shadow-inner"
                   : "bg-gradient-to-r from-teal-500 to-green-500 hover:from-teal-600 hover:to-green-600 text-white shadow-lg hover:scale-[1.02] active:scale-95"
@@ -492,16 +492,16 @@ const CurrentTurnCard: React.FC<CurrentTurnCardProps> = ({
               size="lg"
               disabled={!isCurrentPlayerTurn || isSubmitting}
               className={cn(
-                "transition-all duration-200 font-medium sm:flex-none",
+                "transition-all duration-200 font-medium sm:flex-none py-4",
                 "border-2 border-amber-600/50 bg-amber-900/40 hover:bg-amber-800/50 text-amber-200",
                 "hover:border-amber-500/70 hover:shadow-md active:scale-95",
                 (!isCurrentPlayerTurn || isSubmitting) ? "opacity-50 cursor-not-allowed" : ""
               )}
             >
               {isSubmitting && description === "skip" ? (
-                 <Loader2 className="w-4 h-4 mr-2 animate-spin" /> 
+                 <Loader2 className="w-5 h-5 mr-2 animate-spin" /> 
               ) : (
-                 <XCircle className="w-4 h-4 mr-2" /> 
+                 <XCircle className="w-5 h-5 mr-2" /> 
               )}
                {isSubmitting && description === "skip" ? "Skipping..." : "Skip Turn"}
             </Button>

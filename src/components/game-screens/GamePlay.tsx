@@ -577,7 +577,13 @@ const TurnIndicator = ({ isCurrentTurn }: { isCurrentTurn: boolean }) => (
 
 // Helper function for role display
 const shouldShowRole = (room: GameRoom, playerId: string, currentPlayerId?: string) => {
-  return room.state === GameState.Results || playerId === currentPlayerId;
+  // During results phase, only show role to the current player
+  if (room.state === GameState.Results) {
+    return playerId === currentPlayerId;
+  }
+  
+  // During other phases, show role to the player themselves
+  return playerId === currentPlayerId;
 };
 
 // Define a local interface for vote objects to avoid type conflicts

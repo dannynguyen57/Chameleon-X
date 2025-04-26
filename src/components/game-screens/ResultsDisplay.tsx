@@ -51,14 +51,24 @@ export default function ResultsDisplay({ room, playerId }: ResultsDisplayProps) 
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setCountdown((prev) => prev - 1);
+      setCountdown((prev) => {
+        if (prev <= 0) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
     }, 1000);
 
     const transitionTimeout = setTimeout(() => {
       if (gameShouldEnd) {
         resetGame();
       } else {
-        prepareNextPresentingPhase();
+        if (!isChameleonVoted) {
+          prepareNextPresentingPhase();
+        } else {
+          resetGame();
+        }
       }
     }, 5000);
 
@@ -66,7 +76,7 @@ export default function ResultsDisplay({ room, playerId }: ResultsDisplayProps) 
       clearInterval(timer);
       clearTimeout(transitionTimeout);
     };
-  }, [gameShouldEnd, resetGame, prepareNextPresentingPhase]);
+  }, [gameShouldEnd, resetGame, prepareNextPresentingPhase, isChameleonVoted]);
 
   const votesByTarget = votes.reduce((acc, vote) => {
     if (!acc[vote.target_id]) {
@@ -86,14 +96,14 @@ export default function ResultsDisplay({ room, playerId }: ResultsDisplayProps) 
       transition={{ duration: 0.5 }}
       className="space-y-4 sm:space-y-6"
     >
-      <Card className="border-2 border-blue-500/20 shadow-xl bg-gradient-to-br from-blue-950/50 via-green-950/30 to-blue-950/50 backdrop-blur-lg overflow-hidden">
-        <CardHeader className="p-4 sm:p-6 bg-gradient-to-b from-blue-900/30 to-transparent border-b border-blue-500/10">
+      <Card className="border-2 border-green-500/30 shadow-xl bg-gradient-to-br from-green-950/80 via-emerald-950/60 to-green-950/80 backdrop-blur-lg overflow-hidden">
+        <CardHeader className="p-4 sm:p-6 bg-gradient-to-b from-green-900/50 to-transparent border-b border-green-500/20">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
-            <CardTitle className="text-2xl sm:text-3xl flex items-center gap-2 text-blue-200">
-              <Trophy className="w-6 h-6 text-blue-300" />
+            <CardTitle className="text-2xl sm:text-3xl flex items-center gap-2 text-green-100 font-bold">
+              <Trophy className="w-6 h-6 text-green-300" />
               Round {room.round} Results
             </CardTitle>
-            <Badge variant="outline" className="bg-blue-500/10 border-blue-500/30 text-blue-200">
+            <Badge variant="outline" className="bg-green-500/20 border-green-500/40 text-green-100 font-semibold">
               {isLastRound ? "Final Round" : `Round ${room.round} / ${room.max_rounds}`}
             </Badge>
           </div>
@@ -102,20 +112,20 @@ export default function ResultsDisplay({ room, playerId }: ResultsDisplayProps) 
         <CardContent className="p-4 sm:p-6 space-y-4 sm:space-y-6">
           <motion.div 
             className={cn(
-              "text-center p-4 sm:p-6 rounded-lg border-2 shadow-inner",
+              "text-center p-4 sm:p-6 rounded-lg border-2 shadow-inner backdrop-blur-sm",
               isTie 
-                ? "bg-yellow-900/20 border-yellow-500/30"
+                ? "bg-amber-900/30 border-amber-500/40"
                 : isChameleonVoted
-                  ? "bg-green-900/20 border-green-500/30"
-                  : "bg-red-900/20 border-red-500/30"
+                  ? "bg-green-900/30 border-green-500/40"
+                  : "bg-red-900/30 border-red-500/40"
             )}
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: 0.1, duration: 0.4, type: "spring", stiffness: 100 }}
           >
             <CardDescription className={cn(
-              "text-lg sm:text-xl font-semibold mb-1",
-               isTie ? "text-yellow-300" : isChameleonVoted ? "text-green-300" : "text-red-300"
+              "text-lg sm:text-xl font-bold mb-1",
+               isTie ? "text-amber-200" : isChameleonVoted ? "text-green-200" : "text-red-200"
             )}>
               {isTie
                 ? "It's a Tie!"
@@ -124,12 +134,12 @@ export default function ResultsDisplay({ room, playerId }: ResultsDisplayProps) 
                   : "Chameleon Escaped!"
               }
             </CardDescription>
-            <p className="text-sm text-blue-200/80">
+            <p className="text-sm text-green-100/90 font-medium">
               {isTie
                 ? "The votes were split. No one is eliminated this round."
                 : isChameleonVoted
                   ? "The group successfully identified the Chameleon!"
-                  : `The Chameleon (${room.players.find(p => p.role === PlayerRole.Chameleon)?.name || 'Unknown'}) remains hidden...`
+                  : `The Chameleon remains hidden...`
               }
             </p>
           </motion.div>
@@ -139,7 +149,7 @@ export default function ResultsDisplay({ room, playerId }: ResultsDisplayProps) 
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3, duration: 0.4 }}
-              className="relative overflow-hidden rounded-lg border border-gray-700/50 bg-gray-950/40 p-4 sm:p-6 backdrop-blur-sm"
+              className="relative overflow-hidden rounded-lg border border-gray-700/50 bg-gray-950/60 p-4 sm:p-6 backdrop-blur-sm"
             >
               <div className="flex flex-col sm:flex-row items-center text-center sm:text-left gap-4">
                  <motion.div 
@@ -148,7 +158,7 @@ export default function ResultsDisplay({ room, playerId }: ResultsDisplayProps) 
                     transition={{ delay: 0.4, duration: 0.3 }}
                     className="relative flex-shrink-0"
                  >
-                   <Avatar className="h-16 w-16 sm:h-20 sm:w-20 border-2 border-red-500/50 shadow-lg">
+                   <Avatar className="h-16 w-16 sm:h-20 sm:w-20 border-2 border-red-500/60 shadow-lg">
                      <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${votedOutPlayer.name}`} />
                      <AvatarFallback className="text-xl">{votedOutPlayer.name[0]}</AvatarFallback>
                    </Avatar>
@@ -165,19 +175,9 @@ export default function ResultsDisplay({ room, playerId }: ResultsDisplayProps) 
                  </motion.div>
 
                  <div className="flex-grow space-y-1">
-                   <p className="text-sm text-red-300/80 font-medium">Voted Out:</p>
-                   <h3 className="text-xl sm:text-2xl font-bold text-red-200">{votedOutPlayer.name}</h3>
-                   <motion.div 
-                      initial={{ width: 0, opacity: 0 }}
-                      animate={{ width: "auto", opacity: 1 }}
-                      transition={{ delay: 0.8, duration: 0.5 }}
-                      className="inline-block"
-                   >
-                    <Badge variant="outline" className={cn("text-sm font-medium mt-1 backdrop-blur-sm", roleStyle.theme.bg, roleStyle.theme.text, roleStyle.theme.border)}>
-                      <span className="mr-1.5">{roleStyle.theme.icon}</span>
-                      Role: {roleStyle.config.name}
-                    </Badge>
-                   </motion.div>
+                   <p className="text-sm text-red-200/90 font-medium">Voted Out:</p>
+                   <h3 className="text-xl sm:text-2xl font-bold text-red-100">{votedOutPlayer.name}</h3>
+                   {/* Role information is now hidden */}
                  </div>
                </div>
             </motion.div>
@@ -187,7 +187,7 @@ export default function ResultsDisplay({ room, playerId }: ResultsDisplayProps) 
              <Button 
                variant="outline"
                size="sm"
-               className="w-full border-blue-500/30 bg-blue-950/30 text-blue-200 hover:bg-blue-950/50"
+               className="w-full border-green-500/40 bg-green-950/40 text-green-100 hover:bg-green-950/60 transition-colors duration-200 font-semibold"
                onClick={() => setShowVotes(!showVotes)}
              >
                <VoteIcon className="w-4 h-4 mr-2" />
@@ -203,19 +203,19 @@ export default function ResultsDisplay({ room, playerId }: ResultsDisplayProps) 
                    transition={{ duration: 0.3 }}
                    className="overflow-hidden"
                  >
-                    <ScrollArea className="max-h-[200px] p-3 border border-blue-800/30 rounded-md bg-green-950/20">
+                    <ScrollArea className="max-h-[200px] p-3 border border-green-800/40 rounded-md bg-green-950/30">
                       <div className="space-y-2">
                         {Object.entries(votesByTarget).map(([targetId, voterIds]) => (
                           <div key={targetId} className="text-sm">
-                             <span className="font-semibold text-blue-100">{getPlayerName(targetId)}</span>
-                             <span className="text-blue-300/80"> received {voterIds.length} vote(s) from: </span>
-                             <span className="text-blue-200 italic">
+                             <span className="font-bold text-green-100">{getPlayerName(targetId)}</span>
+                             <span className="text-green-200/90"> received {voterIds.length} vote(s) from: </span>
+                             <span className="text-green-100 italic">
                                {voterIds.map(vId => getPlayerName(vId)).join(", ")}
                              </span>
                           </div>
                         ))}
                         {votes.length === 0 && (
-                          <p className="text-center text-blue-300/70 text-sm">No votes were cast this round.</p>
+                          <p className="text-center text-green-200/90 text-sm font-medium">No votes were cast this round.</p>
                         )}
                       </div>
                     </ScrollArea>
@@ -225,11 +225,14 @@ export default function ResultsDisplay({ room, playerId }: ResultsDisplayProps) 
            </div>
 
           <div className="pt-4 text-center space-y-2">
-             <p className="text-sm text-blue-300/80">
+             <p className="text-sm text-green-200/90 font-medium">
                {gameShouldEnd ? "Returning to lobby in..." : "Continuing round in..."}
              </p>
-             <Progress value={(countdown / 5) * 100} className="w-full h-2 bg-blue-900/50 border border-blue-500/20 [&>*]:bg-gradient-to-r [&>*]:from-blue-400 [&>*]:to-cyan-400 transition-all duration-1000 ease-linear" />
-             <p className="text-2xl font-bold text-blue-200">{countdown}</p>
+             <Progress 
+               value={(countdown / 5) * 100} 
+               className="w-full h-2 bg-green-900/60 border border-green-500/30 [&>*]:bg-gradient-to-r [&>*]:from-green-500 [&>*]:to-emerald-500 transition-all duration-1000 ease-linear" 
+             />
+             <p className="text-2xl font-bold text-green-100">{countdown}</p>
           </div>
         </CardContent>
       </Card>

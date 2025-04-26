@@ -799,77 +799,72 @@ export const useGameActions = (
     }
   };
 
-  const submitVote = async (votedPlayerId: string) => {
-    if (!room || !playerId || !room.current_voting_round_id) return;
-    const currentVotingRoundId = room.current_voting_round_id;
-    const currentRoomId = room.id;
+  const submitVote = async (targetPlayerId: string) => {
+    if (!room || !playerId) return;
 
     try {
-      // Submit vote
-      const { error: voteError } = await supabase.from('votes').insert({
-        round_id: currentVotingRoundId,
-        voter_id: playerId,
-        target_id: votedPlayerId
-      });
-      if (voteError) throw voteError;
+      // Get the current voting round
+      const { data: votingRound, error: votingError } = await supabase
+        .from('voting_rounds')
+        .select('*')
+        .eq('room_id', room.id)
+        .eq('round_number', room.round)
+        .single();
 
-      // Broadcast the vote to update progress bars faster
-      await supabase.channel(`room:${currentRoomId}`).send({
-        type: 'broadcast', event: 'sync',
-        payload: { action: 'player_voted', roomId: currentRoomId, voterId: playerId, targetId: votedPlayerId, roundId: currentVotingRoundId }
-      });
-
-      // Fetch the updated vote count
-      const { data: updatedVotes, error: countError, count } = await supabase
-        .from('votes').select('id', { count: 'exact', head: true }).eq('round_id', currentVotingRoundId);
-      if (countError) console.error('Error fetching vote count:', countError);
-      
-      // Fetch player count separately for robustness
-      const { data: playersData, error: playerFetchError } = await supabase
-        .from('players').select('id', { count: 'exact', head: true }).eq('room_id', currentRoomId);
-      if (playerFetchError) console.error('Error fetching player count:', playerFetchError);
-
-      const voteCount = count ?? (room.current_voting_round?.votes?.length || 0) + 1; 
-      const playerCount = playersData?.length ?? room.players.length;
-      log.info(`Vote submitted. Current count: ${voteCount}/${playerCount}`);
-
-      // Check if all players have voted
-      if (playerCount > 0 && voteCount >= playerCount) { // Ensure playerCount > 0
-        log.info('All players have voted. Processing results...');
-        const { nextState: resultsState, gameShouldEnd, updateData, error: resultsError } = await processVotingResults(currentRoomId, currentVotingRoundId);
-        
-        if (resultsError) {
-          console.error('Error processing voting results immediately:', resultsError);
-          toast.error("Error processing results.")
-        } else {
-          // Update room state to Results first
-          const { error: roomUpdateError } = await supabase.from('game_rooms').update({
-            ...updateData // Contains state=Results, outcome, voted player etc.
-          }).eq('id', currentRoomId);
-          if (roomUpdateError) throw roomUpdateError;
-          
-          // Send broadcast to sync state change to Results
-          await supabase.channel(`room:${currentRoomId}`).send({
-            type: 'broadcast', event: 'sync',
-            payload: { action: 'voting_complete', roomId: currentRoomId, newState: GameState.Results }
-          });
-
-          // Fetch final state locally to update UI
-          const finalRoomState = await fetchRoom(currentRoomId);
-          if (finalRoomState) setRoom(finalRoomState);
-
-          // IMPORTANT: The transition *after* Results is handled by ResultsDisplay timeout or a separate mechanism
-          // This action's responsibility ends with setting the state to Results.
-        }
-      } else {
-         // Still waiting for votes, fetch intermediate state to update vote counts
-         const updatedRoom = await fetchRoom(currentRoomId);
-         if (updatedRoom) setRoom(updatedRoom);
+      if (votingError) {
+        console.error('Error fetching voting round:', votingError);
+        throw votingError;
       }
 
-    } catch (error: unknown) {
-      log.error('Error submitting vote:', error);
-      toast.error((error as Error).message || "Failed to submit vote.");
+      // Create the vote
+      const { error: voteError } = await supabase
+        .from('votes')
+        .insert({
+          round_id: votingRound.id,
+          voter_id: playerId,
+          target_id: targetPlayerId,
+          created_at: new Date().toISOString()
+        });
+
+      if (voteError) {
+        console.error('Error submitting vote:', voteError);
+        throw voteError;
+      }
+
+      // Update player's vote status
+      const { error: playerUpdateError } = await supabase
+        .from('players')
+        .update({
+          vote: targetPlayerId,
+          last_updated: new Date().toISOString()
+        })
+        .eq('id', playerId)
+        .eq('room_id', room.id);
+
+      if (playerUpdateError) {
+        console.error('Error updating player vote status:', playerUpdateError);
+        throw playerUpdateError;
+      }
+
+      // Check if all players have voted
+      const { data: votes, error: votesError } = await supabase
+        .from('votes')
+        .select('*')
+        .eq('round_id', votingRound.id);
+
+      if (votesError) {
+        console.error('Error checking votes:', votesError);
+        throw votesError;
+      }
+
+      if (votes.length === room.players.length) {
+        // All players have voted, process the results
+        await processVotingResults(room.id, votingRound.id);
+      }
+
+    } catch (error) {
+      console.error('Error in submitVote:', error);
+      throw error;
     }
   };
 
@@ -936,86 +931,66 @@ export const useGameActions = (
 
   const prepareNextPresentingPhase = useCallback(async () => {
     if (!room) return;
-    const currentRoomId = room.id;
-    const votedOutPlayerId = room.voted_out_player;
+
     try {
-      log.info('Preparing next presenting phase for round:', room.round);
-      const remainingPlayers = votedOutPlayerId 
-          ? room.players.filter(p => p.id !== votedOutPlayerId) 
-          : [...room.players];
-      if (remainingPlayers.length === 0) {
-         await resetGame(); 
-         return;
-      }
-      
-      // Check 1v1 win condition
-      if (remainingPlayers.length === 2) {
-        const chameleon = remainingPlayers.find(p => p.role === PlayerRole.Chameleon);
-        if (chameleon) {
-          log.info("Chameleon wins (1v1)!");
-          await supabase.from('game_rooms').update({
-             state: GameState.Ended,
-             round_outcome: GameResultType.ChameleonSurvived // Mark how round ended before 1v1 win
-          }).eq('id', currentRoomId);
-          await supabase.channel(`room:${currentRoomId}`).send({
-            type: 'broadcast', event: 'sync',
-            payload: { action: 'game_over', roomId: currentRoomId, newState: GameState.Ended }
-          });
-          const finalRoom = await fetchRoom(currentRoomId);
-          if(finalRoom) setRoom(finalRoom);
-          return;
-        }
+      // Create a new voting round for the next round
+      const { data: votingRound, error: votingError } = await supabase
+        .from('voting_rounds')
+        .insert({
+          room_id: room.id,
+          round_number: room.round + 1,
+          phase: VotingPhase.Voting,
+          start_time: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (votingError) {
+        console.error('Error creating voting round:', votingError);
+        throw votingError;
       }
 
-      // Create new turn order with remaining players
-      const shuffledRemaining = [...remainingPlayers];
-      for (let i = shuffledRemaining.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffledRemaining[i], shuffledRemaining[j]] = [shuffledRemaining[j], shuffledRemaining[i]];
-      }
-      const nextTurnOrder = shuffledRemaining.map(p => p.id);
-      const firstPlayerId = nextTurnOrder[0];
-      await supabase.from('players')
-        .update({ turn_description: null, vote: null, is_turn: false, special_ability_used: false, is_protected: false, vote_multiplier: 1, last_updated: new Date().toISOString() })
-        .in('id', remainingPlayers.map(p => p.id));
-      if (firstPlayerId) {
-        await supabase.from('players').update({ is_turn: true }).eq('id', firstPlayerId);
-      } else {
-          log.error("Could not determine first player for next turn");
-          await resetGame();
-          return;
-      }
-      const { error: roomUpdateError } = await supabase.from('game_rooms')
+      // Update the room state
+      const { error: updateError } = await supabase
+        .from('game_rooms')
         .update({
           state: GameState.Presenting,
-          current_turn: 0, 
-          turn_order: nextTurnOrder,
-          presenting_timer: settings.presenting_time,
-          discussion_timer: settings.discussion_time, 
-          voting_timer: settings.voting_time, 
-          voted_out_player: null, 
-          revealed_player_id: null,
-          revealed_role: null,
-          round_outcome: null,
-          current_voting_round_id: null,
+          round: room.round + 1,
+          current_voting_round_id: votingRound.id,
+          presenting_timer: room.settings.presenting_time,
+          current_turn: 0,
+          turn_order: room.turn_order,
           last_updated: new Date().toISOString()
         })
-        .eq('id', currentRoomId);
-      if (roomUpdateError) throw roomUpdateError;
-      await supabase.channel(`room:${currentRoomId}`).send({
-        type: 'broadcast', event: 'sync',
-        payload: { action: 'continue_round', roomId: currentRoomId, newState: GameState.Presenting, round: room.round, turnOrder: nextTurnOrder, currentTurn: 0 }
-      });
-      const updatedRoom = await fetchRoom(currentRoomId);
-      if (updatedRoom) setRoom(updatedRoom);
-      const firstPlayerName = firstPlayerId ? remainingPlayers.find(p=>p.id === firstPlayerId)?.name : 'Next player';
-      toast.info(`Continuing round ${room.round}. ${firstPlayerName}'s turn.`);
+        .eq('id', room.id);
 
-    } catch(error) {
-      log.error("Error preparing next presenting phase:", error);
-      toast.error("Failed to continue the round.");
+      if (updateError) {
+        console.error('Error updating room state:', updateError);
+        throw updateError;
+      }
+
+      // Reset player votes and descriptions
+      const { error: playerUpdateError } = await supabase
+        .from('players')
+        .update({
+          vote: null,
+          turn_description: null,
+          special_ability_used: false,
+          is_protected: false,
+          vote_multiplier: 1
+        })
+        .eq('room_id', room.id);
+
+      if (playerUpdateError) {
+        console.error('Error resetting player states:', playerUpdateError);
+        throw playerUpdateError;
+      }
+
+    } catch (error) {
+      console.error('Error preparing next presenting phase:', error);
+      throw error;
     }
-  }, [room, settings, resetGame, fetchRoom, setRoom]);
+  }, [room]);
 
   const nextRound = useCallback(async () => {
     log.warn("nextRound is deprecated. Use prepareNextPresentingPhase or resetGame.");

@@ -48,12 +48,54 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Add trigger to check for all votes
+CREATE OR REPLACE FUNCTION check_all_votes()
+RETURNS TRIGGER AS $$
+DECLARE
+    player_count INTEGER;
+    vote_count INTEGER;
+    v_room_id VARCHAR;
+BEGIN
+    -- Get the room_id for this voting round
+    SELECT room_id INTO v_room_id
+    FROM voting_rounds
+    WHERE id = NEW.round_id;
+
+    -- Get total number of players in the room
+    SELECT COUNT(*) INTO player_count
+    FROM players
+    WHERE room_id = v_room_id;
+
+    -- Get total number of votes for this round
+    SELECT COUNT(*) INTO vote_count
+    FROM votes
+    WHERE round_id = NEW.round_id;
+
+    -- If all players have voted, update the voting round phase
+    IF vote_count >= player_count THEN
+        UPDATE voting_rounds
+        SET phase = 'results',
+            end_time = now(),
+            updated_at = now()
+        WHERE id = NEW.round_id;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger on votes table
+CREATE TRIGGER check_votes_after_insert
+    AFTER INSERT ON votes
+    FOR EACH ROW
+    EXECUTE FUNCTION check_all_votes();
+
 CREATE TRIGGER update_voting_rounds_timestamp
-    BEFORE UPDATE ON public.voting_rounds
+    BEFORE UPDATE ON voting_rounds
     FOR EACH ROW
     EXECUTE FUNCTION update_timestamp();
 
 CREATE TRIGGER update_round_results_timestamp
-    BEFORE UPDATE ON public.round_results
+    BEFORE UPDATE ON round_results
     FOR EACH ROW
     EXECUTE FUNCTION update_timestamp(); 

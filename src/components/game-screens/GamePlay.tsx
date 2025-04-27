@@ -14,6 +14,8 @@ import { isImposter } from '@/lib/gameLogic';
 import { roleConfig } from '@/lib/roleConfig';
 import { RoleTheme } from '@/lib/roleThemes';
 import { RoleConfig } from '@/lib/roleConfig';
+import { mapRoomData, DatabaseRoom } from '@/hooks/useGameRealtime';
+import { supabase } from '@/integrations/supabase/client';
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
@@ -29,7 +31,6 @@ import DevModeSetup from '@/components/dev/DevModeSetup';
 import GameHeader from './GameHeader';
 import ResultsDisplay from './ResultsDisplay';
 import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
 
 interface RoleStyle {
   theme: RoleTheme;
@@ -719,17 +720,55 @@ export default function GamePlay() {
     }
   };
 
-  const handleVote = async () => { // Make async
+  const handleVote = async () => {
     if (selectedVote && room && !isSubmittingVote) {
       setIsSubmittingVote(true);
       try {
+        // Submit the vote
         await submitVote(selectedVote);
         setLocalHasVoted(true); // Set local state immediately for UI feedback
-        // No need to manually update room here, rely on subscription/context
-      } catch (error) {
-        // Handle potential error, maybe reset local state?
+        
+        // Update the room state immediately after voting
+        const { data: updatedRoom, error } = await supabase
+          .from('game_rooms')
+          .select(`
+            *,
+            players:players(*),
+            current_voting_round:voting_rounds!game_rooms_current_voting_round_id_fkey(
+              *,
+              votes(*),
+              round_result:round_results(*)
+            )
+          `)
+          .eq('id', room.id)
+          .single();
+
+        if (error) {
+          console.error('Error fetching updated room:', error);
+          toast.error("Failed to update room state. Please wait...");
+        } else if (updatedRoom) {
+          const mappedRoom = mapRoomData(updatedRoom as DatabaseRoom);
+          const convertedRoom = convertToExtendedRoom(mappedRoom);
+          setRoom(convertedRoom);
+
+          // Check if all players have voted
+          const allPlayersVoted = convertedRoom.players.every(player => 
+            convertedRoom.current_voting_round?.votes?.some(vote => vote.voter_id === player.id)
+          );
+
+          if (allPlayersVoted) {
+            // Trigger state transition if all players have voted
+            try {
+              await transitionGameState(room.id, room.state, playerId, room.settings);
+            } catch (transitionError: unknown) {
+              console.error('Error transitioning game state:', transitionError);
+              toast.error('Failed to transition game state. Please wait...');
+            }
+          }
+        }
+      } catch (error: unknown) {
         console.error("Vote submission error:", error);
-        // setLocalHasVoted(false); // Optional: reset on error
+        toast.error("Failed to submit vote. Please try again.");
       } finally {
         setIsSubmittingVote(false);
       }
@@ -1181,10 +1220,9 @@ export default function GamePlay() {
                            .filter(player => player.id !== playerId) // Always filter self
                            .map((player) => {
                              const voteCount = room.current_voting_round?.votes?.filter(vote => vote.target_id === player.id).length || 0;
-                             // Determine if this player is the one the current user voted for (from actual room data)
                              const votedForByCurrentUser = actualHasVoted && room.current_voting_round?.votes?.find(vote => vote.voter_id === playerId)?.target_id === player.id;
-                             // Is this the player currently selected in the UI (before vote confirmed)?
                              const isSelectedInUI = selectedVote === player.id;
+                             const isSpectator = player.is_spectator;
                              
                              return (
                                <motion.div
@@ -1193,22 +1231,22 @@ export default function GamePlay() {
                                  animate={{ opacity: 1, scale: 1 }}
                                  transition={{ duration: 0.3 }}
                                  className={cn(
-                                    "relative", // Needed for absolute positioning of overlays/badges
-                                    displayHasVoted && !votedForByCurrentUser ? "opacity-60 pointer-events-none" : ""
+                                    "relative",
+                                    displayHasVoted && !votedForByCurrentUser ? "opacity-60 pointer-events-none" : "",
+                                    isSpectator ? "opacity-50" : ""
                                  )}
                                >
                                  <Card
                                    className={cn(
                                      "p-4 transition-all duration-200 overflow-hidden transform",
-                                     "bg-green-900/40 border border-green-700/40", // Default state
-                                     !displayHasVoted && "cursor-pointer hover:border-purple-500/70 hover:shadow-md hover:scale-[1.03]", // Hover state when voting active
-                                     isSelectedInUI && !displayHasVoted && "border-purple-400 ring-2 ring-purple-400 ring-offset-2 ring-offset-green-950 scale-105 shadow-lg bg-gradient-to-br from-purple-600/30 to-purple-800/40", // Selected state
-                                     votedForByCurrentUser && "border-purple-500 bg-purple-500/10 ring-1 ring-purple-400 scale-105 shadow-md", // Voted-for state
+                                     "bg-green-900/40 border border-green-700/40",
+                                     !displayHasVoted && !isSpectator && "cursor-pointer hover:border-purple-500/70 hover:shadow-md hover:scale-[1.03]",
+                                     isSelectedInUI && !displayHasVoted && !isSpectator && "border-purple-400 ring-2 ring-purple-400 ring-offset-2 ring-offset-green-950 scale-105 shadow-lg bg-gradient-to-br from-purple-600/30 to-purple-800/40",
+                                     votedForByCurrentUser && "border-purple-500 bg-purple-500/10 ring-1 ring-purple-400 scale-105 shadow-md",
                                    )}
-                                   // Only allow selection if the user hasn't voted yet
-                                   onClick={() => !displayHasVoted && setSelectedVote(player.id)}
+                                   onClick={() => !displayHasVoted && !isSpectator && setSelectedVote(player.id)}
                                  >
-                                   {/* Vote Count Badge (Always visible if votes > 0) */}
+                                   {/* Vote Count Badge */}
                                    {voteCount > 0 && (
                                      <motion.div
                                        initial={{ opacity: 0, y: -10 }}
@@ -1224,7 +1262,23 @@ export default function GamePlay() {
                                      </motion.div>
                                    )}
 
-                                   {/* "Your Vote" Badge (Only if this player was voted for) */}
+                                   {/* Spectator Badge */}
+                                   {isSpectator && (
+                                     <motion.div
+                                       initial={{ opacity: 0, y: -10 }}
+                                       animate={{ opacity: 1, y: 0 }}
+                                       className="absolute top-2 right-2 z-10"
+                                     >
+                                       <Badge 
+                                         variant="secondary"
+                                         className="bg-gray-500/30 border border-gray-500/50 text-gray-100 font-semibold shadow-sm"
+                                       >
+                                         Spectator
+                                       </Badge>
+                                     </motion.div>
+                                   )}
+
+                                   {/* "Your Vote" Badge */}
                                    {votedForByCurrentUser && (
                                      <motion.div
                                        initial={{ opacity: 0, x: -10 }}
@@ -1237,7 +1291,7 @@ export default function GamePlay() {
                                      </motion.div>
                                    )}
 
-                                   <div className="flex items-center gap-3 relative z-0"> {/* Ensure content is above potential overlays */}
+                                   <div className="flex items-center gap-3 relative z-0">
                                      <Avatar className="h-12 w-12 border border-green-600/50">
                                        <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${player.name}`} />
                                        <AvatarFallback>{player.name[0]}</AvatarFallback>

@@ -441,6 +441,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
             isProtected: false,
             isInvestigated: false,
             isCurrentPlayer: false,
+            is_spectator: false,
             isTurn: false,
             score: 0,
             created_at: new Date().toISOString()
@@ -606,6 +607,40 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
           }, 100);
         }
       )
+      .on('postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'voting_rounds',
+          filter: `room_id=eq.${room.id}`
+        },
+        async (payload) => {
+          console.log('Voting round change detected:', payload);
+          if (fetchTimeoutRef.current) {
+            clearTimeout(fetchTimeoutRef.current);
+          }
+          fetchTimeoutRef.current = setTimeout(() => {
+            fetchRoom();
+          }, 100);
+        }
+      )
+      .on('postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'votes',
+          filter: `round_id=eq.${room.current_voting_round_id}`
+        },
+        async (payload) => {
+          console.log('Vote change detected:', payload);
+          if (fetchTimeoutRef.current) {
+            clearTimeout(fetchTimeoutRef.current);
+          }
+          fetchTimeoutRef.current = setTimeout(() => {
+            fetchRoom();
+          }, 100);
+        }
+      )
       .on('broadcast', { event: 'sync' }, handleBroadcast);
 
     // Subscribe to the channel only if not already subscribed
@@ -663,6 +698,38 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
                     }, 100);
                   }
                 )
+                .on('postgres_changes',
+                  {
+                    event: '*',
+                    schema: 'public',
+                    table: 'voting_rounds',
+                    filter: `room_id=eq.${room.id}`
+                  },
+                  async (payload) => {
+                    if (fetchTimeoutRef.current) {
+                      clearTimeout(fetchTimeoutRef.current);
+                    }
+                    fetchTimeoutRef.current = setTimeout(() => {
+                      fetchRoom();
+                    }, 100);
+                  }
+                )
+                .on('postgres_changes',
+                  {
+                    event: '*',
+                    schema: 'public',
+                    table: 'votes',
+                    filter: `round_id=eq.${room.current_voting_round_id}`
+                  },
+                  async (payload) => {
+                    if (fetchTimeoutRef.current) {
+                      clearTimeout(fetchTimeoutRef.current);
+                    }
+                    fetchTimeoutRef.current = setTimeout(() => {
+                      fetchRoom();
+                    }, 100);
+                  }
+                )
                 .on('broadcast', { event: 'sync' }, handleBroadcast);
 
               // Clean up old channel before subscribing to new one
@@ -697,7 +764,7 @@ export const GameProvider = ({ children }: { children: React.ReactNode }) => {
         clearTimeout(fetchTimeoutRef.current);
       }
     };
-  }, [room?.id, fetchRoom, handleBroadcast]);
+  }, [room?.id, room?.current_voting_round_id, fetchRoom, handleBroadcast]);
 
   const createRoom = useCallback(async (playerName: string, settings: GameSettings): Promise<string> => {
     try {

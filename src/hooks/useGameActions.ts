@@ -803,64 +803,177 @@ export const useGameActions = (
     if (!room || !playerId) return;
 
     try {
+      // Check if we're in the correct game state
+      if (room.state !== GameState.Voting) {
+        console.error('Cannot submit vote: Not in voting state');
+        throw new Error('Cannot submit vote: Not in voting state');
+      }
+
       // Get the current voting round
-      const { data: votingRound, error: votingError } = await supabase
+      const { data: votingRoundData, error: votingError } = await supabase
         .from('voting_rounds')
-        .select('*')
+        .select(`
+          *,
+          votes (
+            id,
+            voter_id,
+            target_id,
+            created_at
+          )
+        `)
         .eq('room_id', room.id)
         .eq('round_number', room.round)
         .single();
 
-      if (votingError) {
+      let votingRound;
+      if (votingError && votingError.code === 'PGRST116') {
+        // Create new voting round if none exists
+        const { data: newVotingRound, error: createError } = await supabase
+          .from('voting_rounds')
+          .insert({
+            room_id: room.id,
+            round_number: room.round,
+            phase: VotingPhase.Voting,
+            start_time: new Date().toISOString()
+          })
+          .select(`
+            *,
+            votes (
+              id,
+              voter_id,
+              target_id,
+              created_at
+            )
+          `)
+          .single();
+
+        if (createError) {
+          console.error('Error creating voting round:', createError);
+          throw createError;
+        }
+
+        votingRound = newVotingRound;
+      } else if (votingError) {
         console.error('Error fetching voting round:', votingError);
         throw votingError;
+      } else {
+        votingRound = votingRoundData;
       }
 
-      // Create the vote
-      const { error: voteError } = await supabase
-        .from('votes')
-        .insert({
-          round_id: votingRound.id,
-          voter_id: playerId,
-          target_id: targetPlayerId,
-          created_at: new Date().toISOString()
-        });
+      // Check if player has already voted
+      const hasVoted = votingRound.votes?.some((vote: Vote) => vote.voter_id === playerId);
+      if (hasVoted) {
+        console.error('Player has already voted');
+        throw new Error('You have already voted in this round');
+      }
+
+      // Submit vote using the stored procedure
+      const { error: voteError } = await supabase.rpc('submit_vote', {
+        p_round_id: votingRound.id,
+        p_voter_id: playerId,
+        p_target_id: targetPlayerId,
+        p_room_id: room.id
+      });
 
       if (voteError) {
         console.error('Error submitting vote:', voteError);
         throw voteError;
       }
 
-      // Update player's vote status
-      const { error: playerUpdateError } = await supabase
-        .from('players')
-        .update({
-          vote: targetPlayerId,
-          last_updated: new Date().toISOString()
-        })
-        .eq('id', playerId)
-        .eq('room_id', room.id);
+      // Update the room's current_voting_round_id if needed
+      if (room.current_voting_round_id !== votingRound.id) {
+        const { error: updateError } = await supabase
+          .from('game_rooms')
+          .update({ current_voting_round_id: votingRound.id })
+          .eq('id', room.id);
 
-      if (playerUpdateError) {
-        console.error('Error updating player vote status:', playerUpdateError);
-        throw playerUpdateError;
+        if (updateError) {
+          console.error('Error updating room voting round:', updateError);
+        }
       }
+
+      // Fetch updated room state
+      const { data: updatedRoom, error: roomError } = await supabase
+        .from('game_rooms')
+        .select(`
+          *,
+          players:players(*),
+          current_voting_round:voting_rounds!game_rooms_current_voting_round_id_fkey(
+            *,
+            votes(*),
+            round_result:round_results(*)
+          )
+        `)
+        .eq('id', room.id)
+        .single();
+
+      if (roomError) {
+        console.error('Error fetching updated room:', roomError);
+        throw roomError;
+      }
+
+      // Update local state with new room data
+      const mappedRoom = mapRoomData(updatedRoom as DatabaseRoom);
+      const convertedRoom = convertToExtendedRoom(mappedRoom);
+      setRoom(convertedRoom);
 
       // Check if all players have voted
-      const { data: votes, error: votesError } = await supabase
-        .from('votes')
-        .select('*')
-        .eq('round_id', votingRound.id);
+      const allPlayersVoted = convertedRoom.players.every(player => 
+        convertedRoom.current_voting_round?.votes?.some(vote => vote.voter_id === player.id)
+      );
 
-      if (votesError) {
-        console.error('Error checking votes:', votesError);
-        throw votesError;
+      if (allPlayersVoted) {
+        // Process voting results using the stored procedure
+        const { error: processError } = await supabase.rpc('process_voting_results', {
+          p_room_id: room.id,
+          p_voting_round_id: votingRound.id
+        });
+
+        if (processError) {
+          console.error('Error processing voting results:', processError);
+          throw processError;
+        }
+
+        // Fetch final room state after processing
+        const { data: finalRoom, error: finalError } = await supabase
+          .from('game_rooms')
+          .select(`
+            *,
+            players:players(*),
+            current_voting_round:voting_rounds!game_rooms_current_voting_round_id_fkey(
+              *,
+              votes(*),
+              round_result:round_results(*)
+            )
+          `)
+          .eq('id', room.id)
+          .single();
+
+        if (finalError) {
+          console.error('Error fetching final room state:', finalError);
+          throw finalError;
+        }
+
+        // Update local state with final room data
+        const finalMappedRoom = mapRoomData(finalRoom as DatabaseRoom);
+        const finalConvertedRoom = convertToExtendedRoom(finalMappedRoom);
+        setRoom(finalConvertedRoom);
+
+        // Trigger state transition
+        await transitionGameState(room.id, room.state, playerId, room.settings);
       }
 
-      if (votes.length === room.players.length) {
-        // All players have voted, process the results
-        await processVotingResults(room.id, votingRound.id);
-      }
+      // Broadcast vote submission
+      await supabase.channel(`room:${room.id}`).send({
+        type: 'broadcast',
+        event: 'sync',
+        payload: {
+          action: 'vote_submitted',
+          roomId: room.id,
+          votingRoundId: votingRound.id,
+          timestamp: new Date().toISOString()
+        }
+      });
 
     } catch (error) {
       console.error('Error in submitVote:', error);
@@ -872,10 +985,14 @@ export const useGameActions = (
     try {
       const { data, error } = await supabase
         .from('game_rooms')
-        .select(`*,
+        .select(`
+          *,
           players:players(*),
-          current_voting_round:voting_rounds!game_rooms_current_voting_round_id_fkey(*, votes(*)),
-          current_round_result:round_results!round_results_round_id_fkey(*)
+          current_voting_round:voting_rounds!game_rooms_current_voting_round_id_fkey(
+            *,
+            votes(*),
+            round_result:round_results(*)
+          )
         `)
         .eq('id', roomId)
         .single();
@@ -1559,7 +1676,7 @@ const processVotingResults = async (roomId: string, votingRoundId: string): Prom
     const votedPlayer = votedOutPlayerId ? currentRoom.players.find(p => p.id === votedOutPlayerId) : null;
     const revealedRole = votedPlayer?.role || null;
     const isChameleonVoted = revealedRole === PlayerRole.Chameleon;
-    const isJesterVoted = revealedRole === PlayerRole.Jester; 
+    const isJesterVoted = revealedRole === PlayerRole.Jester;
     const isLastRound = currentRoom.round >= currentRoom.max_rounds;
 
     // Determine VotingOutcome (for round_results table)
@@ -1615,6 +1732,11 @@ const processVotingResults = async (roomId: string, votingRoundId: string): Prom
       last_updated: new Date().toISOString()
     };
 
+    // If we're going to Presenting phase, increment the round number
+    if (nextStateAfterResults === GameState.Presenting) {
+      roomUpdateData.round = (currentRoom.round || 0) + 1;
+    }
+
     // Return the intended next state AFTER results display
     return { nextState: nextStateAfterResults, gameShouldEnd, updateData: roomUpdateData, error: null };
 
@@ -1622,5 +1744,5 @@ const processVotingResults = async (roomId: string, votingRoundId: string): Prom
     console.error("Error processing voting results:", error);
     return { nextState: GameState.Voting, gameShouldEnd: false, updateData: {}, error: (error as Error).message };
   }
-}
+};
 

@@ -42,6 +42,7 @@ export interface Player {
   avatar?: string;
   roleTheme?: RoleTheme;
   is_turn: boolean;
+  is_spectator: boolean;
 }
 
 export enum GameState {

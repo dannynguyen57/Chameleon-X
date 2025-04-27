@@ -316,7 +316,8 @@ const resetGameState = async (roomId: string): Promise<Partial<DatabaseRoom>> =>
       is_protected: false,
       vote_multiplier: 1,
       special_word: null,
-      special_ability_used: false
+      special_ability_used: false,
+      is_spectator: false
     })
     .eq('room_id', roomId);
     
